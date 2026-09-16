@@ -23,13 +23,19 @@ afterEach(() => iso.restore());
 
 describe('H4 cross-platform', () => {
   it('start picks a strategy per OS and always falls back to printing the command', () => {
-    const print = startPlan({}, 'linux');
+    const none = () => false;
+    const all = () => true;
+    const print = startPlan({}, 'linux', false, none);
     expect(print.kind).toBe('print');
     expect(print.message).toContain('tally watch');
-    const win = startPlan({}, 'win32');
+    expect(startPlan({}, 'linux', false, all).kind).toBe('tmux-new');
+    expect(startPlan({ TMUX: '/tmp/tmux-1000/default,1,0' }, 'linux', false, all).kind).toBe('tmux-split');
+    const win = startPlan({}, 'win32', false, none);
     expect(win.kind).toBe('print');
     expect(win.message).toContain('Windows Terminal');
-    const plain = startPlan({}, 'darwin', true);
+    expect(startPlan({ WT_SESSION: 'abc' }, 'win32', false, all).kind).toBe('wt-split');
+    expect(startPlan({}, 'win32', false, all).kind).toBe('print');
+    const plain = startPlan({}, 'darwin', true, none);
     expect(plain.cmd).toBe('tally watch --plain');
     const r = spawnSync(process.execPath, [path.join(root, 'dist', 'cli.js'), 'start'], { encoding: 'utf8', env: { ...process.env, TMUX: '', WT_SESSION: '', PATH: path.dirname(process.execPath) } });
     expect(r.status).toBe(0);
