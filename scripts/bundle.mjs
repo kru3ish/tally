@@ -27,9 +27,10 @@ await build({ ...shared, entryPoints: { hook: path.join(root, 'src', 'hooks', 'h
 fs.copyFileSync(path.join(root, 'pricing.json'), path.join(dist, 'pricing.json'));
 fs.cpSync(path.join(root, 'test', 'fixtures', 'session-basic'), path.join(dist, 'fixtures', 'session-basic'), { recursive: true });
 
+/* no chmod: npm sets the bin mode on install, the plugin runs `node dist/hook.js`, and a mode flip would make the
+   committed bundle differ between Windows (no mode bits) and Linux */
 for (const f of ['cli.js', 'hook.js']) {
   const p = path.join(dist, f);
-  fs.chmodSync(p, 0o755);
   const kb = Math.round(fs.statSync(p).size / 1024);
   process.stdout.write(`dist/${f}  ${kb} KB\n`);
 }

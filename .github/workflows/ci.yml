@@ -82,7 +82,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FRESH="$RUNNER_TEMP/fresh-home"
+          # mktemp gives a POSIX path that Git Bash on Windows converts for node; $RUNNER_TEMP would mix D:\ and /
+          FRESH="$(mktemp -d)"
           mkdir -p "$FRESH/npm-global" "$FRESH/.claude"
           export HOME="$FRESH" USERPROFILE="$FRESH" CLAUDE_CONFIG_DIR="$FRESH/.claude" TALLY_HOME="$FRESH/.tally"
           export npm_config_prefix="$FRESH/npm-global"
