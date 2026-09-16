@@ -8,7 +8,8 @@ import { activeFile, appendLine, ensureDir, historyFile, readJson, repoKey, sess
 import { redact, redactDeep } from '../redact.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.join(here, '..', 'cli.js');
+/* dist/hook.js sits beside dist/cli.js in the bundle; TALLY_HOOK_CLI lets tests point the detached spawn at a stand-in */
+const CLI = process.env.TALLY_HOOK_CLI || [path.join(here, 'cli.js'), path.join(here, '..', 'cli.js')].find((p) => fs.existsSync(p)) || path.join(here, 'cli.js');
 const SHIP_RE = /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b|\bnpm\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/;
 const TASK_URL_RE = /https?:\/\/(github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/\d+|[^\s]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+|linear\.app\/[^\s]+\/issue\/[A-Z0-9]+-\d+[^\s]*)/;
 const TASK_MD_RE = /(?:^|\s)((?:[A-Za-z]:)?[^\s"']+\.md)(?=\s|$)/;
@@ -56,6 +57,22 @@ function nowIso(): string {
 function record(session: string, type: string, cwd: string | undefined, data: Record<string, unknown>): void {
   const ev = { ts: nowIso(), type, session, cwd, data: redactDeep(data) };
   appendLine(path.join(sessionDir(session), 'events.jsonl'), JSON.stringify(ev));
+}
+
+/* Tally can be installed twice (settings hooks and the plugin). Tool events carry a tool_use_id, so the second
+   delivery of the same (session, event, tool_use_id) is dropped here; prompts and stops have no id and rely on
+   `tally doctor` reporting the double install. */
+function alreadySeen(session: string, event: string, toolUseId: string | undefined): boolean {
+  if (!toolUseId) return false;
+  const file = path.join(sessionDir(session), 'seen.txt');
+  const key = `${event}:${toolUseId}\n`;
+  try {
+    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(key)) return true;
+    fs.appendFileSync(file, key);
+  } catch {
+    /* never fail the hook */
+  }
+  return false;
 }
 
 function spawnDetached(args: string[]): void {
@@ -252,6 +269,7 @@ function main(): void {
       break;
     }
     case 'PreToolUse': {
+      if (alreadySeen(session, event, input.tool_use_id)) break;
       record(session, 'pre_tool', cwd, {
         tool_name: input.tool_name,
         tool_input: shrinkInput(input.tool_input),
@@ -262,6 +280,7 @@ function main(): void {
     }
     case 'PostToolUse':
     case 'PostToolUseFailure': {
+      if (alreadySeen(session, event, input.tool_use_id)) break;
       const resp = input.tool_response;
       const respText = typeof resp === 'string' ? resp : JSON.stringify(resp ?? '');
       const isError =

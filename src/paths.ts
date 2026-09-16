@@ -117,7 +117,7 @@ export function packageRoot(): string {
     const pkg = path.join(dir, 'package.json');
     if (fs.existsSync(pkg)) {
       try {
-        if ((JSON.parse(fs.readFileSync(pkg, 'utf8')) as { name?: string }).name === 'tally-cc') {
+        if ((JSON.parse(fs.readFileSync(pkg, 'utf8')) as { name?: string }).name === '@kru3ish/tally') {
           cachedRoot = dir;
           return dir;
         }
@@ -134,7 +134,7 @@ export function packageRoot(): string {
 }
 
 export function builtHookPath(): string {
-  return path.join(packageRoot(), 'dist', 'hooks', 'hook.js');
+  return path.join(packageRoot(), 'dist', 'hook.js');
 }
 
 export function builtCliPath(): string {

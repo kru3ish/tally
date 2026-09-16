@@ -1,11 +1,30 @@
 {
   "name": "tally",
-  "owner": { "name": "Krish Mehta" },
+  "owner": {
+    "name": "Krish Mehta",
+    "url": "https://github.com/kru3ish"
+  },
+  "description": "Per-task receipts and live coaching for Claude Code (preview)",
   "plugins": [
     {
       "name": "tally",
       "source": "./",
-      "description": "Per-task receipts and live coaching for Claude Code"
+      "description": "Per-task receipts and live coaching for Claude Code: ties a ticket's acceptance criteria to what shipped, what it cost, what was wasted, and whether it held up.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Krish Mehta"
+      },
+      "homepage": "https://github.com/kru3ish/tally",
+      "repository": "https://github.com/kru3ish/tally",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "receipts",
+        "cost",
+        "coach",
+        "roi",
+        "judge"
+      ]
     }
   ]
 }

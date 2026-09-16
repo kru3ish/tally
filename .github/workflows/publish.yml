@@ -1,0 +1,32 @@
+# Publishes @kru3ish/tally to npm with provenance when a v* tag is pushed.
+# Nothing here runs until the tag exists; pushing the tag is a manual step in the release checklist.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: git config --global user.email ci@tally.local && git config --global user.name tally-ci
+      - run: npm ci
+      - run: npm test
+      - name: tag matches package.json version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          test "refs/tags/v$v" = "$GITHUB_REF" || { echo "tag $GITHUB_REF does not match package version $v"; exit 1; }
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

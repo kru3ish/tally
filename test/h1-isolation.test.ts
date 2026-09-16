@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => iso.restore());
 
-const HOOK = path.join(root, 'dist', 'hooks', 'hook.js');
+const HOOK = path.join(root, 'dist', 'hook.js');
 
 describe('H1 self-isolation', () => {
   it('hooks exit at once and record nothing when TALLY_INTERNAL=1', () => {

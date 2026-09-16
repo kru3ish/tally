@@ -1,40 +1,64 @@
 {
-  "name": "tally-cc",
+  "name": "@kru3ish/tally",
   "version": "0.1.0",
-  "description": "Per-task receipts and live coaching for Claude Code",
+  "description": "Per-task receipts and live coaching for Claude Code (preview): acceptance criteria in, what shipped / what it cost / whether it held up out.",
   "type": "module",
   "bin": {
-    "tally": "./bin/tally.js"
+    "tally": "dist/cli.js",
+    "cc-tally": "dist/cli.js"
   },
   "files": [
-    "bin",
     "dist",
-    "commands",
-    "hooks",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
     ".claude-plugin",
-    "pricing.json",
-    "README.md"
+    "hooks",
+    "commands"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "npm run build && vitest run",
+    "build": "node scripts/bundle.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run typecheck && npm run build && vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
     "fixtures": "tsx scripts/gen-fixtures.ts",
-    "prepare": "tsc -p tsconfig.json"
+    "prepare": "node scripts/bundle.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kru3ish/tally.git"
+  },
+  "homepage": "https://github.com/kru3ish/tally#readme",
+  "bugs": {
+    "url": "https://github.com/kru3ish/tally/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "plugin",
+    "hooks",
+    "cost",
+    "receipts",
+    "coach",
+    "roi",
+    "llm",
+    "agent"
+  ],
+  "author": "Krish Mehta",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "esbuild": "0.24.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.1.0"
-  },
-  "dependencies": {
+    "vitest": "^2.1.0",
     "zod": "^3.23.0"
-  },
-  "license": "MIT"
+  }
 }

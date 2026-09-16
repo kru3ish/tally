@@ -43,7 +43,7 @@ export interface DemoResult {
 }
 
 function fixturesDir(): string {
-  for (const c of [path.join(here, '..', '..', 'test', 'fixtures', 'session-basic'), path.join(here, '..', 'fixtures', 'session-basic')]) if (fs.existsSync(c)) return c;
+  for (const c of [path.join(here, 'fixtures', 'session-basic'), path.join(here, '..', '..', 'test', 'fixtures', 'session-basic'), path.join(here, '..', 'fixtures', 'session-basic')]) if (fs.existsSync(c)) return c;
   throw new Error('fixtures not found; run from a source checkout');
 }
 
@@ -177,7 +177,7 @@ export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
     if (task.needs_clarification) out(yellow('  ⚠ Spec quality below 5: Coach will say "Clarify the ticket first" and list the questions.'));
 
     step(2, 'Replaying the session through the real hooks, with the Coach watching');
-    out(dim('  each fixture event is fed to dist/hooks/hook.js on stdin; the Coach ticks on simulated time'));
+    out(dim('  each fixture event is fed to dist/hook.js on stdin; the Coach ticks on simulated time'));
     const events = readEventsFile(path.join(fx, 'events.jsonl')).filter((e) => e.type !== 'ship');
     const engine = new CoachEngine(loadState(session), cfg, undefined, {});
     let shown = 0;

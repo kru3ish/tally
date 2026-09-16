@@ -1,5 +1,14 @@
 node_modules/
-dist/
+# dist/ is committed on purpose: the plugin marketplace clones this repo and cannot run a build
+!dist/
 *.log
+*.tgz
 .tally-demo/
+.tally/
 coverage/
+# local Tally data that must never be committed (receipts, exports, grades, backfill outputs live in ~/.tally)
+tally-export*
+*.calibration.jsonl
+calibration.jsonl
+backfill-*.json
+llm-debug/

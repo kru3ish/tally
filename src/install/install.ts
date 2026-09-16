@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { claudeHome, ensureDir, tallyHome, builtHookPath } from '../paths.js';
+import { claudeHome, ensureDir, tallyHome, builtHookPath, readJson } from '../paths.js';
 
 export const HOOK_EVENTS: Array<{ event: string; matcher?: string; async: boolean }> = [
   { event: 'SessionStart', async: false },
@@ -22,8 +22,31 @@ export function hookCommand(event: string, scriptPath = hookScriptPath()): strin
   return `node "${scriptPath}" ${event}`;
 }
 
+/* Recognises both hook forms: the shell string `tally install` writes and the exec form (`command` + `args`)
+   the plugin's hooks.json uses. */
 export function isTallyHook(h: unknown): boolean {
-  return !!h && typeof h === 'object' && typeof (h as { command?: string }).command === 'string' && /tally.*hooks[\\/]hook\.js|hooks[\\/]hook\.js.*tally/i.test((h as { command: string }).command);
+  if (!h || typeof h !== 'object') return false;
+  const o = h as { command?: unknown; args?: unknown };
+  const parts = [typeof o.command === 'string' ? o.command : '', ...(Array.isArray(o.args) ? o.args.map(String) : [])];
+  const joined = parts.join(' ');
+  return /tally[^\s"']*[\\/](?:dist[\\/])?(?:hooks[\\/])?hook\.js/i.test(joined) || /CLAUDE_PLUGIN_ROOT\}?[\\/]dist[\\/](?:hooks[\\/])?hook\.js/i.test(joined);
+}
+
+/* The plugin id(s) under which Tally is enabled in the user or project settings (`enabledPlugins`), e.g. `tally@tally`. */
+export function enabledPluginIds(cwd = process.cwd()): string[] {
+  const files = [path.join(claudeHome(), 'settings.json'), path.join(claudeHome(), 'settings.local.json'), path.join(cwd, '.claude', 'settings.json'), path.join(cwd, '.claude', 'settings.local.json')];
+  const ids = new Set<string>();
+  for (const f of files) {
+    const s = readJson<{ enabledPlugins?: Record<string, boolean> }>(f, {});
+    for (const [k, v] of Object.entries(s.enabledPlugins ?? {})) if (v && /^tally@/i.test(k)) ids.add(k);
+  }
+  return [...ids];
+}
+
+export class PluginConflictError extends Error {
+  constructor(public readonly ids: string[]) {
+    super(`Tally is already enabled as a Claude Code plugin (${ids.join(', ')}), which installs these hooks itself. Installing again would record every event twice. Run /plugin uninstall tally first, or pass --force to install anyway.`);
+  }
 }
 
 export function settingsPath(scope: 'user' | 'project', cwd = process.cwd()): string {
@@ -61,7 +84,9 @@ function originalMarker(file: string): string {
   return path.join(backupDir(), 'original-' + Buffer.from(file).toString('base64url') + '.json');
 }
 
-export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptPath?: string }): { file: string; added: number; backup: string | null } {
+export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptPath?: string; force?: boolean }): { file: string; added: number; backup: string | null } {
+  const plugin = enabledPluginIds(opts.cwd);
+  if (plugin.length && !opts.force) throw new PluginConflictError(plugin);
   const file = settingsPath(opts.scope, opts.cwd);
   const existed = fs.existsSync(file);
   const raw = existed ? fs.readFileSync(file, 'utf8') : '';

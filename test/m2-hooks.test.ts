@@ -4,9 +4,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { isolate, root, tmpDir } from './helpers.js';
 import { readEvents } from '../src/store/events.js';
-import { install, uninstall, isInstalled, settingsPath, HOOK_EVENTS } from '../src/install/install.js';
+import { install, uninstall, isInstalled, settingsPath, HOOK_EVENTS, isTallyHook } from '../src/install/install.js';
 
-const HOOK = path.join(root, 'dist', 'hooks', 'hook.js');
+const HOOK = path.join(root, 'dist', 'hook.js');
 
 let iso: ReturnType<typeof isolate>;
 beforeEach(() => {
@@ -171,7 +171,7 @@ describe('install / uninstall', () => {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string; async?: boolean }> }>> };
     expect(parsed.hooks.PostToolUse![0]!.hooks[0]!.async).toBe(true);
     expect(parsed.hooks.SessionStart![0]!.hooks[0]!.async).toBeUndefined();
-    expect(parsed.hooks.PostToolUse![0]!.hooks[0]!.command).toMatch(/hooks\/hook\.js" PostToolUse$/);
+    expect(parsed.hooks.PostToolUse![0]!.hooks[0]!.command).toMatch(/dist\/hook\.js" PostToolUse$/);
     uninstall({ scope: 'project', cwd });
     expect(fs.existsSync(file)).toBe(false);
     fs.rmSync(cwd, { recursive: true, force: true });
@@ -196,10 +196,14 @@ describe('plugin manifest', () => {
   it('has a valid plugin.json, marketplace.json, and hooks.json covering every event', () => {
     const plugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')) as { name: string; hooks: string; commands: string[] };
     expect(plugin.name).toBe('tally');
-    const hooks = JSON.parse(fs.readFileSync(path.join(root, plugin.hooks), 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    const hooks = JSON.parse(fs.readFileSync(path.join(root, plugin.hooks), 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string; args: string[] }> }>> };
     for (const { event } of HOOK_EVENTS) {
       expect(hooks.hooks[event]).toBeTruthy();
-      expect(hooks.hooks[event]![0]!.hooks[0]!.command).toContain('${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js');
+      const h = hooks.hooks[event]![0]!.hooks[0]!;
+      /* exec form: no shell, so Windows can spawn it (a .cmd shim could not be) */
+      expect(h.command).toBe('node');
+      expect(h.args).toEqual(['${CLAUDE_PLUGIN_ROOT}/dist/hook.js', event]);
+      expect(isTallyHook(h)).toBe(true);
     }
     const market = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')) as { plugins: Array<{ name: string }> };
     expect(market.plugins[0]!.name).toBe('tally');

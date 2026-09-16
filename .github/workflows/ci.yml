@@ -40,3 +40,67 @@ jobs:
           after=$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CLAUDE_CONFIG_DIR+'/settings.json')).digest('hex'))")
           echo "before=$before after=$after"
           test "$before" = "$after"
+
+  plugin:
+    name: plugin validate --strict and committed bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: the committed dist/ matches a fresh bundle (the marketplace clones the repo and cannot build)
+        run: |
+          npm run build
+          git status --porcelain -- dist
+          git diff --exit-code --stat -- dist
+      - run: npm i -g @anthropic-ai/claude-code
+      - run: claude plugin validate . --strict
+      - name: hooks.json uses the exec form (node + args, no shell)
+        run: node -e "const h=require('./hooks/hooks.json').hooks; for (const [e,gs] of Object.entries(h)) for (const g of gs) for (const k of g.hooks) { if (k.command!=='node' || k.args[0]!=='\${CLAUDE_PLUGIN_ROOT}/dist/hook.js' || k.args[1]!==e) { console.error('bad hook', e, k); process.exit(1) } }; console.log('ok')"
+
+  clean-install:
+    name: clean install from the tarball / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: git config --global user.email ci@tally.local && git config --global user.name tally-ci
+        shell: bash
+      - run: npm ci
+      - run: npm pack
+      - name: install the tarball globally into a fresh HOME, then doctor / demo / install / uninstall
+        shell: bash
+        run: |
+          set -euo pipefail
+          FRESH="$RUNNER_TEMP/fresh-home"
+          mkdir -p "$FRESH/npm-global" "$FRESH/.claude"
+          export HOME="$FRESH" USERPROFILE="$FRESH" CLAUDE_CONFIG_DIR="$FRESH/.claude" TALLY_HOME="$FRESH/.tally"
+          export npm_config_prefix="$FRESH/npm-global"
+          export PATH="$FRESH/npm-global/bin:$FRESH/npm-global:$PATH"
+          npm i -g ./kru3ish-tally-*.tgz
+          npm i -g @anthropic-ai/claude-code
+          command -v tally
+          command -v cc-tally
+          tally --version
+          cc-tally --version | grep -q "$(node -p "require('./package.json').version")"
+          # the installed package must not carry node_modules (dist is self-contained)
+          test ! -d "$(npm root -g)/@kru3ish/tally/node_modules"
+          printf '{\n\t"model": "opus",\n\t"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}\n}' > "$CLAUDE_CONFIG_DIR/settings.json"
+          before=$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CLAUDE_CONFIG_DIR+'/settings.json')).digest('hex'))")
+          tally install
+          tally doctor --plain
+          tally demo --plain --fast
+          tally uninstall
+          after=$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CLAUDE_CONFIG_DIR+'/settings.json')).digest('hex'))")
+          echo "before=$before after=$after"
+          test "$before" = "$after"

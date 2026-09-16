@@ -46,7 +46,7 @@ describe('H4 cross-platform', () => {
     expect(encodeProjectDir('C:\\Users\\dev\\acme-app')).toBe('C--Users-dev-acme-app');
     expect(encodeProjectDir('/home/dev/acme.app')).toBe('-home-dev-acme-app');
     expect(fs.existsSync(path.join(packageRoot(), 'package.json'))).toBe(true);
-    expect(builtHookPath().endsWith(path.join('dist', 'hooks', 'hook.js'))).toBe(true);
+    expect(builtHookPath().endsWith(path.join('dist', 'hook.js'))).toBe(true);
   });
 
   it('verification uses the platform shell and kills the process tree on timeout', async () => {

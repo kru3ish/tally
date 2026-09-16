@@ -1,31 +1,147 @@
 {
+  "description": "Tally records session events for per-task receipts and live coaching; every hook exits 0 in under 150 ms and never calls the network.",
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" SessionStart", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "SessionStart"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" UserPromptSubmit", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "UserPromptSubmit"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" PreToolUse", "timeout": 5, "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "PreToolUse"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" PostToolUse", "timeout": 5, "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "PostToolUse"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "PostToolUseFailure": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" PostToolUseFailure", "timeout": 5, "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "PostToolUseFailure"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" Stop", "timeout": 5, "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "Stop"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "PreCompact": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" PreCompact", "timeout": 5, "async": true }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "PreCompact"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "Notification": [
-      { "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" Notification", "timeout": 5, "async": true }] }
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "Notification"
+            ],
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook.js\" SessionEnd", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
+              "SessionEnd"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

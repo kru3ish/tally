@@ -1,55 +1,81 @@
-# Tally
+# Tally (preview)
 
-Per-task receipts and live coaching for Claude Code.
+**A receipt for every Claude Code task, and a coach while it runs.**
 
-Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coaching is built in (`/insights`). What nobody gives you is a **receipt for one task**: the ticket's acceptance criteria frozen at intake, what actually shipped, what it cost, what was wasted, whether it held up after merge, and whether it was worth it. Tally's Judge writes that receipt. The Coach is the live feedback loop those receipts drive.
+Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coaching is built in (`/insights`). What nobody gives you is a receipt for **one task**: the ticket's acceptance criteria frozen at intake, what actually shipped, what it cost, what was wasted, whether it held up after merge, and whether it was worth it. Tally's Judge writes that receipt. The Coach is the live feedback loop those receipts drive.
 
-Everything runs locally. No server, no database, no API key (Tally talks to Claude through `claude -p` on your existing login).
+Everything runs locally. No server, no database, no API key: Tally talks to Claude through `claude -p` on your existing login.
 
-## 60-second quickstart
+This is a **preview** (v0.1.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
 
-```bash
-git clone https://github.com/krishmehta/tally ~/dev/tally && cd ~/dev/tally
-npm install && npm run build && npm link      # gives you the `tally` command
-tally install                                 # adds hooks to ~/.claude/settings.json (backed up first)
-tally doctor                                  # checks claude, gh, hooks, pricing
+## See it run
+
+![tally demo: a recorded session replayed through the real hooks, the Coach, the Judge and a follow-up](docs/demo.svg)
+
+That is the real output of `tally demo` (timing compressed; also in [`docs/demo.cast`](docs/demo.cast) for `asciinema play`). The demo replays a recorded session through the real hooks with a stubbed model, in a throwaway directory, and never touches your `~/.claude`.
+
+## Install
+
+Two ways; pick one. Both record the same events into `~/.tally` and can be removed without a trace.
+
+**As a Claude Code plugin** (hooks plus `/tally:*` commands, no Node setup beyond what Claude Code already needs):
+
+```
+/plugin marketplace add kru3ish/tally
+/plugin install tally@tally
 ```
 
-Then, in any repo:
+Then install the CLI for the Coach pane, reports and backfill:
 
 ```bash
-claude                                        # start Claude Code as usual
-# in a second terminal (or `tally start` to open a tmux split):
-tally watch                                   # the Coach attaches to the live session
+npm i -g @kru3ish/tally       # gives you `tally` (and `cc-tally`, the same binary)
+tally doctor                  # checks claude, gh, hooks, pricing; must not say "installed 2 ways"
 ```
 
-Paste a GitHub, Jira, or Linear URL (or a `.md` path) in your first prompt and Tally links the task automatically. Or link it yourself:
+**As an npm CLI only** (hooks go into `~/.claude/settings.json`, backed up first):
 
 ```bash
-tally task https://github.com/acme/app/issues/42
+npm i -g @kru3ish/tally
+tally install                 # refuses if the plugin is already enabled, so you never record twice
+tally doctor
 ```
 
-When Claude runs `git push` or `gh pr create`, the Judge runs in the background and the receipt lands in `~/.tally/sessions/<id>/report.md`. `tally judge` runs it on demand; `tally judge --post` also comments a compact receipt on the issue or PR.
+Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional (GitHub intake, write-back, follow-up). Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
 
-Try it without a real session:
+Uninstall: `/plugin uninstall tally` or `tally uninstall` (settings come back byte-identical, checked in CI), then `rm -rf ~/.tally` if you want the receipts gone too.
+
+## Use it
 
 ```bash
-tally demo
+claude                        # start Claude Code as usual
+tally watch                   # in a second terminal: the Coach attaches to the live session (`tally start` opens a tmux split)
 ```
 
-It replays a recorded session end to end with a stubbed model, in a throwaway directory, and never touches your real `~/.claude`.
+Paste a GitHub, Jira or Linear URL (or a `.md` path) in your first prompt and Tally links the task. With no ticket, Tally **infers** the task from your first prompts, the branch name and the commits you make, labels it `inferred task (unconfirmed)`, and the Coach asks once: `[c]onfirm  [e]dit  [l]ink`. From the CLI:
+
+```bash
+tally task https://github.com/acme/app/issues/42     # link a ticket
+tally task --confirm                                  # keep the inferred criteria
+tally task --edit "add rate limiting to login, with a test and a README note"
+```
+
+When Claude runs `git push` or `gh pr create`, the Judge runs in the background and the receipt lands in `~/.tally/sessions/<id>/report.md`. `tally judge` runs it on demand; `tally judge --post` also comments a compact receipt on the issue or PR. Seven days later, `tally followup` (or the next session start) checks whether it held up.
+
+Inside Claude Code the plugin adds `/tally:task <ref>`, `/tally:judge [--post]`, `/tally:coach`, `/tally:report` and `/tally:tally` (status).
 
 ## What a receipt looks like
 
 ```
 Tally receipt · Rate limit the login endpoint
-BORDERLINE  →  after follow-up: NOT WORTH IT (reverted)  ·  50% complete  ·  quality 7/10  ·  ROI 84.84×
-  ✔ c1 POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes
-  ✔ c2 A test covers the 429 path
-  ✘ c3 README documents the limit
-  ? c4 Existing login behaviour is unchanged below the limit
+BORDERLINE  ·  50% complete  ·  quality 7/10  ·  ROI 84.84×
+  ✔ c1 POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes [tier2 1.00]
+  ✔ c2 A test covers the 429 path [tier2 1.00]
+  ✘ c3 README documents the limit [tier1 1.00]
+  ? c4 Existing login behaviour is unchanged below the limit [tier1 1.00]
+Judged by: tier 0 → tier 1 → tier 2 · tier 2 on 2 criteria: verdict-sensitive: c1, c2 · model spend $0.062
 Verification: npm test → passed
 Cost (API-equivalent): $1.33 / budget $56.25 (2.4%) · per met criterion $0.660 · waste $0.629
+  Tally's own spend: $0.070 (5.3% of session spend, separate)
   by phase: explore $0.528, build $0.149, verify $0.604, ship $0.045  · subagents: agent-explore-01 $0.009
 Value: 3h × $75 = $225, credited $113
 Why: Two of four criteria are met with an independent green test run, one is unmet and one unverifiable,
@@ -59,172 +85,154 @@ Next time:
   • When `npm test` fails twice with the same assertion, read the test before editing the implementation again.
   • Read the ticket checklist before saying done: the README item was explicit and skipped.
   • Stop calling the Jira MCP after the first 401; three retries burned three turns.
+
+Follow-up 8 days later: PR #57 merged, then reverted in dba0f121  →  final verdict: NOT WORTH IT
 ```
 
-The full `report.md` adds the evidence table, the waste breakdown (failed loops, repeated reads, dead-weight context, compaction churn, each in dollars), and a skill/MCP attribution table labelled **correlational**, because it is.
+The full `report.md` adds the evidence table, the waste breakdown (failed loops, repeated reads, dead-weight context, compaction churn, each in dollars), which files were `verified-against-disk` versus `reconstructed` from the transcript, and a skill/MCP attribution table labelled **correlational**, because it is.
 
 ## How the Judge works
 
-1. **Intake** (one small-model call): fetches the ticket via `gh`, the Jira REST API, the Linear API, a local `.md`, or plain text; freezes a checklist of acceptance criteria in `task.json` so the goalposts cannot move; scores spec quality 0–10 and lists the missing information; estimates human-hours (story points win when present) and sets a budget of 25% of the human-equivalent value.
-2. **Evidence**: the git diff from the session-start HEAD, files changed, every test and lint command Claude ran with its result, ship events, and Claude's final messages.
-3. **Independent verification**: Tally detects the project's test command (`package.json`, pytest, go, cargo, make, …) and runs it itself with a timeout. It never trusts "tests pass" in the transcript. Anything it cannot check is marked `unverifiable`, never guessed.
-4. **Tiered judging**: criteria with a check spec are resolved mechanically (tier 0, no model); the rest go to a small model with a trimmed evidence pack (tier 1); the strong model with its skeptical system prompt (tier 2) runs only for expensive sessions, `--deep`, or criteria the small model was unsure about. Each rates met / partial / unmet / unverifiable with cited evidence; whichever model ran last also scores quality and writes three recommendations, and with no model at all those are a labelled mechanical proxy.
-5. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6, and a green independent test run).
-6. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps a final status of **held up / needed rework / reverted** and shows both the original and the adjusted verdict.
-
-All dollar figures are **API-equivalent** at list price from `pricing.json` (with a `last_verified` date), since most people are on subscriptions. Tally's own calls are counted separately.
-
-## The Coach
-
-A plain terminal pane (`tally watch`) beside Claude Code. Each suggestion has one-key actions: `[a]pply`, `[i]nject` (the note reaches Claude on its next turn, prefixed `[Tally]`), `[s]kip`, `[m]ute rule`.
-
-Rules are deterministic first, LLM second (a small model, at most one call per 90 s, and only once the session has spent $1; `coach.llm_min_session_usd`):
-
-| Rule | Fires when | Action |
-|---|---|---|
-| loop-detect | the same failing command or edit repeats 3× | inject "stop and diagnose" |
-| reread | the same file is read 3× | inject "keep notes" |
-| context-pressure | context passes 70% / 85% | write `HANDOFF.md`, suggest `/compact` |
-| claude-md | no CLAUDE.md, or an instruction is repeated | create / append CLAUDE.md (mentions `/insights`) |
-| mcp-opportunity | 3+ shell or web fetches an MCP server would handle | show the `claude mcp add` snippet |
-| dead-weight | a skill or MCP server is loaded but unused across recent sessions | show the removal command, with **measured** first-turn overhead |
-| mcp-errors | an MCP tool errors 3× | inject "stop calling it" |
-| permission-friction | repeated prompts for the same safe command | allowlist entry, or `/fewer-permission-prompts` |
-| burn-rate | spend with no file changes, or 80% / 100% of budget | inject a checkpoint |
-| task-quality | no linked task, or spec quality < 5 | "Clarify the ticket first" + the questions |
-| history-lesson | past receipts and follow-ups for this repo | inject at session start |
-
-Noise control: at most one non-critical suggestion per 3 minutes and 8 per session; critical ones (a loop, 85% context, over budget) always show. Suggestions rank by estimated dollars saved. Skip a rule 3 times and it mutes itself for that repo.
-
-`auto_apply` modes: `off`, `ask` (default), `auto`. `auto` may only write `.md` files (CLAUDE.md, HANDOFF.md, notes). Settings and MCP changes always require `ask`. Every change is logged; `tally undo` reverses it.
-
-## Experiments: does this skill or MCP actually help?
-
-```bash
-tally experiment start mcp jira --tasks 6
-tally experiment report
-```
-
-Tally alternates the item off and on across the next N tasks in the repo by patching `.claude/settings.local.json` before each session and restoring it byte-identically at session end. The report compares completion %, cost per criterion, and rework rate between the two arms and says **not enough data** until each arm has three judged tasks.
-
-## Backfill: receipts for sessions you already ran
-
-```bash
-tally backfill list --since 60d [--repo path]        # date, repo, cost, detected task link + confidence
-tally backfill add <session> [--task <url|text>]     # or: tally backfill add all --max-spend 3
-tally calibrate grade <session> --grader you         # blind: grade first, then see Tally's judgment
-tally calibrate report --source backfill
-```
-
-For each past session Tally finds the task link (URL in a prompt → issue key in the branch or in commits made during the session → PR on the session branch), reconstructs the window from git (last commit before the session on its branch to the last commit inside it, extended to the merged PR head), judges the diff in a throwaway `git worktree`, re-runs the tests there only with your per-repo consent and only when dependencies install offline (otherwise test criteria are `unverifiable (historical tests not runnable)`), runs follow-up immediately, and replays the Coach rules over the transcript into `coach_replay.json`. Intake uses the ticket as it read at session start when the tracker keeps history (Jira changelog, GitHub renames and body edits); otherwise it says the text may have changed. A projected cost is printed first and the run stops at `--max-spend` (default $3).
-
-Grading is blind: you see the frozen criteria, the diff stat, the test result, the PR outcome, and the final assistant message, then grade each criterion, give a verdict, and mark each replayed Coach suggestion useful or noise; only then is Tally's judgment shown side by side. `--grader <name>` lets a second person grade the same sessions; the report shows criterion and verdict agreement with sample sizes, the confusion matrix, whether Tally leans lenient or strict, inter-grader agreement, and Coach precision per rule. Fixture and backfill results are always separate sections.
-
-## Commands
-
-```
-tally install [--project]      add hooks (backs up settings first)     tally uninstall  (byte-identical restore)
-tally doctor                   environment checks                       tally config [key value]
-tally task <url|path|text>     link + freeze criteria                   tally judge [session] [--post]
-tally followup [session]       post-merge truth                         tally report [--here|--days N]
-tally start | tally watch      the Coach pane                           tally coach --once
-tally undo [n]                 reverse Coach changes                    tally experiment start|report|stop
-tally sessions | tally status  what Tally knows                         tally demo
-```
-
-Plugin form: the repo root is also a Claude Code plugin. `claude plugin marketplace add ~/dev/tally && claude plugin install tally@tally` (or `claude --plugin-dir ~/dev/tally` for one session) installs the same hooks plus `/tally:task`, `/tally:judge`, `/tally:coach`, `/tally:report`, `/tally:tally`. Use either the plugin or `tally install`, not both; `tally doctor` warns if events would be recorded twice.
-
-Config lives in `~/.tally/config.json`: `hourly_rate` (75), `writeback` (false), `auto_apply` (ask), `models.judge` (opus), `models.coach` and `models.intake` (haiku), `context_window`, `baseline_context_tokens`, `coach.*` limits, `judge.test_timeout_ms`. Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
-
-## What's stored where
-
-| Path | Contents |
-|---|---|
-| `~/.tally/sessions/<id>/events.jsonl` | append-only hook events: prompts (truncated), tool names and inputs (truncated), results' first 600 chars, ship events. Secrets are redacted before writing. |
-| `~/.tally/sessions/<id>/task.json` | the frozen task: source, criteria, spec quality, estimate, budget |
-| `~/.tally/sessions/<id>/judge.json`, `report.md` | the receipt (schema-validated) and its markdown rendering |
-| `~/.tally/sessions/<id>/inject.jsonl`, `coach-state.json` | Coach notes queued for Claude, and noise-control state |
-| `~/.tally/history.jsonl` | one line per session and per receipt: numbers, verdicts, recommendations, skills/MCP loaded and used. No prompts, no code. |
-| `~/.tally/experiments.json`, `mutes.json`, `undo.jsonl`, `tally-spend.jsonl` | experiments, muted rules per repo, the undo log, Tally's own LLM spend |
-| `~/.tally/config.json`, `pricing.json` | your config and an editable copy of the price table |
-| `~/.tally/backups/` | your settings files before `tally install` and before each experiment arm |
-
-Tally reads Claude Code's transcripts in `~/.claude/projects/` for token usage and tool calls; it never copies them. `TALLY_HOME` relocates the data dir; `CLAUDE_CONFIG_DIR` (Claude Code's own variable) relocates `~/.claude`.
-
-## Privacy
-
-- Everything is local. Hooks make no network calls and finish in under 150 ms.
-- Tally's only outbound traffic is `claude -p` (your existing Claude login), and, only when you ask, `gh` and the Jira/Linear APIs for intake, write-back, and follow-up.
-- Write-back is opt-in (`--post` or `writeback: true`). The comment carries the verdict, completion, cost, and the criteria list. It never includes prompts or code.
-- Hook events are redacted (API keys, tokens, bearer headers, passwords in URLs) and truncated before they are written.
-
-## Compared with ccusage and /insights
-
-| | ccusage / `/cost` / `/usage` | `/insights` | Tally |
-|---|---|---|---|
-| Unit | session, day, model | 30 days of sessions | one task |
-| Question answered | how much did I spend? | how do I work, what friction recurs? | was this task done, at what cost, and was it worth it? |
-| Ties spend to acceptance criteria | no | no | yes, frozen at intake |
-| Independent verification | no | no | re-runs your tests |
-| Post-merge outcome | no | no | merged / reverted / reopened / review churn |
-| Live coaching | no | no | yes, with one-key actions |
-| Skill / MCP value | `/usage` attributes tokens | flags unused ones | correlational table + controlled experiments |
-
-Where a built-in already does the job, Tally points you to it: `/insights` for the 30-day retrospective, `/fewer-permission-prompts` for the allowlist, `/cost` and `/usage` for totals, `/context` for what fills the window.
-
-## How accurate is Judge?
-
-**These numbers are a regression baseline, not a benchmark. Real-world calibration is pending**: nobody has yet graded a set of receipts from real sessions against the Judge; grade your own with `tally calibrate add` and the report below starts filling in.
-
-The Judge runs in tiers so that most receipts cost nothing:
+1. **Intake** (one small-model call, cached): fetches the ticket via `gh`, the Jira REST API, the Linear API, a local `.md`, or plain text; freezes a checklist of acceptance criteria in `task.json` so the goalposts cannot move; scores spec quality 0–10 and lists the missing information; estimates human-hours (story points win when present) and sets a budget of 25% of the human-equivalent value.
+2. **Evidence**: the git diff from the session-start HEAD, files changed, every test and lint command Claude ran with its result, ship events, and Claude's final messages. With no commits, the changes are reconstructed from the Edit / MultiEdit / Write calls and the shell commands that write files, and labelled as such.
+3. **Independent verification**: Tally detects the project's test command (`package.json`, pytest, go, cargo, make, …) and runs it itself with a timeout, after asking once per repo. It never trusts "tests pass" in the transcript, and never runs tests against a reconstructed tree. Anything it cannot check is marked `unverifiable`, never guessed.
+4. **Tiered judging**, so most receipts cost almost nothing:
 
 | Tier | What runs | When |
 |---|---|---|
-| 0 | Mechanical checks the intake model attached to each criterion (`tests_pass`, `file_changed`, `file_contains`, `diff_contains`, `command`, `pr`); cost, waste, ship events, test results | Always, no model |
-| 1 | A small model (`models.tier1`, haiku) on the remaining `judgment` criteria, with an evidence pack trimmed to ~8k tokens; returns a confidence per criterion | Whenever judgment criteria remain |
-| 2 | The strong model (`models.judge`, opus) on only the criteria that need it | Session cost ≥ `judge.deepThreshold` ($3), `--deep`, or a tier-1 confidence below 0.6 |
+| 0 | Mechanical checks the intake model attached to each criterion (`tests_pass`, `file_exists`, `file_changed`, `file_contains`, `diff_contains`, `command`, `pr`); cost, waste, ship events, test results | Always, no model |
+| 1 | A small model (`models.tier1`, haiku) on the remaining `judgment` criteria, with an evidence pack trimmed to ~6k tokens; returns a confidence per criterion | Whenever judgment criteria remain |
+| 2 | A stronger model on only the criteria that need it: the small model again under $1 of session spend, sonnet up to `judge.deepThreshold` ($3), opus above | Session cost ≥ $3, `--deep`, a tier-1 confidence below 0.6, a partial/unmet call on a correctness criterion, or a criterion whose one-step change would flip the verdict |
 
-Every receipt says which tiers ran and why, and one HEAD is judged once (push and session-end share the receipt).
+5. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run; `not worth it` is <40%, ROI <1 or quality <4).
+6. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps **held up / needed rework / reverted** and shows both the original and the adjusted verdict.
 
-Five fixture sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. An escalation guard sends any criterion to tier 2 when moving its status one step would change the verdict, or when a small-model partial/unmet call lands on a correctness criterion (confidence capped at 0.5). Because a `claude -p` call carries a ~5.6k-token floor, escalations use the small model under $1 of session spend, sonnet up to $3, and opus above.
+All dollar figures are **API-equivalent** at list price from `pricing.json` (with a `last_verified` date), since most people are on subscriptions. Tally's own calls are counted separately and shown on every receipt.
 
-Last live run, 2026-09-16, 19 criteria across 5 sessions:
+## How accurate is the Judge?
+
+Early, and measured two ways. Neither is a benchmark.
+
+**Fixture regression (n = 5 sessions, 19 criteria).** Five authored sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-16 with haiku as tier 1:
 
 | Measure | Result |
 |---|---|
-| Criterion agreement (exact) | 19 / 19 = 100% |
-| Verdict agreement | 5 / 5 = 100% |
-| Criteria resolved mechanically | 9 of 19, at $0 |
+| Criterion agreement (exact) | 19 / 19 |
+| Verdict agreement | 5 / 5 |
+| Criteria resolved mechanically, at $0 | 9 of 19 |
 | Escalated to tier 2 | 7 criteria on 4 sessions (verdict-sensitive or correctness) |
+| Tally's own spend, share of session spend | 2.1–5.1%, average 4.1% |
 
-Self-overhead on those receipts (Tally's own model spend as a share of the session's spend):
+Across six live runs the same fixtures scored between 18/19 and 19/19; CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the self-share exceeds 5%.
 
-| Fixture | Session | Tally | Share | Tiers |
+**Real sessions, blind-graded (n = {{CALIBRATION_SESSIONS}} sessions, {{CALIBRATION_CRITERIA}} criteria, {{CALIBRATION_GRADERS}} grader(s), as of {{CALIBRATION_DATE}}).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement {{CALIBRATION_CRITERION_AGREEMENT}} exact ({{CALIBRATION_WITHIN_ONE_STEP}} within one step), verdict agreement {{CALIBRATION_VERDICT_AGREEMENT}} on {{CALIBRATION_VERDICTS}} verdicts, Tally {{CALIBRATION_LEAN}}; Coach: {{CALIBRATION_COACH_PRECISION}}. Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
+
+Caveats: the fixtures are small JavaScript repos with one test file each; the small model's confidence is self-reported, so a confident wrong answer is only caught by the verdict-sensitivity and correctness guards; when a repo has no detectable test command, or you have not consented to re-runs, test criteria are `unverifiable` by rule; and on sessions with no commits the evidence is a transcript reconstruction, which the receipt says.
+
+## What it costs you
+
+Hooks: under 150 ms each, no network, exit 0 always (`tally doctor` measures the runtime). SessionEnd appends one event and spawns a detached process, well inside Claude Code's shared 1.5 s budget.
+
+Model calls, per task, on the fixture sessions: intake ≈ $0.01 (cached on repeat), tier 1 ≈ $0.015, tier 2 ≈ $0.12 only above the deep threshold; the Coach's LLM pass runs at most every 90 s and only once a session has spent $1. Every receipt prints Tally's own spend and its share of the session; `tally doctor` warns when the running average passes 5%.
+
+## The Coach
+
+A plain terminal pane (`tally watch`) beside Claude Code. Each suggestion has one-key actions: `[a]pply`, `[i]nject`, `[s]kip`, `[m]ute rule`; an inferred task gets `[c]onfirm  [e]dit  [l]ink`. Injected notes reach Claude on its next turn as **observations** (`Tally: Tally observed npm test fail 3 times …`), never as instructions; what Claude does with them is up to Claude.
+
+Rules are deterministic first, LLM second:
+
+| Rule | Fires when | Action |
+|---|---|---|
+| loop-detect | the same failing command or edit repeats 3× | inject the observation |
+| reread | the same file is read 3× | inject "keep notes" |
+| context-pressure | context passes 70% / 85% | write `HANDOFF.md`, suggest `/compact` |
+| claude-md | no CLAUDE.md, or an instruction is repeated | create / append CLAUDE.md |
+| mcp-opportunity | 3+ shell or web fetches an MCP server would handle | show the `claude mcp add` snippet |
+| dead-weight | a skill or MCP server is loaded but unused across recent sessions | measured or estimated first-turn overhead in dollars; points at `/plugin` Stats and "Not used recently" for the same list |
+| mcp-errors | an MCP tool errors 3× | inject the observation |
+| permission-friction | repeated prompts for the same safe command | allowlist entry, or `/fewer-permission-prompts` |
+| burn-rate | spend with no file changes, or 80% / 100% of budget | inject a checkpoint |
+| task-quality | no linked task, or spec quality < 5 | "Clarify the ticket first" + the questions |
+| task-confirm | the task was inferred and not yet confirmed | confirm / edit / link |
+| history-lesson | past receipts and follow-ups for this repo | inject at session start |
+| verification-consent | the Judge wants to run your tests for the first time in this repo | allow / deny once |
+
+Noise control: at most one non-critical suggestion per 3 minutes and 8 per session; critical ones always show. Suggestions rank by estimated dollars saved. Skip a rule 3 times and it mutes itself for that repo. `auto_apply` modes: `off`, `ask` (default), `auto`; `auto` may only write `.md` files, and `tally undo` reverses any change.
+
+## Experiments, backfill, calibration
+
+```bash
+tally experiment start mcp jira --tasks 6          # alternate an item off/on across N tasks, compare arms
+tally backfill list --since 60d                     # past sessions with cost and detected task link + confidence
+tally backfill add <session> [--task <url|text>]    # receipt for a past session (worktree, consent, offline deps)
+tally calibrate grade <session> --grader you        # blind: grade first, then see Tally's judgment
+tally calibrate report --source backfill            # agreement, confusion, lean, inter-grader, Coach precision, by task source
+```
+
+Backfill finds the task link (URL in a prompt → issue key in the branch or commits → PR on the branch → inferred from the prompts), reconstructs the window from git, judges the diff in a throwaway `git worktree`, re-runs tests there only with consent and offline dependencies, runs follow-up, and replays the Coach rules into `coach_replay.json`. Sessions with no commits are judged from the transcript reconstruction, tests not run.
+
+## What's stored where, and privacy
+
+| Path | Contents |
+|---|---|
+| `~/.tally/sessions/<id>/events.jsonl` | hook events: prompts (truncated), tool names and inputs (truncated), results' first 600 chars, ship events; redacted before writing |
+| `~/.tally/sessions/<id>/task.json`, `judge.json`, `report.md` | the frozen task and the receipt |
+| `~/.tally/sessions/<id>/inject.jsonl`, `coach-state.json`, `seen.txt` | Coach notes queued for Claude, noise-control state, de-duplication keys |
+| `~/.tally/history.jsonl` | one line per session and receipt: numbers, verdicts, recommendations, skills/MCP loaded and used. No prompts, no code |
+| `~/.tally/calibration.jsonl`, `backfill/`, `experiments.json`, `mutes.json`, `undo.jsonl`, `tally-spend.jsonl` | your grades, the backfill index, experiments, muted rules, the undo log, Tally's own spend |
+| `~/.tally/config.json`, `pricing.json`, `backups/` | config, an editable price table, and your settings files before Tally touched them |
+
+Tally keeps its data in `~/.tally` rather than the plugin's data dir on purpose: receipts must outlive a plugin update or uninstall and be shared with the npm CLI. `TALLY_HOME` relocates it; `CLAUDE_CONFIG_DIR` relocates `~/.claude`. Tally reads Claude Code's transcripts in `~/.claude/projects/` for token usage and tool calls and never copies them.
+
+- Everything is local. Hooks make no network calls.
+- Tally's only outbound traffic is `claude -p` (your login, isolated from your MCP servers, hooks and skills), and, only when you ask, `gh` and the Jira/Linear APIs.
+- Write-back is opt-in (`--post` or `writeback: true`) and carries the verdict, completion, cost and the criteria list. Never prompts or code.
+- Test re-runs execute your project's test command with a scrubbed environment and a timeout, only after you consent once per repo.
+
+Details, threat model and how to report a problem: [`SECURITY.md`](SECURITY.md).
+
+## Compared with the built-ins and ccusage
+
+| | ccusage / `/cost` / `/usage` | `/insights` | `/plugin` Stats | Tally |
 |---|---|---|---|---|
-| claims-no-tests | $0.431 | $0.022 | 5.1% | 0→1→2 |
-| health-endpoint-complete | $0.560 | $0.012 | 2.1% | 0→1 |
-| rate-limit-partial | $0.732 | $0.027 | 3.6% | 0→1→2 |
-| scope-creep | $0.571 | $0.027 | 4.8% | 0→1→2 |
-| wrong-fix-tests-fail | $0.518 | $0.024 | 4.7% | 0→1→2 |
-| **average** | $2.813 total | $0.111 total | **4.1%** | |
+| Unit | session, day, model | 30 days of sessions | plugin, skill, MCP | one task |
+| Question | how much did I spend? | how do I work, what friction recurs? | what is loaded and used? | was this task done, at what cost, and was it worth it? |
+| Ties spend to acceptance criteria | no | no | no | yes, frozen at intake |
+| Independent verification | no | no | no | re-runs your tests |
+| Post-merge outcome | no | no | no | merged / reverted / reopened / review churn |
+| Live coaching | no | no | no | yes, one-key actions |
+| Skill / MCP value | `/usage` attributes tokens | flags unused ones | "Not used recently" | dollars per session, plus controlled experiments |
 
-Run-to-run variance is real: across six live runs the same fixtures scored between 18/19 and 19/19 criteria; the recorded baseline is only rewritten when a run matches or beats it. Before tiering, the same five receipts cost $0.11–0.13 each (22%). CI replays the recorded tier calls through the deterministic pipeline (`tally calibrate eval --max-share 5`) and fails if criterion agreement drops below `baseline.json` or the average self-share exceeds 5%; `tally calibrate eval --live` re-measures the models.
+Where a built-in already does the job, Tally points you to it: `/insights` for the retrospective, `/fewer-permission-prompts` for the allowlist, `/cost` and `/usage` for totals, `/plugin` Stats for what is loaded.
 
-Caveats: five authored sessions are a smoke test; the fixtures are small JavaScript repos with one test file; the small model's confidence is self-reported, so a confident wrong answer is not escalated (the one disagreement above was rated 0.9); and when a repo has no detectable test command, or the user has not consented to re-runs, test criteria are `unverifiable` by rule.
+## Known limitations
+
+- **Calibration is early.** Five authored fixtures and a first set of the author's own sessions; no external graders yet. Treat verdicts as a second opinion.
+- **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), and moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`).
+- Sessions with no commits are judged from the transcript reconstruction; edits made by tools Tally does not parse (an MCP file server, an editor) are invisible, and tests are not run.
+- Inferred tasks are only as good as the first prompts; confirm or edit them before trusting completion %.
+- Dead-weight overhead is measured only when the repo has sessions both with and without the item; otherwise it is an even share, labelled estimated.
+- Phase attribution (explore / build / verify / ship) is heuristic.
+- Follow-up needs `gh`; Jira/Linear follow-up covers the linked issue only when a GitHub PR exists.
+- Claude Code's transcript format is undocumented; the parser targets v2.1.x and `tally doctor` checks recent transcripts still parse.
+- Hooks in `~/.claude/settings.json` use the shell form (`node "<path>" Event`); the plugin uses the exec form. Both are recognised, but don't run both.
+
+## Roadmap
+
+- Real-session calibration with outside graders, and a published agreement table that updates per release.
+- Plugin evals in CI.
+- `tally judge --explain <criterion>`: the exact evidence lines behind a status.
+- Receipts as a PR check (GitHub Action) for teams.
+- OTel cross-check on by default when Claude Code telemetry is enabled.
 
 ## Development
 
 ```bash
-npm test            # builds, then runs vitest (88 tests: hooks, parser, intake, judge, coach, follow-up, experiments, demo)
-npm run fixtures    # regenerates test/fixtures/session-basic from scripts/gen-fixtures.ts
+npm test            # typecheck, bundle with esbuild, then vitest (141 tests)
+npm run build       # dist/cli.js + dist/hook.js, committed because the marketplace clones this repo
+npm run fixtures    # regenerates test/fixtures/session-basic
 ```
 
-`docs/PLATFORM_NOTES.md` records what was verified against the Claude Code docs and CLI (v2.1.268). `DECISIONS.md` lists every judgment call.
+`docs/PLATFORM_NOTES.md` records what was verified against the Claude Code docs and CLI. `DECISIONS.md` lists every judgment call. CI runs the suite, the demo, the calibration eval, `claude plugin validate --strict`, a committed-bundle check, and a clean install of the tarball in a fresh HOME on Linux, macOS and Windows.
 
-## Known limitations
-
-- Tested on Windows and Node 24; hooks and the demo run on macOS/Linux by design but have not been exercised there yet.
-- Dead-weight overhead is measured per session (first-turn tokens above a baseline) and shared evenly across loaded items; per-item attribution needs an experiment.
-- Phase attribution is heuristic (first edit, first test run, first push).
-- Follow-up needs `gh`; Jira/Linear follow-up covers the linked issue only when a GitHub PR exists.
-- Claude Code's transcript format is undocumented; the parser targets v2.1.x and dedupes streamed lines by message id.
+MIT.

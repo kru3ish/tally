@@ -44,7 +44,7 @@ export function runChecks(): Check[] {
   const settings = readJson<{ enabledPlugins?: Record<string, boolean> }>(path.join(claudeHome(), 'settings.json'), {});
   const plugin = Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith('tally'));
   const ways = [user && 'user settings', project && 'project settings', plugin && 'plugin'].filter(Boolean) as string[];
-  checks.push({ name: 'hooks', ok: ways.length === 1 ? true : ways.length === 0 ? false : 'warn', detail: ways.length === 0 ? `not installed; run \`tally install\` (${settingsPath('user')})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(', ')}); events will be recorded twice, remove one` });
+  checks.push({ name: 'hooks', ok: ways.length === 1 ? true : ways.length === 0 ? false : 'warn', detail: ways.length === 0 ? `not installed; run \`tally install\` or /plugin install tally@tally (${settingsPath('user')})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(', ')}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice. Keep one: \`tally uninstall\` removes the settings hooks, /plugin uninstall tally removes the plugin` });
 
   const hook = builtHookPath();
   fs.mkdirSync(tallyHome(), { recursive: true });
@@ -55,7 +55,7 @@ export function runChecks(): Check[] {
     checks.push({ name: 'hook runtime', ok: r.status === 0 && ms < 150 ? true : r.status === 0 ? 'warn' : false, detail: `exit ${r.status}, ${ms} ms (limit 150)` });
     for (const d of fs.readdirSync(tallyHome()).filter((x) => x.startsWith('doctor-'))) fs.rmSync(path.join(tallyHome(), d), { recursive: true, force: true });
   } else {
-    checks.push({ name: 'hook runtime', ok: false, detail: 'dist/hooks/hook.js missing; run npm run build' });
+    checks.push({ name: 'hook runtime', ok: false, detail: 'dist/hook.js missing; run npm run build' });
   }
 
   try {

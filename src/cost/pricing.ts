@@ -30,7 +30,7 @@ export interface Usage {
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export function bundledPricingPath(): string {
-  const candidates = [path.join(here, '..', '..', 'pricing.json'), path.join(here, '..', 'pricing.json')];
+  const candidates = [path.join(here, 'pricing.json'), path.join(here, '..', '..', 'pricing.json'), path.join(here, '..', 'pricing.json')];
   for (const c of candidates) if (fs.existsSync(c)) return c;
   return candidates[0]!;
 }
