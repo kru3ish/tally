@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendLine, tallyHome, log } from '../paths.js';
 import { canonicalModel, type Usage } from '../cost/pricing.js';
 
@@ -75,8 +75,8 @@ export class ClaudeCli implements LlmClient {
       '',
       '--strict-mcp-config',
     ];
-    const bin = this.opts.claudeBin ?? process.env.TALLY_CLAUDE_BIN ?? 'claude';
-    const out = await runProcess(bin, args, { cwd, timeoutMs: req.timeoutMs ?? 240000 });
+    const resolved = resolveClaudeBin(this.opts.claudeBin ?? process.env.TALLY_CLAUDE_BIN);
+    const out = await runProcess(resolved.bin, [...resolved.prefix, ...args], { cwd, timeoutMs: req.timeoutMs ?? 240000 });
     fs.rmSync(cwd, { recursive: true, force: true });
     let parsed: CliOutput;
     try {
@@ -128,29 +128,71 @@ export class StubLlm implements LlmClient {
   }
 }
 
-export function runProcess(bin: string, args: string[], opts: { cwd?: string; timeoutMs: number; input?: string }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
+let resolvedClaude: { bin: string; prefix: string[] } | null = null;
+
+/* On Windows `claude` is usually an npm .cmd shim; running it needs a shell, and cmd.exe quoting
+   mangles JSON arguments. Resolve the shim to its JS entry and run it with node directly. */
+export function resolveClaudeBin(explicit?: string): { bin: string; prefix: string[] } {
+  if (explicit) return { bin: explicit, prefix: [] };
+  if (resolvedClaude) return resolvedClaude;
+  let result = { bin: 'claude', prefix: [] as string[] };
+  if (process.platform === 'win32') {
+    const where = spawnSync('where.exe', ['claude'], { encoding: 'utf8', windowsHide: true });
+    const first = (where.stdout ?? '').split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+    if (first && /\.cmd$/i.test(first) && fs.existsSync(first)) {
+      const body = fs.readFileSync(first, 'utf8');
+      const m = /"%dp0%\\([^"]+\.js)"/i.exec(body) ?? /"%~dp0\\([^"]+\.js)"/i.exec(body);
+      if (m) {
+        const js = path.join(path.dirname(first), m[1]!);
+        if (fs.existsSync(js)) result = { bin: process.execPath, prefix: [js] };
+      }
+    } else if (first && /\.exe$/i.test(first)) {
+      result = { bin: first, prefix: [] };
+    }
+  }
+  resolvedClaude = result;
+  return result;
+}
+
+function killTree(pid: number): void {
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
+    else process.kill(-pid, 'SIGKILL');
+  } catch {
+    /* already gone */
+  }
+}
+
+export function runProcess(bin: string, args: string[], opts: { cwd?: string; timeoutMs: number; input?: string; shell?: boolean }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     const isWin = process.platform === 'win32';
-    const child = spawn(bin, args, { cwd: opts.cwd, shell: isWin, windowsHide: true, env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'tally' } });
+    const verbatim = isWin && /cmd(\.exe)?$/i.test(bin);
+    const child = spawn(bin, args, { cwd: opts.cwd, shell: opts.shell ?? false, windowsHide: true, detached: !isWin, windowsVerbatimArguments: verbatim, env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'tally' } });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, opts.timeoutMs);
-    child.stdout.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      resolve({ stdout, stderr: stderr + String(e), code: -1, timedOut });
-    });
-    child.on('close', (code) => {
+    let done = false;
+    const finish = (code: number | null) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
       resolve({ stdout, stderr, code, timedOut });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid) killTree(child.pid);
+      setTimeout(() => finish(null), 300);
+    }, opts.timeoutMs);
+    child.stdout?.on('data', (d: Buffer) => (stdout += d.toString('utf8')));
+    child.stderr?.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
+    child.on('error', (e) => {
+      stderr += String(e);
+      finish(-1);
     });
-    if (opts.input !== undefined) child.stdin.write(opts.input);
-    child.stdin.end();
+    child.on('close', (code) => finish(code));
+    child.on('exit', (code) => setTimeout(() => finish(code), 200));
+    if (opts.input !== undefined) child.stdin?.write(opts.input);
+    child.stdin?.end();
   });
 }
 
