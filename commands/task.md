@@ -7,7 +7,7 @@ allowed-tools: Bash(node *)
 Link the task to this Tally session:
 
 ```!
-node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" task "$ARGUMENTS" --session "$CLAUDE_SESSION_ID" --plain
+node "${CLAUDE_PLUGIN_ROOT}/dist/cli.js" task "$ARGUMENTS" --plain
 ```
 
 Report the frozen acceptance criteria, the spec-quality score, and the effort and budget estimate to the user. If the spec-quality score is below 5, list the clarifying questions and recommend clarifying the ticket before building.
