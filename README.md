@@ -172,7 +172,9 @@ Last live run, 2026-09-16, judge model `claude-opus-5`, 19 criteria across 5 ses
 | Disagreement 1 | "Page 2 returns items 11–20": human `unmet`, judge `partial` (the fix returns 11–21; the judge credited the overlap) |
 | Disagreement 2 | Verdict for the session that claimed unwritten tests: human `borderline`, judge `not worth it` (the model scored quality 2/10 for the false claim, which the verdict rule turns into `not worth it`) |
 
-A previous run of the same five sessions scored 19/19 and 4/5, so expect ±1 criterion of run-to-run variance from the model. The recorded model outputs replay through the deterministic pipeline in CI (`tally calibrate eval`), which fails if agreement drops below `baseline.json`; `tally calibrate eval --live` re-measures the model itself.
+Three live runs of the same five sessions scored 19/19, 18/19 and 18/19 criteria (4/5 verdicts every time), so expect about ±1 criterion of run-to-run variance from the model.
+
+**What Judge costs.** On those five receipts the judge call cost $0.11–0.13 each (opus, 5–8k-token prompt), which is 17–25% of the fixture sessions' own spend ($0.43–0.73). That share is what the receipt's "Tally's own spend" line and `tally doctor` report; the 5% target only holds for sessions above roughly $2.50. For small tasks set `tally config models.judge sonnet` (about a fifth of the price) or judge only on ship. The recorded model outputs replay through the deterministic pipeline in CI (`tally calibrate eval`), which fails if agreement drops below `baseline.json`; `tally calibrate eval --live` re-measures the model itself.
 
 Grade your own receipts to build a real sample:
 
