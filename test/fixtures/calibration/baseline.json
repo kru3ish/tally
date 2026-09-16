@@ -1,0 +1,38 @@
+{
+  "recorded_at": "2026-09-16T08:28:20.004Z",
+  "judge_model": "claude-opus-5",
+  "criterion_agreement": 0.9473684210526315,
+  "verdict_agreement": 0.8,
+  "fixtures": [
+    {
+      "name": "claims-no-tests",
+      "matches": 4,
+      "total": 4,
+      "verdict_match": false
+    },
+    {
+      "name": "health-endpoint-complete",
+      "matches": 4,
+      "total": 4,
+      "verdict_match": true
+    },
+    {
+      "name": "rate-limit-partial",
+      "matches": 4,
+      "total": 4,
+      "verdict_match": true
+    },
+    {
+      "name": "scope-creep",
+      "matches": 4,
+      "total": 4,
+      "verdict_match": true
+    },
+    {
+      "name": "wrong-fix-tests-fail",
+      "matches": 2,
+      "total": 3,
+      "verdict_match": true
+    }
+  ]
+}

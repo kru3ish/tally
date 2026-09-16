@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "c1": "met",
+    "c2": "unmet",
+    "c3": "unmet",
+    "c4": "met"
+  },
+  "verdict": "borderline",
+  "notes": "Only the email rule exists; no password check; no new tests despite the final message claiming \"with tests\". The untouched suite passes on re-run."
+}

@@ -1,0 +1,49 @@
+{
+  "session": "cal-rate-limit-partial",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Rate limit the login endpoint"
+  },
+  "title": "Rate limit the login endpoint",
+  "body_excerpt": "Block after 5 failed attempts per IP within 15 minutes. Return 429. Add tests. Document the limit in README.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes",
+      "source": "explicit"
+    },
+    {
+      "id": "c2",
+      "text": "A test covers the 429 path",
+      "source": "explicit"
+    },
+    {
+      "id": "c3",
+      "text": "README documents the limit",
+      "source": "explicit"
+    },
+    {
+      "id": "c4",
+      "text": "Existing login behaviour is unchanged below the limit",
+      "source": "inferred"
+    }
+  ],
+  "spec_quality": {
+    "score": 6,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 3,
+    "basis": "llm"
+  },
+  "budget_usd": 56.25,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

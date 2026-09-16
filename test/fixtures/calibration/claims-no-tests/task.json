@@ -1,0 +1,49 @@
+{
+  "session": "cal-claims-no-tests",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Validate signup input"
+  },
+  "title": "Validate signup input",
+  "body_excerpt": "Reject emails without an @ and passwords shorter than 8 characters. Unit-test both rules.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Signup rejects an email without an @",
+      "source": "explicit"
+    },
+    {
+      "id": "c2",
+      "text": "Signup rejects a password shorter than 8 characters",
+      "source": "explicit"
+    },
+    {
+      "id": "c3",
+      "text": "Unit tests cover both validation rules",
+      "source": "explicit"
+    },
+    {
+      "id": "c4",
+      "text": "The existing test suite still passes",
+      "source": "inferred"
+    }
+  ],
+  "spec_quality": {
+    "score": 7,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 2,
+    "basis": "llm"
+  },
+  "budget_usd": 37.5,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

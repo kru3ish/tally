@@ -159,6 +159,30 @@ Tally reads Claude Code's transcripts in `~/.claude/projects/` for token usage a
 
 Where a built-in already does the job, Tally points you to it: `/insights` for the 30-day retrospective, `/fewer-permission-prompts` for the allowlist, `/cost` and `/usage` for totals, `/context` for what fills the window.
 
+## How accurate is Judge?
+
+Measured, not promised. Five fixture sessions with answers known by construction (`test/fixtures/calibration/`: a complete feature, a partial rate limiter, a session that claims tests it never wrote, an off-by-one "fix" that fails its own regression test, and a scope-creeping rename) are judged by the real model and compared with the authored grades.
+
+Last live run, 2026-09-16, judge model `claude-opus-5`, 19 criteria across 5 sessions:
+
+| Measure | Result |
+|---|---|
+| Criterion agreement (exact) | 18 / 19 = 94.7% |
+| Verdict agreement | 4 / 5 = 80% |
+| Disagreement 1 | "Page 2 returns items 11–20": human `unmet`, judge `partial` (the fix returns 11–21; the judge credited the overlap) |
+| Disagreement 2 | Verdict for the session that claimed unwritten tests: human `borderline`, judge `not worth it` (the model scored quality 2/10 for the false claim, which the verdict rule turns into `not worth it`) |
+
+A previous run of the same five sessions scored 19/19 and 4/5, so expect ±1 criterion of run-to-run variance from the model. The recorded model outputs replay through the deterministic pipeline in CI (`tally calibrate eval`), which fails if agreement drops below `baseline.json`; `tally calibrate eval --live` re-measures the model itself.
+
+Grade your own receipts to build a real sample:
+
+```bash
+tally calibrate add <session> --human met,partial,unmet,unverifiable --verdict borderline
+tally calibrate report      # exact and within-one-step agreement, confusion matrix, disagreements with the judge's evidence
+```
+
+Caveats: five authored sessions are a smoke test, not a benchmark; the fixtures are small JavaScript repos with one test file; the judge sees a scrubbed diff and an independent test run, which is more than it gets when a repo has no detectable test command or the user has not consented to re-runs (then test criteria are `unverifiable` by rule, not by judgment).
+
 ## Development
 
 ```bash

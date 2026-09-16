@@ -1,0 +1,49 @@
+{
+  "session": "cal-scope-creep",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Rename config key timeout to timeoutMs"
+  },
+  "title": "Rename config key timeout to timeoutMs",
+  "body_excerpt": "Accept timeoutMs; keep the old timeout key working with a deprecation warning; add a CHANGELOG entry. Keep the change minimal.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Config accepts timeoutMs",
+      "source": "explicit"
+    },
+    {
+      "id": "c2",
+      "text": "The old timeout key still works and logs a deprecation warning",
+      "source": "explicit"
+    },
+    {
+      "id": "c3",
+      "text": "CHANGELOG.md has an entry for the rename",
+      "source": "explicit"
+    },
+    {
+      "id": "c4",
+      "text": "No unrelated files are changed",
+      "source": "inferred"
+    }
+  ],
+  "spec_quality": {
+    "score": 7,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1,
+    "basis": "llm"
+  },
+  "budget_usd": 18.75,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

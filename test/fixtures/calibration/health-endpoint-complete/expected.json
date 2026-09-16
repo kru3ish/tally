@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "c1": "met",
+    "c2": "met",
+    "c3": "met",
+    "c4": "met"
+  },
+  "verdict": "worth it",
+  "notes": "Everything asked for is in the diff and the independent run passes."
+}

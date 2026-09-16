@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "c1": "met",
+    "c2": "met",
+    "c3": "unmet",
+    "c4": "unmet"
+  },
+  "verdict": "borderline",
+  "notes": "Rename and compat shim are correct and tested; no CHANGELOG entry; logger.js was rewritten into a class for no reason."
+}

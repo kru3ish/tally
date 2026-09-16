@@ -1,0 +1,14 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "README.md": "# acme-app\n\n## Endpoints\n\n- GET / — hello\n",
+    "src/app.js": "const routes = {\n  '/': () => ({ status: 200, body: { hello: 'world' } }),\n};\nmodule.exports = { routes, handle: (p) => (routes[p] ? routes[p]() : { status: 404, body: {} }) };\n",
+    "test.js": "const app = require('./src/app');\nconst r = app.handle('/');\nif (r.status !== 200 || r.body.hello !== 'world') { console.error('root failed'); process.exit(1); }\nconsole.log('ok');\n"
+  },
+  "after": {
+    "src/health.js": "const started = Date.now();\nmodule.exports = function health() {\n  return { status: 200, body: { status: \"ok\", uptime_seconds: Math.floor((Date.now() - started) / 1000) } };\n};\n",
+    "src/app.js": "const health = require('./health');\nconst routes = {\n  '/': () => ({ status: 200, body: { hello: 'world' } }),\n  '/health': health,\n};\nmodule.exports = { routes, handle: (p) => (routes[p] ? routes[p]() : { status: 404, body: {} }) };\n",
+    "test.js": "const app = require('./src/app');\nconst r = app.handle('/');\nif (r.status !== 200 || r.body.hello !== 'world') { console.error('root failed'); process.exit(1); }\nconst h = app.handle('/health');\nif (h.status !== 200 || h.body.status !== 'ok') { console.error('health failed'); process.exit(1); }\nif (typeof h.body.uptime_seconds !== 'number') { console.error('uptime missing'); process.exit(1); }\nconsole.log('ok');\n",
+    "README.md": "# acme-app\n\n## Endpoints\n\n- GET / — hello\n- GET /health — liveness: `{status:\"ok\", uptime_seconds}`\n"
+  }
+}

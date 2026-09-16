@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "c1": "partial",
+    "c2": "met",
+    "c3": "unmet",
+    "c4": "met"
+  },
+  "verdict": "borderline",
+  "notes": "The limiter counts attempts but has no 15-minute window and no per-IP key, so c1 is partial. README untouched. Below-limit path asserted by the test and the independent run passes."
+}

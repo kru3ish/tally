@@ -1,0 +1,10 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "src/items.js": "module.exports = function paginate(items, page, size = 10) {\n  return items.slice(0, size);\n};\n",
+    "test.js": "const paginate = require('./src/items');\nconst all = Array.from({ length: 30 }, (_, i) => i + 1);\nconst p1 = paginate(all, 1);\nif (p1.length !== 10 || p1[0] !== 1 || p1[9] !== 10) { console.error('page 1 wrong: ' + JSON.stringify(p1)); process.exit(1); }\nconst p2 = paginate(all, 2);\nif (p2.length !== 10 || p2[0] !== 11 || p2[9] !== 20) { console.error('page 2 wrong: ' + JSON.stringify(p2)); process.exit(1); }\nconsole.log('ok');\n"
+  },
+  "after": {
+    "src/items.js": "module.exports = function paginate(items, page, size = 10) {\n  return items.slice((page - 1) * size, page * size + 1);\n};\n"
+  }
+}

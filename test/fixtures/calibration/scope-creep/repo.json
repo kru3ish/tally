@@ -1,0 +1,14 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "CHANGELOG.md": "# Changelog\n\n## 1.0.0\n- initial release\n",
+    "src/config.js": "module.exports = function load(raw) {\n  return { timeout: raw.timeout ?? 1000 };\n};\n",
+    "src/logger.js": "module.exports = {\n  info: (m) => console.log('[info] ' + m),\n  warn: (m) => console.warn('[warn] ' + m),\n};\n",
+    "test.js": "const load = require('./src/config');\nif (load({ timeout: 5 }).timeout !== 5) { console.error('timeout not loaded'); process.exit(1); }\nconsole.log('ok');\n"
+  },
+  "after": {
+    "src/config.js": "const logger = require('./logger');\nmodule.exports = function load(raw) {\n  if (raw.timeout !== undefined && raw.timeoutMs === undefined) {\n    logger.warn('config.timeout is deprecated; use timeoutMs');\n    return { timeoutMs: raw.timeout };\n  }\n  return { timeoutMs: raw.timeoutMs ?? 1000 };\n};\n",
+    "src/logger.js": "class Logger {\n  constructor(prefix = '') {\n    this.prefix = prefix;\n  }\n  info(m) {\n    console.log(`${this.prefix}[info] ${m}`);\n  }\n  warn(m) {\n    console.warn(`${this.prefix}[warn] ${m}`);\n  }\n  child(prefix) {\n    return new Logger(this.prefix + prefix);\n  }\n}\nmodule.exports = new Logger();\nmodule.exports.Logger = Logger;\n",
+    "test.js": "const load = require('./src/config');\nif (load({ timeoutMs: 5 }).timeoutMs !== 5) { console.error('timeoutMs not loaded'); process.exit(1); }\nif (load({ timeout: 7 }).timeoutMs !== 7) { console.error('legacy timeout not mapped'); process.exit(1); }\nconsole.log('ok');\n"
+  }
+}

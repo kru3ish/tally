@@ -1,0 +1,44 @@
+{
+  "session": "cal-wrong-fix",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Fix pagination: page 2 returns the first page"
+  },
+  "title": "Fix pagination: page 2 returns the first page",
+  "body_excerpt": "GET /items?page=2 returns items 1-10 instead of 11-20. The regression test in test.js already fails; make it pass without breaking page 1.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Page 2 returns items 11–20",
+      "source": "explicit"
+    },
+    {
+      "id": "c2",
+      "text": "The page-2 regression test passes",
+      "source": "explicit"
+    },
+    {
+      "id": "c3",
+      "text": "Page 1 still returns items 1–10",
+      "source": "explicit"
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1,
+    "basis": "llm"
+  },
+  "budget_usd": 18.75,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

@@ -1,0 +1,49 @@
+{
+  "session": "cal-health-complete",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Add a GET /health endpoint"
+  },
+  "title": "Add a GET /health endpoint",
+  "body_excerpt": "Return 200 with JSON {status:\"ok\", uptime_seconds}. Cover it with a test and list it in the README.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "GET /health returns HTTP 200 with JSON containing status \"ok\"",
+      "source": "explicit"
+    },
+    {
+      "id": "c2",
+      "text": "The response includes uptime_seconds as a number",
+      "source": "explicit"
+    },
+    {
+      "id": "c3",
+      "text": "A test covers the /health endpoint",
+      "source": "explicit"
+    },
+    {
+      "id": "c4",
+      "text": "README lists the endpoint",
+      "source": "explicit"
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1.5,
+    "basis": "llm"
+  },
+  "budget_usd": 28.13,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

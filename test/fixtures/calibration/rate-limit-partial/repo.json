@@ -1,0 +1,13 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "README.md": "# acme-app\n\nExpress-style API.\n",
+    "src/login.js": "module.exports = function login(attempts) {\n  return 200;\n};\n",
+    "test.js": "const login = require('./src/login');\nif (login(1) !== 200) { console.error('login(1) should be 200'); process.exit(1); }\nconsole.log('ok');\n"
+  },
+  "after": {
+    "src/rateLimit.js": "const MAX = 5;\nmodule.exports = function rateLimit(attempts) {\n  return attempts > MAX;\n};\n",
+    "src/login.js": "const rateLimit = require('./rateLimit');\nmodule.exports = function login(attempts) {\n  return rateLimit(attempts) ? 429 : 200;\n};\n",
+    "test.js": "const login = require('./src/login');\nif (login(1) !== 200) { console.error('login(1) should be 200'); process.exit(1); }\nif (login(6) !== 429) { console.error('login(6) should be 429'); process.exit(1); }\nconsole.log('ok');\n"
+  }
+}

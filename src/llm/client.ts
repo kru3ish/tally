@@ -103,7 +103,10 @@ export class ClaudeCli implements LlmClient {
       cache_write_1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
       cache_read: u.cache_read_input_tokens ?? 0,
     };
-    const modelKey = Object.keys(parsed.modelUsage ?? {})[0];
+    /* modelUsage also lists Claude Code's own small helper model; the requested model is the one that carried the cost */
+    const usageEntries = Object.entries(parsed.modelUsage ?? {}) as Array<[string, { costUSD?: number }]>;
+    const wanted = canonicalModel(req.model);
+    const modelKey = usageEntries.find(([k]) => canonicalModel(k) === wanted)?.[0] ?? usageEntries.sort((a, b) => (b[1].costUSD ?? 0) - (a[1].costUSD ?? 0))[0]?.[0];
     const model = canonicalModel(modelKey ?? req.model);
     const cost_usd = parsed.total_cost_usd ?? 0;
     recordTallySpend({ kind: req.kind, model, cost_usd, usage, session: this.opts.session });

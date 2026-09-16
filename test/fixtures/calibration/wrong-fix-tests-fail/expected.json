@@ -1,0 +1,9 @@
+{
+  "criteria": {
+    "c1": "unmet",
+    "c2": "unmet",
+    "c3": "unmet"
+  },
+  "verdict": "not worth it",
+  "notes": "Off-by-one: every page returns 11 items, so page 1 breaks too, the regression test still fails on the independent run, and the assistant called it flaky and pushed anyway."
+}
