@@ -11301,6 +11301,40 @@ async function run19(args) {
   const since = flag(args, "since") ?? "60d";
   const repo = flag(args, "repo");
   const plain = has(args, "plain");
+  if (sub === "list" && flag(args, "suggest")) {
+    const n = Math.max(1, Number(flag(args, "suggest")) || 20);
+    const cands = scanSessions({ since, repo }).filter((c) => c.cwd && fs35.existsSync(c.cwd) && c.cost >= 0.2);
+    const scored = cands.map((c) => {
+      const link = detectTaskLink({ cwd: c.cwd, branch: c.branch, prompts: c.prompts, start: c.started, end: c.ended });
+      const why = [];
+      let score = c.cost;
+      if (c.files_edited.length) why.push(`${c.files_edited.length} file(s) edited`);
+      else score *= 0.25;
+      if (link.kind !== "none") {
+        score *= 1.3;
+        why.push(`link ${link.kind} ${link.confidence.toFixed(1)}`);
+      } else why.push("task inferred from prompts");
+      if (c.first_prompt.trim().length < 40) score *= 0.5;
+      else why.push("concrete first prompt");
+      return { c, link, score, why, state: isBackfilled(c.session) ? "backfilled" : "" };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, n);
+    process.stdout.write(`Top ${top.length} of ${cands.length} candidate(s) since ${since} for calibration (by cost, edits and link; sessions without commits are judged from the transcript reconstruction, tests not run)
+
+`);
+    process.stdout.write(`${"session".padEnd(10)} ${"date".padEnd(11)} ${"repo".padEnd(26)} ${"cost".padStart(8)}  ${"why".padEnd(52)} state
+`);
+    for (const s of top) process.stdout.write(`${s.c.session.slice(0, 8).padEnd(10)} ${(s.c.started ?? "").slice(0, 10).padEnd(11)} ${shortRepo(s.c.repo).slice(0, 26).padEnd(26)} ${fmtUsd(s.c.cost).padStart(8)}  ${s.why.join(", ").slice(0, 52).padEnd(52)} ${s.state}
+${"".padEnd(10)} ${"".padEnd(11)} ${s.c.first_prompt.replace(/\s+/g, " ").slice(0, 90)}
+`);
+    const proj = projectCost(top.filter((s) => !s.state).map((s) => s.c), cfg);
+    process.stdout.write(`
+Projected Tally spend to backfill the ${top.filter((s) => !s.state).length} not yet done: ${fmtUsd(proj.total_usd)}.
+Next: tally backfill add <session> [--max-spend 3]
+`);
+    return;
+  }
   if (sub === "list") {
     const cands = scanSessions({ since, repo });
     if (!cands.length) {
@@ -11466,6 +11500,9 @@ ${HELP}`);
     const mod = await loader();
     const code = await mod.run(args);
     if (typeof code === "number") process.exitCode = code;
+    if (has(args, "plugin") && PLUGIN_HINTS[cmd]) process.stdout.write(`
+${PLUGIN_HINTS[cmd]}
+`);
   } catch (err) {
     const msg = err instanceof Error ? err.stack ?? err.message : String(err);
     log(`command ${cmd} failed: ${msg}`);
@@ -11475,7 +11512,7 @@ ${HELP}`);
     process.exitCode = 1;
   }
 }
-var COMMANDS, HELP;
+var COMMANDS, HELP, PLUGIN_HINTS;
 var init_cli = __esm({
   "src/cli.ts"() {
     init_paths();
@@ -11544,6 +11581,11 @@ Other
   otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)
   demo                        Replay a fixture session end to end with a stubbed LLM
 `;
+    PLUGIN_HINTS = {
+      coach: "The live Coach pane with one-key actions needs the CLI: npm i -g @kru3ish/tally, then `tally watch` in a second terminal.",
+      status: "For the live Coach pane, backfill and blind grading install the CLI: npm i -g @kru3ish/tally",
+      report: "Receipts for past sessions and blind grading need the CLI: npm i -g @kru3ish/tally, then `tally backfill list` and `tally calibrate grade`."
+    };
     void main();
   }
 });

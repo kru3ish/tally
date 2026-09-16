@@ -40,6 +40,16 @@ tally install                 # refuses if the plugin is already enabled, so you
 tally doctor
 ```
 
+What each path gives you:
+
+| | Plugin only | Plugin + CLI (`npm i -g @kru3ish/tally`) |
+|---|---|---|
+| Hooks record every session; receipts on push and at session end | yes | yes |
+| `/tally:task`, `/tally:judge`, `/tally:report`, `/tally:tally` (status), `/tally:coach` (pending suggestions) | yes | yes |
+| Live Coach pane with one-key actions (`tally watch`, `tally start`) | no, the slash command prints the install hint | yes |
+| Receipts for past sessions (`tally backfill`) and blind grading (`tally calibrate`) | no | yes |
+| Experiments, `tally undo`, `tally doctor`, `tally followup` on demand | no | yes |
+
 Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional (GitHub intake, write-back, follow-up). Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
 
 Uninstall: `/plugin uninstall tally` or `tally uninstall` (settings come back byte-identical, checked in CI), then `rm -rf ~/.tally` if you want the receipts gone too.
@@ -215,6 +225,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 - Phase attribution (explore / build / verify / ship) is heuristic.
 - Follow-up needs `gh`; Jira/Linear follow-up covers the linked issue only when a GitHub PR exists.
 - Claude Code's transcript format is undocumented; the parser targets v2.1.x and `tally doctor` checks recent transcripts still parse.
+- Installing the plugin makes Claude Code run `npm install` in the plugin cache (it does so for any plugin with a `package.json`), which pulls about 80 MB of Tally's dev tooling that the prebuilt `dist/` never uses. Slow the first time, otherwise harmless.
 - Hooks in `~/.claude/settings.json` use the shell form (`node "<path>" Event`); the plugin uses the exec form. Both are recognised, but don't run both.
 
 ## Roadmap

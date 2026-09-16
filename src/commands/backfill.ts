@@ -22,6 +22,34 @@ export async function run(args: Args): Promise<number | void> {
   const repo = flag(args, 'repo');
   const plain = has(args, 'plain');
 
+  if (sub === 'list' && flag(args, 'suggest')) {
+    /* ranked shortlist for calibration: concrete, expensive sessions that edited files; no verdicts are shown here */
+    const n = Math.max(1, Number(flag(args, 'suggest')) || 20);
+    const cands = scanSessions({ since, repo }).filter((c) => c.cwd && fs.existsSync(c.cwd) && c.cost >= 0.2);
+    const scored = cands.map((c) => {
+      const link = detectTaskLink({ cwd: c.cwd, branch: c.branch, prompts: c.prompts, start: c.started, end: c.ended });
+      const why: string[] = [];
+      let score = c.cost;
+      if (c.files_edited.length) why.push(`${c.files_edited.length} file(s) edited`);
+      else score *= 0.25;
+      if (link.kind !== 'none') {
+        score *= 1.3;
+        why.push(`link ${link.kind} ${link.confidence.toFixed(1)}`);
+      } else why.push('task inferred from prompts');
+      if (c.first_prompt.trim().length < 40) score *= 0.5;
+      else why.push('concrete first prompt');
+      return { c, link, score, why, state: isBackfilled(c.session) ? 'backfilled' : '' };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, n);
+    process.stdout.write(`Top ${top.length} of ${cands.length} candidate(s) since ${since} for calibration (by cost, edits and link; sessions without commits are judged from the transcript reconstruction, tests not run)\n\n`);
+    process.stdout.write(`${'session'.padEnd(10)} ${'date'.padEnd(11)} ${'repo'.padEnd(26)} ${'cost'.padStart(8)}  ${'why'.padEnd(52)} state\n`);
+    for (const s of top) process.stdout.write(`${s.c.session.slice(0, 8).padEnd(10)} ${(s.c.started ?? '').slice(0, 10).padEnd(11)} ${shortRepo(s.c.repo).slice(0, 26).padEnd(26)} ${fmtUsd(s.c.cost).padStart(8)}  ${s.why.join(', ').slice(0, 52).padEnd(52)} ${s.state}\n${''.padEnd(10)} ${''.padEnd(11)} ${s.c.first_prompt.replace(/\s+/g, ' ').slice(0, 90)}\n`);
+    const proj = projectCost(top.filter((s) => !s.state).map((s) => s.c), cfg);
+    process.stdout.write(`\nProjected Tally spend to backfill the ${top.filter((s) => !s.state).length} not yet done: ${fmtUsd(proj.total_usd)}.\nNext: tally backfill add <session> [--max-spend 3]\n`);
+    return;
+  }
+
   if (sub === 'list') {
     const cands = scanSessions({ since, repo });
     if (!cands.length) {

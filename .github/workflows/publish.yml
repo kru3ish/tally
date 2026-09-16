@@ -1,5 +1,7 @@
-# Publishes @kru3ish/tally to npm with provenance when a v* tag is pushed.
-# Nothing here runs until the tag exists; pushing the tag is a manual step in the release checklist.
+# Publishes @kru3ish/tally to npm with provenance when a v* tag is pushed, using npm trusted publishing (OIDC):
+# no NPM_TOKEN secret anywhere. The npmjs.com side must list this repo + workflow as a trusted publisher first
+# (see RELEASING.md). Publishing a version that already exists on the registry is a no-op, so pushing the tag
+# after a manual first publish is safe.
 name: publish
 
 on:
@@ -20,6 +22,8 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
+      - name: npm 11.5.1+ is required for trusted publishing
+        run: npm install -g npm@latest && npm --version
       - run: git config --global user.email ci@tally.local && git config --global user.name tally-ci
       - run: npm ci
       - run: npm test
@@ -27,6 +31,12 @@ jobs:
         run: |
           v=$(node -p "require('./package.json').version")
           test "refs/tags/v$v" = "$GITHUB_REF" || { echo "tag $GITHUB_REF does not match package version $v"; exit 1; }
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: skip if this version is already on the registry
+        id: exists
+        run: |
+          name=$(node -p "require('./package.json').name")
+          v=$(node -p "require('./package.json').version")
+          if npm view "$name@$v" version >/dev/null 2>&1; then echo "already=true" >> "$GITHUB_OUTPUT"; echo "$name@$v is already published; nothing to do"; else echo "already=false" >> "$GITHUB_OUTPUT"; fi
+      - name: publish with provenance (trusted publishing, OIDC)
+        if: steps.exists.outputs.already == 'false'
+        run: npm publish --provenance --access public

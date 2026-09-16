@@ -106,6 +106,13 @@ Other
   demo                        Replay a fixture session end to end with a stubbed LLM
 `;
 
+/* Printed after a command that ran from the plugin's slash commands (`--plugin`): what the npm CLI adds. */
+const PLUGIN_HINTS: Record<string, string> = {
+  coach: 'The live Coach pane with one-key actions needs the CLI: npm i -g @kru3ish/tally, then `tally watch` in a second terminal.',
+  status: 'For the live Coach pane, backfill and blind grading install the CLI: npm i -g @kru3ish/tally',
+  report: 'Receipts for past sessions and blind grading need the CLI: npm i -g @kru3ish/tally, then `tally backfill list` and `tally calibrate grade`.',
+};
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._.shift();
@@ -127,6 +134,7 @@ async function main(): Promise<void> {
     const mod = await loader();
     const code = await mod.run(args);
     if (typeof code === 'number') process.exitCode = code;
+    if (has(args, 'plugin') && PLUGIN_HINTS[cmd]) process.stdout.write(`\n${PLUGIN_HINTS[cmd]}\n`);
   } catch (err) {
     const msg = err instanceof Error ? err.stack ?? err.message : String(err);
     log(`command ${cmd} failed: ${msg}`);

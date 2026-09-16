@@ -61,6 +61,17 @@ jobs:
       - name: hooks.json uses the exec form (node + args, no shell)
         run: node -e "const h=require('./hooks/hooks.json').hooks; for (const [e,gs] of Object.entries(h)) for (const g of gs) for (const k of g.hooks) { if (k.command!=='node' || k.args[0]!=='\${CLAUDE_PLUGIN_ROOT}/dist/hook.js' || k.args[1]!==e) { console.error('bad hook', e, k); process.exit(1) } }; console.log('ok')"
 
+  plugin-only:
+    name: plugin-only path (real plugin manager, fake model calls, no global tally)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm i -g @anthropic-ai/claude-code
+      - run: bash scripts/plugin-only-check.sh
+
   clean-install:
     name: clean install from the tarball / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
