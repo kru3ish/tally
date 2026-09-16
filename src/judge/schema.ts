@@ -51,6 +51,10 @@ export const JudgeSchema = z.object({
   }),
   cost: z.object({
     label: z.literal('API-equivalent'),
+    confidence: z.enum(['full', 'partial']),
+    format: z.object({ version: z.string().optional(), known: z.boolean(), total_lines: z.number(), unparseable_lines: z.number(), unknown_types: z.array(z.string()) }),
+    tally_share_pct: z.number(),
+    otel: z.object({ available: z.boolean(), total_usd: z.number().optional(), delta_usd: z.number().optional(), note: z.string().optional() }).optional(),
     total_usd: z.number(),
     usage: UsageZ,
     by_phase: z.record(Bucket),

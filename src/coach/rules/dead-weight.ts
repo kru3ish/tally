@@ -11,7 +11,7 @@ export interface DeadWeightItem {
 
 export function findDeadWeight(ctx: RuleContext, minSessions = 3): { items: DeadWeightItem[]; sessions: number; avg_first_turn: number; overhead: number } {
   const repo = ctx.cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const sessions = ctx.history.filter((h) => h.kind === 'session' && h.repo === repo && h.loaded).slice(-ctx.cfg.dead_weight_sessions);
+  const sessions = ctx.history.filter((h) => h.kind === 'session' && !h.internal && h.repo === repo && h.loaded).slice(-ctx.cfg.dead_weight_sessions);
   if (sessions.length < minSessions) return { items: [], sessions: sessions.length, avg_first_turn: 0, overhead: 0 };
   const avgFirst = sessions.reduce((s, h) => s + (h.first_turn_tokens ?? 0), 0) / sessions.length;
   const overhead = Math.max(0, avgFirst - ctx.cfg.baseline_context_tokens);

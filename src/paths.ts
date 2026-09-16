@@ -1,6 +1,15 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+/* Internal (Tally-initiated) headless runs execute from a temp dir with this prefix; with
+   --no-session-persistence they write no transcript, but anything under such a cwd is excluded from stats. */
+export const INTERNAL_CWD_MARKER = 'tally-llm-';
+
+export function isInternalCwd(cwd: string | undefined): boolean {
+  return !!cwd && cwd.replace(/\\/g, '/').toLowerCase().includes(INTERNAL_CWD_MARKER);
+}
 
 export function tallyHome(): string {
   return process.env.TALLY_HOME || path.join(os.homedir(), '.tally');
@@ -103,7 +112,7 @@ let cachedRoot: string | null = null;
 /* The package root, found by walking up from this module (works from both src/ under tests and dist/ at runtime). */
 export function packageRoot(): string {
   if (cachedRoot) return cachedRoot;
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 6; i++) {
     const pkg = path.join(dir, 'package.json');
     if (fs.existsSync(pkg)) {

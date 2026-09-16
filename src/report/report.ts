@@ -33,7 +33,7 @@ export function latestReceipts(entries: HistoryEntry[]): HistoryEntry[] {
 export function computeTrend(opts: { repo?: string; days?: number; history?: HistoryEntry[] } = {}): Trend {
   const all = opts.history ?? loadHistory();
   const cutoff = opts.days ? Date.now() - opts.days * 86400000 : 0;
-  const inScope = all.filter((e) => (!opts.repo || e.repo === opts.repo) && (!cutoff || Date.parse(e.ts ?? '') >= cutoff));
+  const inScope = all.filter((e) => !e.internal && (!opts.repo || e.repo === opts.repo) && (!cutoff || Date.parse(e.ts ?? '') >= cutoff));
   const receipts = latestReceipts(inScope);
   const sessions = inScope.filter((e) => e.kind === 'session');
   const followed = receipts.filter((r) => r.final_status && r.final_status !== 'unknown');

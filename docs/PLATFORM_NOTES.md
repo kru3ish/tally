@@ -48,3 +48,10 @@ Checked against `claude --version` = **2.1.268** and the official docs at code.c
 ## Pricing (verified 2026-09-16, platform.claude.com/docs/en/about-claude/pricing)
 
 Per MTok: Fable 5.1 $10/$50 (cache read $0.25); Opus 5 / 4.8 / 4.7 / 4.6 / 4.5 $5/$25 (cache read $0.50, 5m write $6.25, 1h write $10); Sonnet 5 $2/$10; Sonnet 4.6/4.5 $3/$15; Haiku 4.5 $1/$5. 5m cache write = 1.25× input; 1h write = 2× input; cache read = 0.1× input (0.025× on Fable/Mythos 5.1). Stored in `pricing.json` with `last_verified`.
+
+## Headless runs and transcripts (verified 2026-09-16, hardening pass)
+
+- `claude -p … --no-session-persistence` from an empty temp dir wrote **no transcript**: only an empty `~/.claude/projects/<encoded-cwd>/memory/` directory appeared. The same call without `--no-session-persistence` (measured earlier with `--bare`) did write `<session>.jsonl`.
+- Tally therefore relies on `--no-session-persistence` for its own calls, and additionally: runs from a cwd named `tally-llm-*`, sets `CLAUDE_CODE_ENTRYPOINT=tally` and `TALLY_INTERNAL=1`. The parser tags any transcript whose `cwd` contains `tally-llm-` or whose `entrypoint` is `tally` as `internal`; `finalize` never writes such sessions to `history.jsonl`, `loadHistory()` drops any entry marked `internal` or under such a cwd, and the Judge refuses to judge them. Dead-weight, trends and experiments all read through `loadHistory()`.
+- Tally's hooks return immediately when `TALLY_INTERNAL=1` is in the environment (Claude Code passes its environment to hook processes), on top of `--setting-sources ""` which already skips hooks.
+- Claude Code's own `/insights` and `/usage` are outside Tally's control; because no transcript is written they should not see these runs either. The empty `memory/` dirs are harmless clutter; `tally doctor` counts them.

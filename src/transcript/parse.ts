@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { addUsage, canonicalModel, costOf, emptyUsage, loadPricing, type Pricing, type Usage } from '../cost/pricing.js';
+import { isInternalCwd } from '../paths.js';
 
 export interface ToolCall {
   id: string;
@@ -63,6 +64,29 @@ export interface Transcript {
   finalAssistantText: string;
   skills: Array<{ name: string; ts: string; turn: number; messageId: string }>;
   mcpCalls: Array<{ server: string; tool: string; ts: string; turn: number; messageId: string; isError: boolean }>;
+  /* true when the transcript came from one of Tally's own headless runs; excluded from every stat */
+  internal: boolean;
+  entrypoint?: string;
+  format: TranscriptFormat;
+  cost_confidence: 'full' | 'partial';
+}
+
+export interface TranscriptFormat {
+  version?: string;
+  known: boolean;
+  total_lines: number;
+  unparseable_lines: number;
+  unknown_types: string[];
+}
+
+/* Transcript layouts Tally has been verified against (Claude Code major.minor). */
+export const KNOWN_FORMAT_VERSIONS = ['2.1'];
+const KNOWN_LINE_TYPES = new Set(['assistant', 'user', 'system', 'attachment', 'permission-mode', 'mode', 'summary', 'progress', 'queue-operation', 'file-history-snapshot', 'custom-title', 'last-prompt', 'ai-title', 'pr-link', 'agent-name']);
+
+export function isKnownFormatVersion(version: string | undefined): boolean {
+  if (!version) return false;
+  const mm = version.split('.').slice(0, 2).join('.');
+  return KNOWN_FORMAT_VERSIONS.includes(mm);
 }
 
 interface RawLine {
@@ -74,6 +98,7 @@ interface RawLine {
   agentId?: string;
   timestamp?: string;
   cwd?: string;
+  entrypoint?: string;
   version?: string;
   gitBranch?: string;
   sessionId?: string;
@@ -107,28 +132,42 @@ export function isShipCommand(cmd: string): boolean {
   return SHIP_RE.test(cmd);
 }
 
-export function readTranscriptLines(file: string): RawLine[] {
-  if (!fs.existsSync(file)) return [];
+export function readTranscriptLines(file: string): { lines: RawLine[]; unparseable: number; total: number } {
+  if (!fs.existsSync(file)) return { lines: [], unparseable: 0, total: 0 };
   const out: RawLine[] = [];
+  let unparseable = 0;
+  let total = 0;
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
     if (!line.trim()) continue;
+    total += 1;
     try {
-      out.push(JSON.parse(line) as RawLine);
+      const parsed = JSON.parse(line) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        unparseable += 1;
+        continue;
+      }
+      out.push(parsed as RawLine);
     } catch {
-      /* torn line */
+      unparseable += 1;
     }
   }
-  return out;
+  return { lines: out, unparseable, total };
 }
 
 export function parseTranscriptFile(file: string, pricing: Pricing = loadPricing()): Transcript {
-  const lines = readTranscriptLines(file);
+  const main = readTranscriptLines(file);
+  const lines = main.lines;
+  let unparseable = main.unparseable;
+  let total = main.total;
   const dir = file.replace(/\.jsonl$/, '');
   const subDir = path.join(dir, 'subagents');
   if (fs.existsSync(subDir)) {
     for (const f of fs.readdirSync(subDir).filter((x) => x.endsWith('.jsonl'))) {
       const agent = f.replace(/\.jsonl$/, '');
-      for (const l of readTranscriptLines(path.join(subDir, f))) {
+      const sub = readTranscriptLines(path.join(subDir, f));
+      unparseable += sub.unparseable;
+      total += sub.total;
+      for (const l of sub.lines) {
         l.isSidechain = true;
         l.agentId ??= agent;
         lines.push(l);
@@ -136,7 +175,7 @@ export function parseTranscriptFile(file: string, pricing: Pricing = loadPricing
     }
   }
   lines.sort((a, b) => (a.timestamp ?? '').localeCompare(b.timestamp ?? ''));
-  return parseTranscript(lines, pricing);
+  return parseTranscript(lines, pricing, { unparseable, total });
 }
 
 function textOf(content: unknown): string {
@@ -153,8 +192,12 @@ function textOf(content: unknown): string {
   return '';
 }
 
-export function parseTranscript(lines: RawLine[], pricing: Pricing = loadPricing()): Transcript {
+export function parseTranscript(lines: RawLine[], pricing: Pricing = loadPricing(), counts: { unparseable: number; total: number } = { unparseable: 0, total: lines.length }): Transcript {
+  const unknownTypes = new Set<string>();
   const t: Transcript = {
+    internal: false,
+    format: { known: false, total_lines: counts.total, unparseable_lines: counts.unparseable, unknown_types: [] },
+    cost_confidence: 'full',
     sessionId: '',
     models: [],
     prompts: [],
@@ -190,6 +233,8 @@ export function parseTranscript(lines: RawLine[], pricing: Pricing = loadPricing
     if (!t.sessionId && l.sessionId) t.sessionId = l.sessionId;
     if (!t.cwd && l.cwd) t.cwd = l.cwd;
     if (!t.version && l.version) t.version = l.version;
+    if (!t.entrypoint && l.entrypoint) t.entrypoint = l.entrypoint;
+    if (l.type && !KNOWN_LINE_TYPES.has(l.type)) unknownTypes.add(l.type);
     if (!t.gitBranch && l.gitBranch) t.gitBranch = l.gitBranch;
     if (l.timestamp) {
       if (!t.startedAt || l.timestamp < t.startedAt) t.startedAt = l.timestamp;
@@ -331,6 +376,12 @@ export function parseTranscript(lines: RawLine[], pricing: Pricing = loadPricing
     t.contextTokensNow = lastMainMessage.usage.input + lastMainMessage.usage.cache_read + lastMainMessage.usage.cache_write;
   }
   t.finalAssistantText = lastAssistantText;
+  t.internal = isInternalCwd(t.cwd) || t.entrypoint === 'tally';
+  t.format.version = t.version;
+  t.format.known = isKnownFormatVersion(t.version);
+  t.format.unknown_types = [...unknownTypes].sort();
+  const assistantWithoutUsage = lines.filter((l) => l.type === 'assistant' && l.message && !l.message.usage).length;
+  t.cost_confidence = counts.unparseable > 0 || !t.format.known || assistantWithoutUsage > 0 ? 'partial' : 'full';
   return t;
 }
 

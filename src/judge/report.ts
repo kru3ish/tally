@@ -46,7 +46,9 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push(`## Cost (${j.cost.label}) — ${fmtUsd(j.cost.total_usd)} of ${fmtUsd(j.cost.budget_usd)} budget (${j.cost.budget_used_pct}%)`);
   L.push('');
-  L.push(`Per completed criterion: ${j.cost.per_completed_criterion_usd === null ? 'n/a (none met)' : fmtUsd(j.cost.per_completed_criterion_usd)} · Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (counted separately) · models: ${j.cost.models.join(', ')}`);
+  L.push(`Per completed criterion: ${j.cost.per_completed_criterion_usd === null ? 'n/a (none met)' : fmtUsd(j.cost.per_completed_criterion_usd)} · Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (${j.cost.tally_share_pct}% of session spend, counted separately) · models: ${j.cost.models.join(', ')}`);
+  if (j.cost.confidence === 'partial') L.push(`\n> **Cost is partial.** Transcript format ${j.cost.format.version ?? 'unknown'}${j.cost.format.known ? '' : ' is not a verified layout'}; ${j.cost.format.unparseable_lines} of ${j.cost.format.total_lines} lines could not be parsed${j.cost.format.unknown_types.length ? `; unknown line types: ${j.cost.format.unknown_types.join(', ')}` : ''}. Run \`tally doctor\`.`);
+  if (j.cost.otel?.available) L.push(`\nOTel cross-check: ${fmtUsd(j.cost.otel.total_usd ?? 0)} reported by Claude Code telemetry (${(j.cost.otel.delta_usd ?? 0) >= 0 ? '+' : ''}${fmtUsd(j.cost.otel.delta_usd ?? 0)} vs transcript).`);
   L.push('');
   L.push('| Phase | Spend | Calls |');
   L.push('|---|---|---|');
@@ -107,7 +109,8 @@ export function renderSummary(j: Judge, color = true): string {
     L.push(`  ${c(col, STATUS_ICON[cr.status]!)} ${cr.id} ${cr.text}`);
   }
   L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')}` : c('90', `not run (${j.verification.reason})`)}`);
-  L.push(`Cost (API-equivalent): ${fmtUsd(j.cost.total_usd)} / budget ${fmtUsd(j.cost.budget_usd)} (${j.cost.budget_used_pct}%) · per met criterion ${j.cost.per_completed_criterion_usd === null ? 'n/a' : fmtUsd(j.cost.per_completed_criterion_usd)} · waste ${fmtUsd(j.waste.total_usd)}`);
+  L.push(`Cost (API-equivalent${j.cost.confidence === 'partial' ? ', PARTIAL: transcript not fully parsed' : ''}): ${fmtUsd(j.cost.total_usd)} / budget ${fmtUsd(j.cost.budget_usd)} (${j.cost.budget_used_pct}%) · per met criterion ${j.cost.per_completed_criterion_usd === null ? 'n/a' : fmtUsd(j.cost.per_completed_criterion_usd)} · waste ${fmtUsd(j.waste.total_usd)}`);
+  L.push(`  Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (${j.cost.tally_share_pct}% of session spend, separate)${j.cost.otel?.available ? ` · OTel cross-check ${fmtUsd(j.cost.otel.total_usd ?? 0)}` : ''}`);
   const phases = Object.entries(j.cost.by_phase)
     .filter(([, v]) => v.usd > 0)
     .map(([k, v]) => `${k} ${fmtUsd(v.usd)}`)

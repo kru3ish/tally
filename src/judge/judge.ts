@@ -136,6 +136,7 @@ export async function judgeSession(opts: {
 }): Promise<Judge> {
   const events = opts.events ?? readEvents(opts.session);
   const t = parseTranscriptFile(opts.transcriptPath);
+  if (t.internal) throw new Error('refusing to judge one of Tally\'s own internal runs');
   let task = opts.task === undefined ? loadTask(opts.session) : opts.task;
   const linked = !!task;
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
@@ -208,6 +209,9 @@ export async function judgeSession(opts: {
       budget_usd: task.budget_usd,
       budget_used_pct: task.budget_usd > 0 ? round((t.cost / task.budget_usd) * 100, 1) : 0,
       tally_own_usd: round(tallyOwn + r.cost_usd),
+      tally_share_pct: t.cost > 0 ? round(((tallyOwn + r.cost_usd) / t.cost) * 100, 1) : 0,
+      confidence: t.cost_confidence,
+      format: t.format,
       models: t.models,
     },
     waste: {
@@ -255,6 +259,10 @@ export function persistJudge(judge: Judge, task: Task | null): void {
     final_status: judge.followup?.final_status,
     final_verdict: judge.followup?.final_verdict,
     linked: judge.task.linked,
+    tally_own_usd: judge.cost.tally_own_usd,
+    tally_share_pct: judge.cost.tally_share_pct,
+    cost_confidence: judge.cost.confidence,
+    internal: false,
     criteria_count: judge.criteria.length,
     met: judge.counts.met,
     spec_quality: task?.spec_quality.score,

@@ -8,6 +8,10 @@ import { loadPricing, bundledPricingPath } from '../cost/pricing.js';
 import { isInstalled, settingsPath } from '../install/install.js';
 import { activeSessions } from '../session.js';
 import { resolveClaudeBin } from '../llm/client.js';
+import { loadHistory } from '../coach/context.js';
+import { parseTranscriptFile } from '../transcript/parse.js';
+import { projectTranscriptsDir, isInternalCwd } from '../paths.js';
+import { ghStatus } from '../followup/gh.js';
 
 interface Check {
   name: string;
@@ -32,8 +36,8 @@ export function runChecks(): Check[] {
     checks.push({ name: 'claude -p launcher', ok: true, detail: r.prefix.length ? `resolved shim → ${r.prefix[0]}` : r.bin });
   }
 
-  const gh = sh('gh', ['auth', 'status']);
-  checks.push({ name: 'gh', ok: gh.ok ? true : 'warn', detail: gh.ok ? 'authenticated' : 'not authenticated or missing; GitHub intake, write-back and follow-up will fall back' });
+  const gh = ghStatus();
+  checks.push({ name: 'gh', ok: gh.ok ? true : 'warn', detail: gh.ok ? 'authenticated' : `${gh.reason}. Fix: ${gh.fix}. Until then GitHub intake falls back to the prompt text, write-back and follow-up are skipped and say so.` });
 
   const user = isInstalled('user');
   const project = isInstalled('project', process.cwd());
@@ -82,7 +86,58 @@ export function runChecks(): Check[] {
   checks.push({ name: 'transcripts', ok: fs.existsSync(transcripts) ? true : 'warn', detail: fs.existsSync(transcripts) ? transcripts : `${transcripts} not found yet (created by Claude Code on first session)` });
   const active = activeSessions();
   checks.push({ name: 'sessions', ok: true, detail: `${active.length} active` });
+
+  const receipts = loadHistory().filter((h) => typeof h.tally_share_pct === 'number');
+  if (receipts.length) {
+    const avg = receipts.reduce((s, h) => s + (h.tally_share_pct ?? 0), 0) / receipts.length;
+    checks.push({ name: 'tally overhead', ok: avg <= 5 ? true : 'warn', detail: `Tally's own LLM spend averages ${avg.toFixed(1)}% of session spend over ${receipts.length} receipt(s)${avg > 5 ? '; above the 5% target — use a smaller judge model (tally config models.judge sonnet) or judge less often' : ''}` });
+  } else {
+    checks.push({ name: 'tally overhead', ok: true, detail: 'no receipts yet; the share of session spend is reported on each receipt' });
+  }
+
+  checks.push(transcriptFormatCheck(process.cwd()));
+  const internalDirs = fs.existsSync(transcripts) ? fs.readdirSync(transcripts).filter((d) => isInternalCwd(d)).length : 0;
+  if (internalDirs) checks.push({ name: 'internal runs', ok: true, detail: `${internalDirs} empty project dir(s) from Tally's own headless runs under ~/.claude/projects (no transcripts; safe to delete)` });
   return checks;
+}
+
+export function transcriptFormatCheck(cwd: string): Check {
+  const dirs = [projectTranscriptsDir(cwd), path.join(claudeHome(), 'projects')];
+  const files: string[] = [];
+  for (const d of dirs) {
+    if (!fs.existsSync(d)) continue;
+    const entries = fs.readdirSync(d).map((f) => path.join(d, f));
+    for (const e of entries) {
+      if (e.endsWith('.jsonl')) files.push(e);
+      else if (fs.statSync(e).isDirectory() && !isInternalCwd(e)) for (const f of fs.readdirSync(e)) if (f.endsWith('.jsonl')) files.push(path.join(e, f));
+    }
+    if (files.length) break;
+  }
+  const recent = files.map((f) => ({ f, m: fs.statSync(f).mtimeMs })).sort((a, b) => b.m - a.m).slice(0, 5);
+  if (!recent.length) return { name: 'transcript format', ok: 'warn', detail: 'no transcripts found to check' };
+  let unparseable = 0;
+  let total = 0;
+  const versions = new Set<string>();
+  const unknownTypes = new Set<string>();
+  let unknownVersion = false;
+  for (const { f } of recent) {
+    try {
+      const t = parseTranscriptFile(f);
+      unparseable += t.format.unparseable_lines;
+      total += t.format.total_lines;
+      if (t.format.version) versions.add(t.format.version);
+      if (!t.format.known) unknownVersion = true;
+      for (const u of t.format.unknown_types) unknownTypes.add(u);
+    } catch {
+      unparseable += 1;
+    }
+  }
+  const ok = unparseable === 0 && !unknownVersion ? true : 'warn';
+  return {
+    name: 'transcript format',
+    ok,
+    detail: `${recent.length} recent transcript(s), Claude Code ${[...versions].join(', ') || 'unknown'}${unknownVersion ? ' (not a verified layout; costs will be marked partial)' : ''}, ${unparseable}/${total} unparseable lines${unknownTypes.size ? `, unknown line types: ${[...unknownTypes].join(', ')}` : ''}`,
+  };
 }
 
 export async function run(args: Args): Promise<number | void> {

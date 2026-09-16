@@ -198,6 +198,8 @@ function followupDue(): boolean {
 }
 
 function main(): void {
+  /* Tally's own claude -p calls set TALLY_INTERNAL=1; never record them as sessions. */
+  if (process.env.TALLY_INTERNAL) return;
   const raw = readStdin();
   let input: HookInput = {};
   try {

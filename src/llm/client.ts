@@ -76,7 +76,8 @@ export class ClaudeCli implements LlmClient {
       '--strict-mcp-config',
     ];
     const resolved = resolveClaudeBin(this.opts.claudeBin ?? process.env.TALLY_CLAUDE_BIN);
-    const out = await runProcess(resolved.bin, [...resolved.prefix, ...args], { cwd, timeoutMs: req.timeoutMs ?? 240000 });
+    /* TALLY_INTERNAL marks the run so Tally's own hooks exit at once (belt: --setting-sources "" already skips hooks). */
+    const out = await runProcess(resolved.bin, [...resolved.prefix, ...args], { cwd, timeoutMs: req.timeoutMs ?? 240000, env: { TALLY_INTERNAL: '1', CLAUDE_CODE_ENTRYPOINT: 'tally' } });
     fs.rmSync(cwd, { recursive: true, force: true });
     let parsed: CliOutput;
     try {
@@ -133,7 +134,7 @@ let resolvedClaude: { bin: string; prefix: string[] } | null = null;
 /* On Windows `claude` is usually an npm .cmd shim; running it needs a shell, and cmd.exe quoting
    mangles JSON arguments. Resolve the shim to its JS entry and run it with node directly. */
 export function resolveClaudeBin(explicit?: string): { bin: string; prefix: string[] } {
-  if (explicit) return { bin: explicit, prefix: [] };
+  if (explicit) return /\.[cm]?js$/i.test(explicit) ? { bin: process.execPath, prefix: [explicit] } : { bin: explicit, prefix: [] };
   if (resolvedClaude) return resolvedClaude;
   let result = { bin: 'claude', prefix: [] as string[] };
   if (process.platform === 'win32') {
@@ -163,11 +164,12 @@ function killTree(pid: number): void {
   }
 }
 
-export function runProcess(bin: string, args: string[], opts: { cwd?: string; timeoutMs: number; input?: string; shell?: boolean }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
+export function runProcess(bin: string, args: string[], opts: { cwd?: string; timeoutMs: number; input?: string; shell?: boolean; env?: NodeJS.ProcessEnv; replaceEnv?: boolean }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     const isWin = process.platform === 'win32';
     const verbatim = isWin && /cmd(\.exe)?$/i.test(bin);
-    const child = spawn(bin, args, { cwd: opts.cwd, shell: opts.shell ?? false, windowsHide: true, detached: !isWin, windowsVerbatimArguments: verbatim, env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'tally' } });
+    const env = opts.replaceEnv ? { ...(opts.env ?? {}) } : { ...process.env, ...(opts.env ?? {}) };
+    const child = spawn(bin, args, { cwd: opts.cwd, shell: opts.shell ?? false, windowsHide: true, detached: !isWin, windowsVerbatimArguments: verbatim, env });
     let stdout = '';
     let stderr = '';
     let timedOut = false;

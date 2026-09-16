@@ -34,3 +34,8 @@ One line each. Newest at the bottom.
 - D30: Fixture timestamps were stretched to a ~22-minute session so the Coach's 3-minute interval shows its behaviour in the demo.
 - D31: Hook path is resolved from the package root (`dist/hooks/hook.js`) so tests running from `src/` and the CLI running from `dist/` agree.
 - D32: On Windows the `claude` npm shim is resolved to its JS entry and run with node directly, avoiding cmd.exe quoting of JSON arguments; timeouts kill the whole process tree with taskkill.
+- H1-a: Internal `claude -p` calls set `TALLY_INTERNAL=1` and `CLAUDE_CODE_ENTRYPOINT=tally` and run from a `tally-llm-*` temp cwd; hooks exit at once on `TALLY_INTERNAL`. Verified that `--no-session-persistence` leaves no transcript, so tagging is defence in depth (see PLATFORM_NOTES).
+- H1-b: `history.jsonl` entries carry `internal`; `loadHistory()` filters them and anything under a `tally-llm-` cwd, so dead-weight, trends and experiment reports never see Tally's own runs.
+- H1-c: Every receipt records `cost.tally_own_usd` and `cost.tally_share_pct` (own spend ÷ session spend); `tally doctor` averages the share over receipts and warns above 5%.
+- H1-d: Transcript parser records the Claude Code `version`, counts unparseable lines and unknown line types, and marks `cost_confidence: partial` when any are present or the major.minor is not in the verified list (`2.1`). Receipts label the cost PARTIAL and `tally doctor` scans the five most recent transcripts.
+- H1-e: `TALLY_CLAUDE_BIN` may point at a `.js` file, which is run under node; tests use it to drive the real launcher with a fake `claude`.

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import type { Config } from '../config.js';
-import { historyFile } from '../paths.js';
+import { historyFile, isInternalCwd } from '../paths.js';
 import { readEvents, type TallyEvent } from '../store/events.js';
 import { parseTranscriptFile, type Transcript } from '../transcript/parse.js';
 import { loadTask } from '../task/intake.js';
@@ -15,7 +15,10 @@ export function loadHistory(): HistoryEntry[] {
   for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     try {
-      out.push(JSON.parse(line) as HistoryEntry);
+      const e = JSON.parse(line) as HistoryEntry;
+      /* entries from Tally's own headless runs never count toward any stat */
+      if (e.internal || isInternalCwd(e.repo)) continue;
+      out.push(e);
     } catch {
       /* skip */
     }

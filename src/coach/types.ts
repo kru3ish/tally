@@ -47,6 +47,10 @@ export interface HistoryEntry {
   linked?: boolean;
   spec_quality?: number;
   prompts?: string[];
+  internal?: boolean;
+  tally_own_usd?: number;
+  tally_share_pct?: number;
+  cost_confidence?: 'full' | 'partial';
 }
 
 export interface RuleContext {

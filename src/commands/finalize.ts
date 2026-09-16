@@ -8,7 +8,7 @@ import { parseTranscriptFile } from '../transcript/parse.js';
 import { loadTask } from '../task/intake.js';
 import { readEvents } from '../store/events.js';
 import { sessionCwd, transcriptPathFor } from '../session.js';
-import { historyFile, appendLine, repoKey, sessionDir, log, writeJson } from '../paths.js';
+import { historyFile, appendLine, repoKey, sessionDir, log, writeJson, isInternalCwd } from '../paths.js';
 import { restoreExperimentConfig, prepareNextArm } from '../experiment/experiment.js';
 
 export async function run(args: Args): Promise<void> {
@@ -25,14 +25,22 @@ export async function run(args: Args): Promise<void> {
   let usedMcp: string[] = [];
   let firstTurn = 0;
   let cost = 0;
+  let costConfidence: 'full' | 'partial' = 'full';
   if (transcriptPath && fs.existsSync(transcriptPath)) {
     const t = parseTranscriptFile(transcriptPath);
+    if (t.internal || isInternalCwd(cwd)) {
+      log(`finalize: ${session} is an internal Tally run; not recorded`);
+      return;
+    }
     usedSkills = [...new Set(t.skills.map((s) => s.name))];
     usedMcp = [...new Set(t.mcpCalls.map((m) => m.server))];
     firstTurn = t.firstTurnContextTokens;
     cost = t.cost;
+    costConfidence = t.cost_confidence;
+  } else if (isInternalCwd(cwd)) {
+    return;
   }
-  const summary = { ts: new Date().toISOString(), kind: 'session', session, repo: repoKey(cwd), loaded, used: { skills: usedSkills, mcp: usedMcp }, first_turn_tokens: firstTurn, cost_usd: cost, linked: !!loadTask(session) };
+  const summary = { ts: new Date().toISOString(), kind: 'session', session, repo: repoKey(cwd), loaded, used: { skills: usedSkills, mcp: usedMcp }, first_turn_tokens: firstTurn, cost_usd: cost, cost_confidence: costConfidence, linked: !!loadTask(session), internal: false };
   appendLine(historyFile(), JSON.stringify(summary));
   writeJson(path.join(sessionDir(session), 'summary.json'), summary);
 
