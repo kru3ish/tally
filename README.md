@@ -107,6 +107,19 @@ tally experiment report
 
 Tally alternates the item off and on across the next N tasks in the repo by patching `.claude/settings.local.json` before each session and restoring it byte-identically at session end. The report compares completion %, cost per criterion, and rework rate between the two arms and says **not enough data** until each arm has three judged tasks.
 
+## Backfill: receipts for sessions you already ran
+
+```bash
+tally backfill list --since 60d [--repo path]        # date, repo, cost, detected task link + confidence
+tally backfill add <session> [--task <url|text>]     # or: tally backfill add all --max-spend 3
+tally calibrate grade <session> --grader you         # blind: grade first, then see Tally's judgment
+tally calibrate report --source backfill
+```
+
+For each past session Tally finds the task link (URL in a prompt → issue key in the branch or in commits made during the session → PR on the session branch), reconstructs the window from git (last commit before the session on its branch to the last commit inside it, extended to the merged PR head), judges the diff in a throwaway `git worktree`, re-runs the tests there only with your per-repo consent and only when dependencies install offline (otherwise test criteria are `unverifiable (historical tests not runnable)`), runs follow-up immediately, and replays the Coach rules over the transcript into `coach_replay.json`. Intake uses the ticket as it read at session start when the tracker keeps history (Jira changelog, GitHub renames and body edits); otherwise it says the text may have changed. A projected cost is printed first and the run stops at `--max-spend` (default $3).
+
+Grading is blind: you see the frozen criteria, the diff stat, the test result, the PR outcome, and the final assistant message, then grade each criterion, give a verdict, and mark each replayed Coach suggestion useful or noise; only then is Tally's judgment shown side by side. `--grader <name>` lets a second person grade the same sessions; the report shows criterion and verdict agreement with sample sizes, the confusion matrix, whether Tally leans lenient or strict, inter-grader agreement, and Coach precision per rule. Fixture and backfill results are always separate sections.
+
 ## Commands
 
 ```

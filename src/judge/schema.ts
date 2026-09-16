@@ -20,6 +20,7 @@ export const JudgeSchema = z.object({
     linked: z.boolean(),
   }),
   head: z.string().optional(),
+  historical: z.object({ start_head: z.string().optional(), end_head: z.string().optional(), notes: z.array(z.string()) }).optional(),
   criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()), resolved_by: z.enum(['tier0', 'tier1', 'tier2', 'rule']).default('tier2'), confidence: z.number().min(0).max(1).optional() })),
   tiers: z
     .object({

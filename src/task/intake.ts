@@ -46,6 +46,7 @@ export const TaskSchema = z.object({
   model: z.string(),
   cache_key: z.string().optional(),
   cached: z.boolean().optional(),
+  historical: z.object({ ticket_as_of: z.enum(['current', 'session_start']), note: z.string() }).optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -134,12 +135,19 @@ export async function intake(opts: {
   deps?: FetchDeps;
   force?: boolean;
   noCache?: boolean;
+  /* backfill: ticket text as it read at session start, and a note stored on the task */
+  override?: { title: string; body: string };
+  historical?: { ticket_as_of: 'current' | 'session_start'; note: string };
 }): Promise<{ task: Task; created: boolean }> {
   const existing = loadTask(opts.session);
   if (existing && !opts.force) return { task: existing, created: false };
 
   const ref = opts.ref ?? opts.text ?? '';
   const fetched = await fetchTask(ref, { cwd: opts.cwd, cfg: opts.cfg, deps: opts.deps, promptText: opts.text });
+  if (opts.override) {
+    fetched.title = opts.override.title;
+    fetched.body = opts.override.body;
+  }
   const bodyForLlm = fetched.body.slice(0, 12000);
   const prompt = `TITLE: ${fetched.title}\nSOURCE: ${fetched.source.kind}${fetched.source.url ? ' ' + fetched.source.url : ''}\nLABELS: ${fetched.labels.join(', ') || '(none)'}\n${fetched.story_points ? `STORY POINTS: ${fetched.story_points}\n` : ''}\nDESCRIPTION:\n${bodyForLlm || '(empty)'}`;
   /* one small-model call per distinct task content; identical tickets are free to re-intake */
@@ -190,6 +198,7 @@ export async function intake(opts: {
     model: r.model,
     cache_key: cacheKey,
     cached,
+    ...(opts.historical ? { historical: opts.historical } : {}),
   };
   TaskSchema.parse(task);
   ensureDir(sessionDir(opts.session));
@@ -213,6 +222,7 @@ export function renderTask(task: Task): string {
   lines.push(`Acceptance criteria (frozen):`);
   for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : ''}  [${c.kind === 'mechanical' ? `mechanical: ${c.check?.kind}` : 'judgment'}]`);
   if (task.cached) lines.push(`  (intake served from cache; no model call)`);
+  if (task.historical) lines.push(`  (historical: ${task.historical.note})`);
   lines.push(`Spec quality: ${task.spec_quality.score}/10${task.needs_clarification ? '  -> Clarify the ticket first' : ''}`);
   if (task.spec_quality.missing.length) lines.push(`  Missing: ${task.spec_quality.missing.join('; ')}`);
   if (task.needs_clarification && task.spec_quality.questions.length) {

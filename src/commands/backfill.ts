@@ -1,0 +1,99 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { type Args, flag, has } from '../cli.js';
+import { loadConfig, testRerunConsent } from '../config.js';
+import { makeLlm } from '../llm/client.js';
+import { scanSessions, type SessionCandidate } from '../backfill/scan.js';
+import { detectTaskLink } from '../backfill/link.js';
+import { backfillSession, projectCost, isBackfilled } from '../backfill/run.js';
+import { fmtUsd } from '../cost/pricing.js';
+import { sessionDir } from '../paths.js';
+
+function shortRepo(repo?: string): string {
+  if (!repo) return '?';
+  const parts = repo.split('/');
+  return parts.slice(-2).join('/');
+}
+
+export async function run(args: Args): Promise<number | void> {
+  const cfg = loadConfig();
+  const sub = args._[0] ?? 'list';
+  const since = flag(args, 'since') ?? '60d';
+  const repo = flag(args, 'repo');
+  const plain = has(args, 'plain');
+
+  if (sub === 'list') {
+    const cands = scanSessions({ since, repo });
+    if (!cands.length) {
+      process.stdout.write(`No sessions with prompts found in the last ${since}${repo ? ` for ${repo}` : ''}.\n`);
+      return;
+    }
+    process.stdout.write(`${cands.length} session(s) since ${since}${repo ? ` in ${repo}` : ''} (task link: URL in prompt > issue key in branch/commits > PR on branch)\n\n`);
+    process.stdout.write(`${'session'.padEnd(10)} ${'date'.padEnd(11)} ${'repo'.padEnd(28)} ${'cost'.padStart(8)}  ${'link'.padEnd(40)} conf   state\n`);
+    let linked = 0;
+    for (const c of cands) {
+      const link = detectTaskLink({ cwd: c.cwd, branch: c.branch, prompts: c.prompts, start: c.started, end: c.ended });
+      if (link.kind !== 'none') linked += 1;
+      const state = isBackfilled(c.session) ? 'backfilled' : '';
+      const linkText = link.kind === 'none' ? '(none)' : `${link.url ?? link.ref}`;
+      process.stdout.write(`${c.session.slice(0, 8).padEnd(10)} ${(c.started ?? '').slice(0, 10).padEnd(11)} ${shortRepo(c.repo).slice(0, 28).padEnd(28)} ${fmtUsd(c.cost).padStart(8)}  ${linkText.slice(0, 40).padEnd(40)} ${link.confidence.toFixed(1).padStart(4)}   ${state}\n`);
+      if (!plain) process.stdout.write(`${''.padEnd(10)} ${''.padEnd(11)} ${c.first_prompt.replace(/\s+/g, ' ').slice(0, 70)}  · ${link.evidence}\n`);
+    }
+    const proj = projectCost(cands, cfg);
+    process.stdout.write(`\n${linked}/${cands.length} with a detected task link. Projected cost to backfill all: ${fmtUsd(proj.total_usd)} (intake ${fmtUsd(proj.intake_usd)}, tier 1 ${fmtUsd(proj.tier1_usd)}, tier 2 ${fmtUsd(proj.tier2_usd)} on ${proj.tier2_sessions} session(s) ≥ $${cfg.judge.deepThreshold}).\n`);
+    process.stdout.write(`Next: tally backfill add <session> [--task <url|text>]   or   tally backfill add all --max-spend 3\n`);
+    return;
+  }
+
+  if (sub === 'add') {
+    const target = args._[1];
+    if (!target) {
+      process.stderr.write('Usage: tally backfill add <session-prefix|all> [--task <url|text>] [--since 60d] [--repo path] [--max-spend 3] [--force]\n');
+      return 1;
+    }
+    const cands = scanSessions({ since, repo });
+    const chosen: SessionCandidate[] = target === 'all' ? cands.filter((c) => !isBackfilled(c.session) || has(args, 'force')) : cands.filter((c) => c.session.startsWith(target));
+    if (!chosen.length) {
+      process.stderr.write(target === 'all' ? 'Nothing to backfill (all candidates already done; pass --force to redo).\n' : `No session starting with "${target}" in the last ${since}. Run tally backfill list.\n`);
+      return 1;
+    }
+    if (chosen.length > 1 && target !== 'all') {
+      process.stderr.write(`"${target}" matches ${chosen.length} sessions; give more characters.\n`);
+      return 1;
+    }
+    const maxSpend = Number(flag(args, 'max-spend') ?? 3);
+    const proj = projectCost(chosen, cfg);
+    process.stdout.write(`Backfilling ${chosen.length} session(s). Projected Tally spend ${fmtUsd(proj.total_usd)} (cap ${fmtUsd(maxSpend)}; intake hits the cache when the ticket text is unchanged).\n`);
+    const cwds = [...new Set(chosen.map((c) => c.cwd).filter((x): x is string => !!x))];
+    for (const c of cwds) {
+      const consent = testRerunConsent(cfg, c);
+      if (consent === undefined) process.stdout.write(`  ${c}: no test re-run consent stored; historical tests will not run (tally config consent on, run from that repo, to allow).\n`);
+    }
+    let spent = 0;
+    let done = 0;
+    for (const c of chosen) {
+      if (spent >= maxSpend) {
+        process.stdout.write(`Stopped: Tally spend ${fmtUsd(spent)} reached the --max-spend cap ${fmtUsd(maxSpend)} after ${done} session(s).\n`);
+        break;
+      }
+      if (isBackfilled(c.session) && !has(args, 'force')) {
+        process.stdout.write(`${c.session.slice(0, 8)}: already backfilled (--force to redo)\n`);
+        continue;
+      }
+      if (has(args, 'force')) for (const f of ['judge.json', 'task.json', 'coach_replay.json']) if (fs.existsSync(path.join(sessionDir(c.session), f))) fs.unlinkSync(path.join(sessionDir(c.session), f));
+      process.stdout.write(`${c.session.slice(0, 8)} ${(c.started ?? '').slice(0, 10)} ${shortRepo(c.repo)} ${fmtUsd(c.cost)}\n`);
+      try {
+        const r = await backfillSession(c, { cfg, llm: makeLlm({ session: c.session }), taskRef: flag(args, 'task'), log: (s) => process.stdout.write(s + '\n') });
+        if (r.skipped) process.stdout.write(`  skipped: ${r.skipped}\n`);
+        spent += r.tally_spend_usd;
+        done += 1;
+      } catch (err) {
+        process.stdout.write(`  failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+    }
+    process.stdout.write(`\nDone: ${done} session(s), Tally spend ${fmtUsd(spent)}. Grade them blind: tally calibrate grade <session> [--grader you]\n`);
+    return;
+  }
+  process.stderr.write('Usage: tally backfill list|add\n');
+  return 1;
+}

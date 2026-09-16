@@ -12,12 +12,14 @@ export type VerdictText = (typeof VERDICTS)[number];
 export interface CalibrationEntry {
   ts: string;
   session: string;
-  source: 'human' | 'fixture';
+  source: 'human' | 'fixture' | 'backfill';
+  grader?: string;
   task_title: string;
   criteria: Array<{ id: string; text: string; judge: Status; human: Status; evidence: string }>;
   judge_verdict: VerdictText;
   human_verdict?: VerdictText;
   judge_model?: string;
+  coach?: Array<{ rule: string; key: string; title: string; mark: 'useful' | 'noise' }>;
 }
 
 export function calibrationFile(): string {
@@ -74,7 +76,7 @@ export function readCalibration(file = calibrationFile()): CalibrationEntry[] {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line) as CalibrationEntry;
-      bySession.set(e.session, e);
+      bySession.set(`${e.session}|${e.grader ?? ''}`, e);
     } catch {
       /* skip */
     }
@@ -94,6 +96,9 @@ export interface CalibrationReport {
   disagreements: Array<{ session: string; task: string; id: string; text: string; human: Status; judge: Status; evidence: string }>;
   verdict_disagreements: Array<{ session: string; task: string; human: VerdictText; judge: VerdictText }>;
   per_status: Record<Status, { human: number; judge: number; precision: number | null; recall: number | null }>;
+  lean: { lenient: number; stricter: number; same: number };
+  inter_grader: { sessions: number; criteria: number; agreement: number | null; graders: string[] } | null;
+  coach: { total: number; useful: number; precision: number | null; per_rule: Array<{ rule: string; total: number; useful: number; precision: number }> };
 }
 
 const ORDER: Record<Status, number> = { met: 3, partial: 2, unverifiable: 1, unmet: 0 };
@@ -131,7 +136,41 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     const judgeCount = STATUSES.reduce((n, h) => n + confusion[h][s], 0);
     per_status[s] = { human: humanCount, judge: judgeCount, precision: judgeCount ? confusion[s][s] / judgeCount : null, recall: humanCount ? confusion[s][s] / humanCount : null };
   }
+  const lean = { lenient: 0, stricter: 0, same: 0 };
+  for (const e of entries)
+    for (const c of e.criteria) {
+      if (ORDER[c.judge] > ORDER[c.human]) lean.lenient += 1;
+      else if (ORDER[c.judge] < ORDER[c.human]) lean.stricter += 1;
+      else lean.same += 1;
+    }
+  const byGraderSession = new Map<string, CalibrationEntry[]>();
+  for (const e of entries) if (e.grader) byGraderSession.set(e.session, [...(byGraderSession.get(e.session) ?? []), e]);
+  let igCriteria = 0;
+  let igAgree = 0;
+  let igSessions = 0;
+  const graders = new Set<string>();
+  for (const [, es] of byGraderSession) {
+    if (es.length < 2) continue;
+    igSessions += 1;
+    for (const e of es) graders.add(e.grader!);
+    const [a, b] = es;
+    for (let i = 0; i < Math.min(a!.criteria.length, b!.criteria.length); i++) {
+      igCriteria += 1;
+      if (a!.criteria[i]!.human === b!.criteria[i]!.human) igAgree += 1;
+    }
+  }
+  const coachMarks = entries.flatMap((e) => e.coach ?? []);
+  const perRule = new Map<string, { total: number; useful: number }>();
+  for (const m of coachMarks) {
+    const r = perRule.get(m.rule) ?? { total: 0, useful: 0 };
+    r.total += 1;
+    if (m.mark === 'useful') r.useful += 1;
+    perRule.set(m.rule, r);
+  }
   return {
+    lean,
+    inter_grader: igSessions ? { sessions: igSessions, criteria: igCriteria, agreement: igCriteria ? igAgree / igCriteria : null, graders: [...graders] } : null,
+    coach: { total: coachMarks.length, useful: coachMarks.filter((m) => m.mark === 'useful').length, precision: coachMarks.length ? coachMarks.filter((m) => m.mark === 'useful').length / coachMarks.length : null, per_rule: [...perRule.entries()].map(([rule, v]) => ({ rule, total: v.total, useful: v.useful, precision: v.useful / v.total })).sort((x, y) => y.total - x.total) },
     entries: entries.length,
     criteria: total,
     criterion_agreement: total ? agree / total : null,
@@ -154,8 +193,15 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
     L.push('No grades yet. Grade a receipt: tally calibrate add <session> --human met,partial,unmet,... --verdict "worth it"');
     return L.join('\n');
   }
-  L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact · ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours)`);
-  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} of ${r.verdict_total}` : 'n/a (no human verdicts)'}`);
+  L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact · ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) · n=${r.criteria}`);
+  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} of ${r.verdict_total}` : 'n/a (no human verdicts)'} · n=${r.verdict_total}`);
+  L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
+  if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(' and ')}`);
+  else L.push('inter-grader          n/a (no session graded by two people; use --grader <name>)');
+  if (r.coach.total) {
+    L.push(`coach precision       ${pct(r.coach.precision)} of ${r.coach.total} replayed suggestion(s) marked useful`);
+    for (const p of r.coach.per_rule) L.push(`  ${p.rule.padEnd(22)} ${pct(p.precision)} (${p.useful}/${p.total})`);
+  } else L.push('coach precision       n/a (no Coach suggestions graded)');
   L.push('');
   L.push('confusion (rows = human, columns = judge)');
   L.push(`${'human \\ judge'.padEnd(16)}${STATUSES.map((s) => s.padStart(13)).join('')}   recall`);
@@ -164,7 +210,7 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
   if (r.disagreements.length) {
     L.push('');
     L.push(`disagreements (${r.disagreements.length})`);
-    for (const d of r.disagreements) L.push(`- [${d.session.slice(0, 12)}] ${d.id} "${d.text.slice(0, 70)}": human ${d.human}, judge ${d.judge}\n    judge's evidence: ${d.evidence.slice(0, 220).replace(/\n/g, ' ')}`);
+    for (const d of r.disagreements) L.push(`- [${d.session.slice(0, 12)}] ${d.id} "${d.text.slice(0, 70)}": human ${d.human}, judge ${d.judge} (${ORDER[d.judge] > ORDER[d.human] ? 'lenient' : 'stricter'})\n    judge's evidence: ${d.evidence.slice(0, 220).replace(/\n/g, ' ')}`);
   }
   if (r.verdict_disagreements.length) {
     L.push('');

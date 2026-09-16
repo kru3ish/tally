@@ -155,6 +155,9 @@ export async function judgeSession(opts: {
   task?: Task | null;
   consent?: boolean;
   deep?: boolean;
+  /* evidence and checks run in `cwd` (e.g. a historical worktree); the receipt records `repoCwd` when given */
+  repoCwd?: string;
+  historical?: { start_head?: string; end_head?: string; notes: string[] };
 }): Promise<Judge> {
   const events = opts.events ?? readEvents(opts.session);
   const t = parseTranscriptFile(opts.transcriptPath);
@@ -259,8 +262,9 @@ export async function judgeSession(opts: {
   const judge: Judge = {
     version: 1,
     session: opts.session,
-    cwd: opts.cwd,
+    cwd: opts.repoCwd ?? opts.cwd,
     judged_at: new Date().toISOString(),
+    historical: opts.historical,
     head: ev.git.current_head,
     tiers,
     reason: opts.reason,

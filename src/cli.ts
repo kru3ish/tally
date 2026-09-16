@@ -59,6 +59,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   sessions: () => import('./commands/sessions.js'),
   otel: () => import('./commands/otel.js'),
   calibrate: () => import('./commands/calibrate.js'),
+  backfill: () => import('./commands/backfill.js'),
 };
 
 const HELP = `tally — per-task receipts and live coaching for Claude Code
@@ -90,9 +91,14 @@ Experiments
   experiment report
   experiment stop
 
+Backfill (past sessions from ~/.claude/projects)
+  backfill list [--since 60d] [--repo path]     candidates with cost and detected task link
+  backfill add <session|all> [--task <url|text>] [--max-spend 3]   reconstruct, judge, follow up, replay the Coach
+
 Calibration
+  calibrate grade <session> [--grader name]     blind grading of a backfilled receipt
   calibrate add <session> --human met,partial,... [--verdict "worth it"]
-  calibrate report            Agreement, confusion matrix, disagreements with evidence
+  calibrate report [--source backfill|human|fixture]   agreement, confusion, lean, inter-grader, Coach precision
   calibrate eval [--live] [--record] [--fail-below N]   Regression eval on the fixture sessions
 
 Other

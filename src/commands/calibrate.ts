@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type Args, flag, has } from '../cli.js';
-import { addCalibration, buildCalibrationReport, parseStatuses, parseVerdict, readCalibration, renderCalibrationReport } from '../calibrate/calibrate.js';
+import readline from 'node:readline';
+import { addCalibration, buildCalibrationReport, parseStatuses, parseVerdict, readCalibration, renderCalibrationReport, type CalibrationEntry } from '../calibrate/calibrate.js';
+import { gradeSession } from '../calibrate/grade.js';
 import { loadBaseline, runEval, renderOverheadTable } from '../calibrate/eval.js';
 import { renderSummary } from '../judge/judge.js';
 import { loadJudge } from '../judge/judge.js';
@@ -33,11 +35,34 @@ export async function run(args: Args): Promise<number | void> {
     }
     return;
   }
+  if (sub === 'grade') {
+    const session = resolveSession(args._[1] ?? flag(args, 'session'), process.cwd());
+    if (!session || !loadJudge(session)) {
+      process.stderr.write('Usage: tally calibrate grade <session> [--grader name]   (the session needs a receipt: tally backfill add or tally judge)\n');
+      return 1;
+    }
+    const grader = flag(args, 'grader') ?? os.userInfo().username;
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (q: string) => new Promise<string>((res) => rl.question(q, res));
+    try {
+      await gradeSession(session, { grader, ask, out: (s) => process.stdout.write(s + '\n') });
+    } finally {
+      rl.close();
+    }
+    process.stdout.write('\nReport: tally calibrate report --source backfill\n');
+    return;
+  }
   if (sub === 'report' || !sub) {
-    const entries = readCalibration();
-    process.stdout.write(renderCalibrationReport(buildCalibrationReport(entries), 'Judge calibration (your graded sessions)') + '\n');
-    const b = loadBaseline();
-    if (b) process.stdout.write(`\nFixture regression baseline (${b.judge_model ?? '?'}, ${b.recorded_at?.slice(0, 10) ?? '?'}): ${(b.criterion_agreement * 100).toFixed(0)}% criterion agreement, ${(b.verdict_agreement * 100).toFixed(0)}% verdict agreement. Run \`tally calibrate eval\` to re-check.\n`);
+    const source = flag(args, 'source');
+    const all = readCalibration();
+    const sections: Array<[string, CalibrationEntry[]]> = source ? [[source, all.filter((e) => e.source === source)]] : [['backfill', all.filter((e) => e.source === 'backfill')], ['human', all.filter((e) => e.source === 'human')]];
+    for (const [name, entries] of sections) {
+      process.stdout.write(renderCalibrationReport(buildCalibrationReport(entries), name === 'backfill' ? 'Backfill calibration (real sessions, blind-graded)' : name === 'fixture' ? 'Fixture calibration' : 'Calibration (receipts graded with calibrate add)') + '\n\n');
+    }
+    if (!source || source === 'fixture') {
+      const b = loadBaseline();
+      if (b) process.stdout.write(`Fixture regression baseline (kept separate from real sessions; ${b.judge_model ?? '?'}, ${b.recorded_at?.slice(0, 10) ?? '?'}): ${(b.criterion_agreement * 100).toFixed(0)}% criterion agreement, ${(b.verdict_agreement * 100).toFixed(0)}% verdict agreement, ${b.avg_share_pct ?? '?'}% average self-share. Run \`tally calibrate eval\` to re-check.\n`);
+    }
     return;
   }
   if (sub === 'eval') {
@@ -80,6 +105,6 @@ export async function run(args: Args): Promise<number | void> {
     }
     return;
   }
-  process.stderr.write('Usage: tally calibrate add|report|eval\n');
+  process.stderr.write('Usage: tally calibrate add|grade|report|eval\n');
   return 1;
 }
