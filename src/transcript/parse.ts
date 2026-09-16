@@ -81,7 +81,10 @@ export interface TranscriptFormat {
 
 /* Transcript layouts Tally has been verified against (Claude Code major.minor). */
 export const KNOWN_FORMAT_VERSIONS = ['2.1'];
-const KNOWN_LINE_TYPES = new Set(['assistant', 'user', 'system', 'attachment', 'permission-mode', 'mode', 'summary', 'progress', 'queue-operation', 'file-history-snapshot', 'custom-title', 'last-prompt', 'ai-title', 'pr-link', 'agent-name']);
+/* Line types seen in Claude Code 2.1.x transcripts. Unknown types are reported by `tally doctor` but do not
+   by themselves lower cost confidence: only unparseable lines, assistant lines without usage, or an
+   unverified major.minor do. */
+const KNOWN_LINE_TYPES = new Set(['assistant', 'user', 'system', 'attachment', 'permission-mode', 'mode', 'summary', 'progress', 'queue-operation', 'file-history-snapshot', 'file-history-delta', 'atis-latch', 'custom-title', 'last-prompt', 'ai-title', 'pr-link', 'agent-name']);
 
 export function isKnownFormatVersion(version: string | undefined): boolean {
   if (!version) return false;
