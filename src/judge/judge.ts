@@ -8,7 +8,15 @@ import { attribute, markTouched } from '../cost/attribution.js';
 import { readEvents, appendEvent, type TallyEvent } from '../store/events.js';
 import { loadTask, type Task } from '../task/intake.js';
 import { collectEvidence, type Evidence, type Exec } from './evidence.js';
-import { runVerification, type VerificationResult } from './verify.js';
+import { runVerification, NO_CONSENT_REASON, type VerificationResult } from './verify.js';
+import { redactDeep } from '../redact.js';
+import { testRerunConsent } from '../config.js';
+
+const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
+
+export function isTestCriterion(text: string): boolean {
+  return TEST_CRITERION_RE.test(text);
+}
 import { JudgeSchema, type Judge, type Verdict } from './schema.js';
 import { renderReport, renderSummary } from './report.js';
 import { sessionDir, ensureDir, writeJson, historyFile, appendLine, repoKey, readJson } from '../paths.js';
@@ -110,7 +118,7 @@ function buildPrompt(task: Task, t: Transcript, ev: Evidence, ver: VerificationR
   for (const c of task.criteria) parts.push(`- ${c.id}: ${c.text} [${c.source}]`);
   parts.push(`\n# INDEPENDENT VERIFICATION (run by the auditor, not the assistant)`);
   if (ver.ran) parts.push(`Command: ${ver.command}\nResult: ${ver.passed ? 'PASSED' : ver.timed_out ? 'TIMED OUT' : `FAILED (exit ${ver.exit_code})`} in ${ver.duration_ms} ms\nOutput tail:\n${ver.output_tail}`);
-  else parts.push(`Not run: ${ver.reason}`);
+  else parts.push(`Not run: ${ver.reason}.${ver.reason === NO_CONSENT_REASON ? ' The user has not allowed the auditor to run tests in this repo. Any criterion about tests passing or coverage can only be "unverifiable" unless the diff itself proves it; transcript claims of passing tests do not count.' : ''}`);
   parts.push(`\n# GIT EVIDENCE\nBranch: ${ev.git.branch ?? '?'}  Base: ${ev.git.base_head?.slice(0, 8) ?? 'unknown'}  ${ev.git.error ? 'NOTE: ' + ev.git.error : ''}\nFiles changed (${ev.git.files_changed.length}): ${ev.git.files_changed.join(', ') || '(none)'}\n+${ev.git.insertions} -${ev.git.deletions}\n\n## Diff\n${ev.git.diff_excerpt || '(empty diff)'}`);
   parts.push(`\n# COMMANDS THE ASSISTANT RAN (from transcript; outputs are tool results, not claims)`);
   if (ev.command_runs.length === 0) parts.push('(no test or lint commands run)');
@@ -133,6 +141,7 @@ export async function judgeSession(opts: {
   events?: TallyEvent[];
   verification?: VerificationResult;
   task?: Task | null;
+  consent?: boolean;
 }): Promise<Judge> {
   const events = opts.events ?? readEvents(opts.session);
   const t = parseTranscriptFile(opts.transcriptPath);
@@ -141,19 +150,27 @@ export async function judgeSession(opts: {
   const linked = !!task;
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
   const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec });
-  const ver = opts.verification ?? (await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests }));
+  const consent = opts.consent ?? testRerunConsent(opts.cfg, opts.cwd);
+  const ver = opts.verification ?? (await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent }));
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
   const humanValue = task.estimate.hours * task.hourly_rate;
 
   const prompt = buildPrompt(task, t, ev, ver, { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd });
   const r = await opts.llm.complete<JudgeOut>({ kind: 'judge', model: opts.cfg.models.judge, system: JUDGE_SYSTEM, prompt, schema: JUDGE_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
-  const out = r.data;
+  /* model output is text that may echo secrets from the diff; it goes through the same redactor as hook events */
+  const out = redactDeep(r.data);
 
+  const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
   const byId = new Map((out.criteria ?? []).map((c) => [c.id, c]));
   const criteria = task.criteria.map((c) => {
     const j = byId.get(c.id);
-    const status = j && ['met', 'partial', 'unmet', 'unverifiable'].includes(j.status) ? j.status : 'unverifiable';
-    return { id: c.id, text: c.text, status, evidence: j?.evidence ?? 'No assessment returned by the judge model.', files: (j?.files ?? []).map(String) };
+    let status: 'met' | 'partial' | 'unmet' | 'unverifiable' = j && ['met', 'partial', 'unmet', 'unverifiable'].includes(j.status) ? j.status : 'unverifiable';
+    let evidence = j?.evidence ?? 'No assessment returned by the judge model.';
+    if (noConsent && isTestCriterion(c.text) && status !== 'unmet') {
+      status = 'unverifiable';
+      evidence = `unverifiable (${NO_CONSENT_REASON}). ${evidence}`;
+    }
+    return { id: c.id, text: c.text, status, evidence, files: (j?.files ?? []).map(String) };
   });
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of criteria) counts[c.status] += 1;

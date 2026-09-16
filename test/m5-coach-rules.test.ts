@@ -52,8 +52,8 @@ const task = (over: Partial<Task> = {}): Task => ({
 });
 
 describe('rules', () => {
-  it('has all 11 rules', () => {
-    expect(RULES.map((r) => r.id)).toEqual(['loop-detect', 'reread', 'context-pressure', 'claude-md', 'mcp-opportunity', 'dead-weight', 'mcp-errors', 'permission-friction', 'burn-rate', 'task-quality', 'history-lesson']);
+  it('has all 11 rules plus the consent prompt', () => {
+    expect(RULES.map((r) => r.id)).toEqual(['loop-detect', 'reread', 'context-pressure', 'claude-md', 'mcp-opportunity', 'dead-weight', 'mcp-errors', 'permission-friction', 'burn-rate', 'task-quality', 'history-lesson', 'verification-consent']);
   });
 
   it('loop-detect: fires as critical on 3 identical failing commands and on repeated failing edits', () => {

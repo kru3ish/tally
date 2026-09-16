@@ -72,25 +72,25 @@ describe('verification', () => {
   it('detects and runs the project test command with a timeout', async () => {
     const { cwd } = makeRepo({ testPasses: true });
     expect(detectTestCommand(cwd)).toEqual({ command: 'npm test', basis: 'package.json scripts.test' });
-    const r = await runVerification(cwd, { timeoutMs: 60000 });
+    const r = await runVerification(cwd, { timeoutMs: 60000, consent: true });
     expect(r.ran).toBe(true);
     expect(r.passed).toBe(true);
     const bad = makeRepo({ testPasses: false });
-    const r2 = await runVerification(bad.cwd, { timeoutMs: 60000 });
+    const r2 = await runVerification(bad.cwd, { timeoutMs: 60000, consent: true });
     expect(r2.passed).toBe(false);
     expect(r2.exit_code).toBe(1);
   });
   it('times out a hanging command', async () => {
     const cwd = tmpDir('tally-hang-');
     fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "setTimeout(()=>{},60000)"' } }));
-    const r = await runVerification(cwd, { timeoutMs: 800 });
+    const r = await runVerification(cwd, { timeoutMs: 800, consent: true });
     expect(r.ran).toBe(true);
     expect(r.timed_out).toBe(true);
     expect(r.passed).toBe(false);
   });
   it('reports when nothing is detectable', async () => {
     const cwd = tmpDir('tally-empty-');
-    expect((await runVerification(cwd, { timeoutMs: 1000 })).ran).toBe(false);
+    expect((await runVerification(cwd, { timeoutMs: 1000, consent: true })).ran).toBe(false);
     expect(detectTestCommand(cwd)).toBeNull();
   });
 });
@@ -114,7 +114,7 @@ describe('judge', () => {
     const llm = new StubLlm(judgeStub(['met', 'met', 'unmet']), 'fx');
     const cfg = loadConfig();
     await intake({ session: 'fx', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps: { exec: () => ({ ok: false, stdout: '', stderr: '' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false } as FetchDeps });
-    const j = await judgeSession({ session: 'fx', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base) });
+    const j = await judgeSession({ session: 'fx', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
     expect(JudgeSchema.safeParse(j).success).toBe(true);
     expect(j.completion_pct).toBeCloseTo(66.7, 1);
     expect(j.counts).toEqual({ met: 2, partial: 0, unmet: 1, unverifiable: 0 });
@@ -156,7 +156,7 @@ describe('judge', () => {
     const llm = new StubLlm({ ...judgeStub(['met', 'met', 'met']), judge: () => ({ criteria: [{ id: 'c1', status: 'met', evidence: 'x', files: [] }], quality_score: 8, quality_reason: 'r', verdict_reason: 'v', recommendations: ['a', 'b', 'c'] }) }, 'fx2');
     const cfg = loadConfig();
     await intake({ session: 'fx2', cwd, text: 'Rate limit', cfg, llm, deps: { exec: () => ({ ok: false, stdout: '', stderr: '' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false } as FetchDeps });
-    const j = await judgeSession({ session: 'fx2', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'manual', events: fixtureEvents(cwd, base) });
+    const j = await judgeSession({ session: 'fx2', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'manual', events: fixtureEvents(cwd, base), consent: true });
     expect(j.criteria[1]!.status).toBe('unverifiable');
     expect(j.counts.unverifiable).toBe(2);
     expect(j.verification.passed).toBe(false);
@@ -166,7 +166,7 @@ describe('judge', () => {
   it('runs without a linked task using an implicit criterion', async () => {
     const { cwd, base } = makeRepo({ testPasses: true });
     const llm = new StubLlm({ judge: () => ({ criteria: [{ id: 'c1', status: 'partial', evidence: 'x', files: [] }], quality_score: 5, quality_reason: 'r', verdict_reason: 'v', recommendations: ['a'] }) });
-    const j = await judgeSession({ session: 'fx3', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg: loadConfig(), llm, reason: 'session_end', events: fixtureEvents(cwd, base) });
+    const j = await judgeSession({ session: 'fx3', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg: loadConfig(), llm, reason: 'session_end', events: fixtureEvents(cwd, base), consent: true });
     expect(j.task.linked).toBe(false);
     expect(j.completion_pct).toBe(50);
     expect(renderReport(j)).toContain('No task was linked');
@@ -189,7 +189,7 @@ describe('write-back', () => {
     const cfg = loadConfig();
     const deps: FetchDeps = { exec: (bin, args) => ({ ok: bin === 'gh' && args[0] === 'issue' && args[1] === 'view', stdout: JSON.stringify({ title: 'Rate limit login', body: 'Block after 5 attempts.', labels: [] }), stderr: 'x' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false };
     await intake({ session: 'wb', cwd, ref: 'https://github.com/acme/app/issues/42', cfg, llm, deps });
-    const j = await judgeSession({ session: 'wb', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'pr', events: fixtureEvents(cwd, base) });
+    const j = await judgeSession({ session: 'wb', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'pr', events: fixtureEvents(cwd, base), consent: true });
     const comment = receiptComment(j);
     expect(comment).toContain('Tally receipt');
     expect(comment).not.toContain('rateLimit(');

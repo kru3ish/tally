@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { configFile, readJson, writeJson } from './paths.js';
+import { configFile, readJson, writeJson, repoKey } from './paths.js';
 
 export const ConfigSchema = z.object({
   hourly_rate: z.number().positive().default(75),
@@ -40,7 +40,16 @@ export const ConfigSchema = z.object({
     })
     .default({}),
   linear: z.object({ api_key: z.string().optional() }).default({}),
+  consent: z.object({ test_rerun: z.record(z.boolean()).default({}) }).default({}),
 });
+
+export function testRerunConsent(cfg: Config, cwd: string): boolean | undefined {
+  return cfg.consent.test_rerun[repoKey(cwd)];
+}
+
+export function setTestRerunConsent(cwd: string, value: boolean): Config {
+  return saveConfig({ consent: { test_rerun: { [repoKey(cwd)]: value } } });
+}
 
 export type Config = z.infer<typeof ConfigSchema>;
 

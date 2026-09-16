@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import type { Config } from '../config.js';
+import { setTestRerunConsent, type Config } from '../config.js';
 import { EventTail, eventsFile, readEvents } from '../store/events.js';
 import { parseTranscriptFile, type Transcript } from '../transcript/parse.js';
 import { fmtUsd } from '../cost/pricing.js';
@@ -109,6 +109,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
       const r = engine.recordSkip(opts.cwd, s.rule);
       w(paint(color, C.gray, `    → skipped${r.muted ? ` (rule ${s.rule} muted for this repo after ${r.skips} skips)` : ''}`));
     } else if (key === 'm') {
+      if (s.action.kind === 'consent') setTestRerunConsent(opts.cwd, false);
       muteRule(opts.cwd, s.rule, 'muted by user');
       w(paint(color, C.gray, `    → rule ${s.rule} muted for this repo (tally config unmute ${s.rule})`));
     }

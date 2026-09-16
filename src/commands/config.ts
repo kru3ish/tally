@@ -1,5 +1,5 @@
 import type { Args } from '../cli.js';
-import { loadConfig, saveConfig } from '../config.js';
+import { loadConfig, saveConfig, setTestRerunConsent, testRerunConsent } from '../config.js';
 import { configFile } from '../paths.js';
 import { unmuteRule, loadMutes } from '../coach/engine.js';
 
@@ -8,6 +8,16 @@ export async function run(args: Args): Promise<number | void> {
   if (key === 'unmute' && value) {
     unmuteRule(process.cwd(), value);
     process.stdout.write(`Unmuted ${value} for this repo.\n`);
+    return;
+  }
+  if (key === 'consent') {
+    if (value === 'on' || value === 'off') {
+      setTestRerunConsent(process.cwd(), value === 'on');
+      process.stdout.write(`Test re-runs ${value === 'on' ? 'allowed' : 'disallowed'} for ${process.cwd()}\n`);
+      return;
+    }
+    const c = testRerunConsent(loadConfig(), process.cwd());
+    process.stdout.write(`Test re-runs in ${process.cwd()}: ${c === undefined ? 'not asked yet' : c ? 'allowed' : 'disallowed'}  (tally config consent on|off)\n`);
     return;
   }
   if (key === 'mutes') {

@@ -10,6 +10,7 @@ export type Action =
   | { kind: 'inject'; note: string; label: string }
   | { kind: 'snippet'; label: string; snippet: string; where: string }
   | { kind: 'settings'; label: string; file: string; patch: Record<string, unknown>; snippet: string }
+  | { kind: 'consent'; label: string; command: string }
   | { kind: 'none'; label: string };
 
 export interface Suggestion {

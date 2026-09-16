@@ -3,6 +3,8 @@ import type { Config } from '../config.js';
 import type { FetchDeps } from '../task/fetchers.js';
 import { realDeps } from '../task/fetchers.js';
 import { fmtUsd } from '../cost/pricing.js';
+import { redact } from '../redact.js';
+import { ghStatus } from '../followup/gh.js';
 
 const ICON: Record<string, string> = { met: '✅', partial: '🟡', unmet: '❌', unverifiable: '❔' };
 
@@ -17,7 +19,8 @@ export function receiptComment(j: Judge): string {
   L.push(`Independent check: ${j.verification.ran ? `\`${j.verification.command}\` ${j.verification.passed ? 'passed' : 'failed'}` : 'not run'} · waste ${fmtUsd(j.waste.total_usd)}`);
   L.push('');
   L.push('<sub>Generated locally by Tally. Contains no code or prompts.</sub>');
-  return L.join('\n');
+  /* the same redactor the hooks use, in case a criterion text or evidence echoes a secret */
+  return redact(L.join('\n'));
 }
 
 export interface WritebackResult {
@@ -34,6 +37,13 @@ export async function writeBack(j: Judge, cfg: Config, deps: FetchDeps = realDep
   for (const url of targets) {
     if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url)) {
       const sub = /\/pull\//.test(url) ? 'pr' : 'issue';
+      if (deps === realDeps) {
+        const gh = ghStatus();
+        if (!gh.ok) {
+          posted.push({ target: url, ok: false, detail: `skipped: ${gh.reason} (${gh.fix})` });
+          continue;
+        }
+      }
       const r = deps.exec('gh', [sub, 'comment', url, '--body', body]);
       posted.push({ target: url, ok: r.ok, detail: r.ok ? undefined : r.stderr.trim().slice(0, 200) });
     } else if (/\/browse\/[A-Z][A-Z0-9]+-\d+/.test(url) || j.task.source.kind === 'jira') {

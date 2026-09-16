@@ -8,6 +8,19 @@ import { writeBack } from '../judge/writeback.js';
 import { resolveSession, sessionCwd, transcriptPathFor } from '../session.js';
 import { sessionDir, log } from '../paths.js';
 import type { Judge } from '../judge/schema.js';
+import { testRerunConsent, setTestRerunConsent } from '../config.js';
+import { detectTestCommand } from '../judge/verify.js';
+import readline from 'node:readline';
+
+function askYesNo(question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(/^y(es)?$/i.test(answer.trim()));
+    });
+  });
+}
 
 export async function run(args: Args): Promise<number | void> {
   const cfg = loadConfig();
@@ -39,7 +52,16 @@ export async function run(args: Args): Promise<number | void> {
   try {
     const llm = makeLlm({ session });
     if (!auto) process.stdout.write(`Judging session ${session} (${reason})…\n`);
-    const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason });
+    let consent = testRerunConsent(cfg, cwd);
+    if (consent === undefined && !auto && process.stdin.isTTY && cfg.judge.run_tests) {
+      const detected = detectTestCommand(cwd);
+      if (detected) {
+        consent = await askYesNo(`Tally verifies claims by running \`${detected.command}\` itself in ${cwd} (scrubbed environment, ${Math.round(cfg.judge.test_timeout_ms / 1000)}s timeout). Allow this for this repo? [y/N] `);
+        setTestRerunConsent(cwd, consent);
+        process.stdout.write(consent ? 'Saved: test re-runs allowed for this repo (tally config consent.test_rerun.<repo> false to revoke).\n' : 'Saved: tests will not be run here; test criteria will be marked unverifiable.\n');
+      }
+    }
+    const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason, consent });
     const plain = has(args, 'plain');
     process.stdout.write(renderSummary(judge, !plain) + '\n');
     process.stdout.write(`Receipt: ${path.join(sessionDir(session), 'report.md')}\n`);

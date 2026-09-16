@@ -47,15 +47,36 @@ export interface VerificationResult {
   duration_ms?: number;
   output_tail?: string;
   reason?: string;
+  env_scrubbed?: boolean;
+  consent?: boolean;
 }
 
-export async function runVerification(cwd: string, opts: { timeoutMs: number; command?: string; enabled?: boolean }): Promise<VerificationResult> {
+export const NO_CONSENT_REASON = 'tests not run: no consent';
+
+/* Environment passed to a test re-run: a small allowlist plus nothing that looks like a credential. */
+const ENV_KEEP = new Set(['PATH', 'Path', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TEMP', 'TMP', 'TMPDIR', 'SYSTEMROOT', 'SystemRoot', 'WINDIR', 'windir', 'COMSPEC', 'ComSpec', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMFILES', 'ProgramFiles', 'PROGRAMDATA', 'ProgramData', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'OS', 'CI', 'NODE_ENV', 'NODE_OPTIONS', 'npm_config_cache', 'GOPATH', 'GOROOT', 'GOCACHE', 'CARGO_HOME', 'RUSTUP_HOME', 'JAVA_HOME', 'PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV', 'NVM_DIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
+const SECRET_LIKE = /(TOKEN|SECRET|KEY|PASSWORD|PASSWD|PWD|AUTH|CREDENTIAL|COOKIE|SESSION|PRIVATE|CERT|API|JIRA|LINEAR|ANTHROPIC|OPENAI|GITHUB|GH_|AWS_|AZURE_|GCP_|GOOGLE_|STRIPE|SLACK|TWILIO|DATABASE_URL|DB_|REDIS|MONGO|POSTGRES|NPM_|VERCEL|CLAUDE)/i;
+
+export function scrubEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) continue;
+    if (ENV_KEEP.has(k)) out[k] = v;
+    else if (!SECRET_LIKE.test(k) && !/^(TALLY_|CLAUDE_)/.test(k) && !/^[A-Z0-9_]*(TOKEN|KEY|SECRET)[A-Z0-9_]*$/i.test(k) && v.length < 200 && !/^(sk-|ghp_|xox|AKIA|eyJ)/.test(v)) out[k] = v;
+  }
+  out.TALLY_INTERNAL = '1';
+  out.TALLY_TEST_RERUN = '1';
+  return out;
+}
+
+export async function runVerification(cwd: string, opts: { timeoutMs: number; command?: string; enabled?: boolean; consent?: boolean }): Promise<VerificationResult> {
   if (opts.enabled === false) return { ran: false, reason: 'disabled in config (judge.run_tests=false)' };
+  if (opts.consent !== true) return { ran: false, reason: NO_CONSENT_REASON, consent: opts.consent };
   const detected = opts.command ? { command: opts.command, basis: 'configured' } : detectTestCommand(cwd);
-  if (!detected) return { ran: false, reason: 'no test command detected' };
+  if (!detected) return { ran: false, reason: 'no test command detected', consent: true };
   const started = Date.now();
   const isWin = process.platform === 'win32';
-  const r = await runProcess(isWin ? 'cmd.exe' : 'sh', isWin ? ['/d', '/s', '/c', `"${detected.command}"`] : ['-c', detected.command], { cwd, timeoutMs: opts.timeoutMs });
+  const r = await runProcess(isWin ? 'cmd.exe' : 'sh', isWin ? ['/d', '/s', '/c', `"${detected.command}"`] : ['-c', detected.command], { cwd, timeoutMs: opts.timeoutMs, env: scrubEnv(), replaceEnv: true });
   const out = (r.stdout + '\n' + r.stderr).trim();
   return {
     ran: true,
@@ -66,5 +87,7 @@ export async function runVerification(cwd: string, opts: { timeoutMs: number; co
     timed_out: r.timedOut,
     duration_ms: Date.now() - started,
     output_tail: out.length > 3000 ? '…' + out.slice(-3000) : out,
+    env_scrubbed: true,
+    consent: true,
   };
 }

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Config } from '../config.js';
+import { setTestRerunConsent, type Config } from '../config.js';
 import { appendEvent } from '../store/events.js';
 import { ensureDir, tallyHome } from '../paths.js';
 import { enqueueInject } from './inject.js';
@@ -67,6 +67,11 @@ export function applySuggestion(s: Suggestion, opts: { session: string; cwd: str
       result = { ok: true, detail: `updated ${path.relative(opts.cwd, a.file) || a.file} (undo with \`tally undo\`)`, file: a.file };
       break;
     }
+    case 'consent': {
+      setTestRerunConsent(opts.cwd, true);
+      result = { ok: true, detail: `test re-runs allowed in this repo (\`${a.command}\`); revoke with: tally config consent off` };
+      break;
+    }
     default:
       result = { ok: false, detail: 'nothing to apply for this suggestion' };
   }
@@ -86,6 +91,7 @@ export function injectSuggestion(s: Suggestion, opts: { session: string; cwd: st
 
 export function skipSuggestion(s: Suggestion, opts: { session: string; cwd: string }): void {
   appendEvent({ ts: new Date().toISOString(), type: 'skip', session: opts.session, cwd: opts.cwd, data: { rule: s.rule, key: s.key } });
+  if (s.action.kind === 'consent') setTestRerunConsent(opts.cwd, false);
 }
 
 export function mergePatch(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
