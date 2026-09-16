@@ -194,9 +194,12 @@ describe('install / uninstall', () => {
 
 describe('plugin manifest', () => {
   it('has a valid plugin.json, marketplace.json, and hooks.json covering every event', () => {
-    const plugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')) as { name: string; hooks: string; commands: string[] };
+    const plugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')) as { name: string; hooks?: string; commands?: string[] };
     expect(plugin.name).toBe('tally');
-    const hooks = JSON.parse(fs.readFileSync(path.join(root, plugin.hooks), 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string; args: string[] }> }>> };
+    /* hooks/hooks.json and commands/ are loaded by convention; naming them again in the manifest makes the plugin fail to load ("Duplicate hooks file") */
+    expect(plugin.hooks).toBeUndefined();
+    expect(plugin.commands).toBeUndefined();
+    const hooks = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string; args: string[] }> }>> };
     for (const { event } of HOOK_EVENTS) {
       expect(hooks.hooks[event]).toBeTruthy();
       const h = hooks.hooks[event]![0]!.hooks[0]!;

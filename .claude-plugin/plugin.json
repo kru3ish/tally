@@ -16,9 +16,5 @@
     "coach",
     "roi",
     "judge"
-  ],
-  "hooks": "./hooks/hooks.json",
-  "commands": [
-    "./commands/"
   ]
 }
