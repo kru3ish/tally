@@ -51,7 +51,8 @@ export function collectGit(cwd: string, baseHead: string | undefined, exec: Exec
   out.current_head = head.stdout.trim();
   const br = exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   if (br.ok) out.branch = br.stdout.trim();
-  const base = baseHead && exec('git', ['cat-file', '-e', `${baseHead}^{commit}`], cwd).ok ? baseHead : undefined;
+  /* any tree-ish works as a base (a commit, or the empty tree for a repo created during the session) */
+  const base = baseHead && exec('git', ['cat-file', '-e', baseHead], cwd).ok ? baseHead : undefined;
   const range = base ? [base] : ['HEAD'];
   const stat = exec('git', ['diff', '--stat', ...range], cwd);
   out.diff_stat = stat.stdout.trim();

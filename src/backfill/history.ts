@@ -26,6 +26,8 @@ export interface Window {
 }
 
 export const HISTORICAL_UNRUNNABLE = 'historical tests not runnable';
+/* git's well-known empty tree object; a valid diff base for a repo or branch born inside the session */
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 function revBefore(cwd: string, ref: string, ts: string, exec: Exec): string | undefined {
   const r = exec('git', ['rev-list', '-1', `--before=${ts}`, ref], cwd);
@@ -44,11 +46,15 @@ export function reconstructWindow(cwd: string, opts: { branch?: string; start: s
     }
   }
   const ref = branch ?? '--all';
-  const start_head = revBefore(cwd, ref, opts.start, exec);
+  let start_head = revBefore(cwd, ref, opts.start, exec);
   let end_head = revBefore(cwd, ref, opts.end, exec);
   const count = exec('git', ['rev-list', '--count', `--since=${opts.start}`, `--until=${opts.end}`, ref], cwd);
   const commits_in_window = count.ok ? Number(count.stdout.trim()) || 0 : 0;
-  if (!start_head) notes.push('no commit before the session start on this branch');
+  if (!start_head && commits_in_window > 0) {
+    /* the branch (or repo) was created during the session: diff from the empty tree so every file counts as added */
+    start_head = EMPTY_TREE;
+    notes.push('no commit before the session start on this branch; diffing from the empty tree');
+  } else if (!start_head) notes.push('no commit before the session start on this branch');
   if (commits_in_window === 0) notes.push('no commits inside the session window; uncommitted work cannot be recovered');
   let extended_to_pr: string | undefined;
   if (branch && (opts.ghOk ?? ghStatus().ok) && branch !== 'main' && branch !== 'master') {

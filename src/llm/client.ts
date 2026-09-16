@@ -66,9 +66,11 @@ export class ClaudeCli implements LlmClient {
   private async completeOnce<T>(req: LlmRequest, maxTurns: number): Promise<LlmResult<T>> {
     const started = Date.now();
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-llm-'));
+    /* long evidence packs go over stdin: Windows caps a command line at ~32k characters */
+    const viaStdin = req.prompt.length > 6000;
     const args = [
       '-p',
-      req.prompt,
+      viaStdin ? 'The full evidence pack follows on stdin. Judge it exactly as instructed in the system prompt and return only the JSON object.' : req.prompt,
       '--output-format',
       'json',
       '--json-schema',
@@ -88,7 +90,7 @@ export class ClaudeCli implements LlmClient {
     ];
     const resolved = resolveClaudeBin(this.opts.claudeBin ?? process.env.TALLY_CLAUDE_BIN);
     /* TALLY_INTERNAL marks the run so Tally's own hooks exit at once (belt: --setting-sources "" already skips hooks). */
-    const out = await runProcess(resolved.bin, [...resolved.prefix, ...args], { cwd, timeoutMs: req.timeoutMs ?? 240000, env: { TALLY_INTERNAL: '1', CLAUDE_CODE_ENTRYPOINT: 'tally' } });
+    const out = await runProcess(resolved.bin, [...resolved.prefix, ...args], { cwd, timeoutMs: req.timeoutMs ?? 240000, env: { TALLY_INTERNAL: '1', CLAUDE_CODE_ENTRYPOINT: 'tally' }, input: viaStdin ? req.prompt : undefined });
     fs.rmSync(cwd, { recursive: true, force: true });
     let parsed: CliOutput;
     try {
