@@ -14,7 +14,7 @@ import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
 import { resolveCheck } from './checks.js';
-import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, type Tier1Result } from './tiers.js';
+import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, ESCALATION_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, guardedConfidence, verdictSensitive, type Tier1Result, type Status } from './tiers.js';
 
 const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
 
@@ -208,17 +208,43 @@ export async function judgeSession(opts: {
     const r1 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 1, model: opts.cfg.models.tier1, system: TIER1_SYSTEM, prompt: pack.prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 180000 });
     const out1 = redactDeep(r1.data);
     applyModel(out1, judgmentIds, 'tier1');
-    tier1 = judgmentIds.map((id) => ({ id, status: resolved.get(id)!.status, confidence: resolved.get(id)!.confidence ?? 1 }));
     tierCosts.push({ tier: 'tier1', model: r1.model, cost_usd: round(r1.cost_usd), criteria: judgmentIds, prompt_tokens: pack.tokens });
+    /* Escalation guard: cap confidence on partial/unmet correctness calls, and find criteria whose one-step move flips the verdict */
+    const tier1Quality = Math.max(0, Math.min(10, Number((prose as { quality_score?: number } | null)?.quality_score ?? 5)));
+    const testsFailedNow = ver.ran && ver.passed === false;
+    const statuses: Record<string, Status> = Object.fromEntries(task.criteria.map((c) => [c.id, resolved.get(c.id)?.status ?? 'unverifiable']));
+    const verdictOf = (st: Record<string, Status>): string => {
+      const vals = Object.values(st);
+      const met = vals.filter((s) => s === 'met').length;
+      const partial = vals.filter((s) => s === 'partial').length;
+      const pct = vals.length ? ((met + 0.5 * partial) / vals.length) * 100 : 0;
+      const creditedNow = humanValue * (pct / 100);
+      const roiNow = t.cost > 0 ? creditedNow / t.cost : null;
+      return computeVerdict({ completion_pct: pct, roi: roiNow, quality: tier1Quality, testsFailed: testsFailedNow });
+    };
+    tier1 = judgmentIds.map((id) => {
+      const r = resolved.get(id)!;
+      const c = task.criteria.find((x) => x.id === id)!;
+      const confidence = r.confidence ?? 1;
+      const adjusted = guardedConfidence(c.text, r.status, confidence);
+      return { id, status: r.status, confidence, adjusted_confidence: adjusted !== confidence ? adjusted : undefined, verdict_sensitive: verdictSensitive({ statuses, id, verdictOf }) };
+    });
     decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor, tier1 });
   }
 
-  /* Tier 2: strong model, full evidence, only the criteria that need it */
+  /* Tier 2: the strong model with full evidence when the session is expensive or --deep; otherwise the escalation
+     model on a trimmed pack, only for the escalated criteria, so small sessions stay under the 5% self-share target */
   if (decision.run_tier2) {
     const ids = decision.tier2_criteria;
-    const prompt = buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers);
-    const r2 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 2, model: opts.cfg.models.judge, system: JUDGE_SYSTEM, prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
-    applyModel(redactDeep(r2.data), ids, 'tier2');
+    const fullStrength = !!opts.deep || t.cost >= opts.cfg.judge.deepThreshold;
+    const model = fullStrength ? opts.cfg.models.judge : t.cost >= opts.cfg.judge.escalation_model_from_usd ? opts.cfg.models.tier2_escalation : opts.cfg.models.tier1;
+    const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens).prompt;
+    const r2 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 2, model, system: fullStrength ? JUDGE_SYSTEM : ESCALATION_SYSTEM, prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
+    const keepProse = !fullStrength && prose;
+    const out2 = redactDeep(r2.data);
+    applyModel(out2, ids, 'tier2');
+    /* an escalation re-judges statuses only; tier 1's prose stays unless the strong model produced its own */
+    if (keepProse && !(out2.verdict_reason && out2.quality_score)) prose = keepProse;
     tierCosts.push({ tier: 'tier2', model: r2.model, cost_usd: round(r2.cost_usd), criteria: ids, prompt_tokens: approxTokens(prompt) });
   }
 
@@ -249,6 +275,7 @@ export async function judgeSession(opts: {
     calls: tierCosts,
     llm_cost_usd: round(tierCosts.reduce((s, c) => s + c.cost_usd, 0)),
     tier1_pack: tier1Pack,
+    escalations: decision.escalations,
   };
   const r = { cost_usd: tiers.llm_cost_usd, model: tierCosts.length ? tierCosts[tierCosts.length - 1]!.model : 'mechanical' };
 

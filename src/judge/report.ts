@@ -28,7 +28,7 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push(`## How it was judged`);
   L.push('');
-  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString()} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}`);
+  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString()} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}${j.tiers.escalations?.length ? ' Escalated: ' + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(', ') + '.' : ''}`);
   L.push('');
   L.push(`## Quality: ${j.quality.score}/10`);
   L.push('');

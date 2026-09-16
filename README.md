@@ -186,27 +186,29 @@ The Judge runs in tiers so that most receipts cost nothing:
 
 Every receipt says which tiers ran and why, and one HEAD is judged once (push and session-end share the receipt).
 
-Five fixture sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-16, tiers 0 → 1 on every fixture (no tier 2 triggered), 19 criteria across 5 sessions:
+Five fixture sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. An escalation guard sends any criterion to tier 2 when moving its status one step would change the verdict, or when a small-model partial/unmet call lands on a correctness criterion (confidence capped at 0.5). Because a `claude -p` call carries a ~5.6k-token floor, escalations use the small model under $1 of session spend, sonnet up to $3, and opus above.
+
+Last live run, 2026-09-16, 19 criteria across 5 sessions:
 
 | Measure | Result |
 |---|---|
-| Criterion agreement (exact) | 18 / 19 = 94.7% (same as the strong-model-only baseline it replaced) |
-| Verdict agreement | 4 / 5 = 80% |
+| Criterion agreement (exact) | 19 / 19 = 100% |
+| Verdict agreement | 5 / 5 = 100% |
 | Criteria resolved mechanically | 9 of 19, at $0 |
-| Disagreement | "429 after 5 attempts within 15 minutes": human `partial` (no time window), tier-1 `unmet`; that also flips the verdict from `borderline` to `not worth it` |
+| Escalated to tier 2 | 7 criteria on 4 sessions (verdict-sensitive or correctness) |
 
 Self-overhead on those receipts (Tally's own model spend as a share of the session's spend):
 
-| Fixture | Session | Tally | Share |
-|---|---|---|---|
-| claims-no-tests | $0.431 | $0.013 | 3.0% |
-| health-endpoint-complete | $0.560 | $0.015 | 2.6% |
-| rate-limit-partial | $0.732 | $0.018 | 2.5% |
-| scope-creep | $0.571 | $0.019 | 3.4% |
-| wrong-fix-tests-fail | $0.518 | $0.014 | 2.7% |
-| **average** | $2.813 total | $0.079 total | **2.8%** |
+| Fixture | Session | Tally | Share | Tiers |
+|---|---|---|---|---|
+| claims-no-tests | $0.431 | $0.022 | 5.1% | 0→1→2 |
+| health-endpoint-complete | $0.560 | $0.012 | 2.1% | 0→1 |
+| rate-limit-partial | $0.732 | $0.027 | 3.6% | 0→1→2 |
+| scope-creep | $0.571 | $0.027 | 4.8% | 0→1→2 |
+| wrong-fix-tests-fail | $0.518 | $0.024 | 4.7% | 0→1→2 |
+| **average** | $2.813 total | $0.111 total | **4.1%** | |
 
-Before tiering, the same five receipts cost $0.11–0.13 each (22% of session spend) with the strong model reading every criterion. CI replays the recorded tier calls through the deterministic pipeline (`tally calibrate eval --max-share 5`) and fails if criterion agreement drops below `baseline.json` or the average self-share exceeds 5%; `tally calibrate eval --live` re-measures the models.
+Run-to-run variance is real: across six live runs the same fixtures scored between 18/19 and 19/19 criteria; the recorded baseline is only rewritten when a run matches or beats it. Before tiering, the same five receipts cost $0.11–0.13 each (22%). CI replays the recorded tier calls through the deterministic pipeline (`tally calibrate eval --max-share 5`) and fails if criterion agreement drops below `baseline.json` or the average self-share exceeds 5%; `tally calibrate eval --live` re-measures the models.
 
 Caveats: five authored sessions are a smoke test; the fixtures are small JavaScript repos with one test file; the small model's confidence is self-reported, so a confident wrong answer is not escalated (the one disagreement above was rated 0.9); and when a repo has no detectable test command, or the user has not consented to re-runs, test criteria are `unverifiable` by rule.
 

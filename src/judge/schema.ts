@@ -31,6 +31,7 @@ export const JudgeSchema = z.object({
       calls: z.array(z.object({ tier: z.enum(['tier1', 'tier2']), model: z.string(), cost_usd: z.number(), criteria: z.array(z.string()), prompt_tokens: z.number() })),
       llm_cost_usd: z.number(),
       tier1_pack: z.object({ tokens: z.number(), truncated: z.boolean() }).optional(),
+      escalations: z.array(z.object({ id: z.string(), reason: z.enum(['low-confidence', 'verdict-sensitive', 'correctness']) })).optional(),
     })
     .default({ ran: ['tier2'], reason: 'legacy receipt', mechanical: 0, judgment: 0, calls: [], llm_cost_usd: 0 }),
   completion_pct: z.number().min(0).max(100),

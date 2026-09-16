@@ -14,6 +14,7 @@ export interface TierDecision {
   run_tier2: boolean;
   tier2_reasons: string[];
   tier2_criteria: string[];
+  escalations: Array<{ id: string; reason: 'low-confidence' | 'verdict-sensitive' | 'correctness' }>;
   explanation: string;
 }
 
@@ -21,6 +22,35 @@ export interface Tier1Result {
   id: string;
   status: Status;
   confidence: number;
+  /* set by the escalation guard: a partial/unmet call on a correctness criterion counts as ≤ 0.5 */
+  adjusted_confidence?: number;
+  verdict_sensitive?: boolean;
+}
+
+const CORRECTNESS_RE = /\b(bug|fix|fixes|fixed|correct|correctly|behav(?:iou?r)|logic|returns?|handles?|reject|accept|validat|when |should|must|error|edge case|off-by-one|regression|works|calculat|comput|respon(?:d|se)|status code|\d{3}\b)/i;
+
+export function isCorrectnessCriterion(text: string): boolean {
+  return CORRECTNESS_RE.test(text);
+}
+
+/* Confidence after the guard: the model's own number, capped at 0.5 for a partial/unmet call on a correctness criterion. */
+export function guardedConfidence(text: string, status: Status, confidence: number): number {
+  if ((status === 'partial' || status === 'unmet') && isCorrectnessCriterion(text)) return Math.min(confidence, 0.5);
+  return confidence;
+}
+
+const STEP_ORDER: Status[] = ['unmet', 'unverifiable', 'partial', 'met'];
+
+/* Would moving this criterion's status one step (either way) change the verdict? */
+export function verdictSensitive(input: { statuses: Record<string, Status>; id: string; verdictOf: (statuses: Record<string, Status>) => string }): boolean {
+  const cur = input.verdictOf(input.statuses);
+  const idx = STEP_ORDER.indexOf(input.statuses[input.id] ?? 'unverifiable');
+  for (const next of [idx - 1, idx + 1]) {
+    if (next < 0 || next >= STEP_ORDER.length) continue;
+    const moved = { ...input.statuses, [input.id]: STEP_ORDER[next]! };
+    if (input.verdictOf(moved) !== cur) return true;
+  }
+  return false;
 }
 
 /* Which tiers run. Pure so it can be unit-tested. */
@@ -28,21 +58,30 @@ export function selectTiers(input: { judgmentIds: string[]; sessionCostUsd: numb
   const { judgmentIds, sessionCostUsd, deep, deepThreshold, confidenceFloor } = input;
   const run_tier1 = judgmentIds.length > 0;
   const reasons: string[] = [];
+  const escalations: TierDecision['escalations'] = [];
   let tier2Criteria: string[] = [];
   if (judgmentIds.length) {
     if (deep) reasons.push('--deep');
     if (sessionCostUsd >= deepThreshold) reasons.push(`session cost $${sessionCostUsd.toFixed(2)} ≥ deepThreshold $${deepThreshold.toFixed(2)}`);
-    const low = (input.tier1 ?? []).filter((t) => t.confidence < confidenceFloor);
-    if (low.length) reasons.push(`tier 1 confidence below ${confidenceFloor} on ${low.map((l) => l.id).join(', ')}`);
-    if (reasons.length) tier2Criteria = deep || sessionCostUsd >= deepThreshold ? judgmentIds : low.map((l) => l.id);
+    for (const t of input.tier1 ?? []) {
+      const conf = t.adjusted_confidence ?? t.confidence;
+      if (t.verdict_sensitive) escalations.push({ id: t.id, reason: 'verdict-sensitive' });
+      else if (conf < confidenceFloor && t.adjusted_confidence !== undefined && t.adjusted_confidence < t.confidence) escalations.push({ id: t.id, reason: 'correctness' });
+      else if (conf < confidenceFloor) escalations.push({ id: t.id, reason: 'low-confidence' });
+    }
+    const byReason = (r: TierDecision['escalations'][number]['reason']) => escalations.filter((e) => e.reason === r).map((e) => e.id);
+    if (byReason('verdict-sensitive').length) reasons.push(`verdict-sensitive: ${byReason('verdict-sensitive').join(', ')}`);
+    if (byReason('correctness').length) reasons.push(`partial/unmet on correctness criteria (confidence capped at 0.5): ${byReason('correctness').join(', ')}`);
+    if (byReason('low-confidence').length) reasons.push(`tier 1 confidence below ${confidenceFloor} on ${byReason('low-confidence').join(', ')}`);
+    if (reasons.length) tier2Criteria = deep || sessionCostUsd >= deepThreshold ? judgmentIds : [...new Set(escalations.map((e) => e.id))];
   }
   const run_tier2 = tier2Criteria.length > 0;
   const explanation = !judgmentIds.length
     ? 'tier 0 only: every criterion resolved mechanically'
     : run_tier2
       ? `tier 2 on ${tier2Criteria.length} criteria: ${reasons.join('; ')}`
-      : `tier 2 skipped: session cost $${sessionCostUsd.toFixed(2)} < $${deepThreshold.toFixed(2)}, no --deep, tier 1 confident (≥ ${confidenceFloor})`;
-  return { run_tier1, run_tier2, tier2_reasons: reasons, tier2_criteria: tier2Criteria, explanation };
+      : `tier 2 skipped: session cost $${sessionCostUsd.toFixed(2)} < $${deepThreshold.toFixed(2)}, no --deep, tier 1 confident (≥ ${confidenceFloor}) and no verdict-sensitive criterion`;
+  return { run_tier1, run_tier2, tier2_reasons: reasons, tier2_criteria: tier2Criteria, escalations, explanation };
 }
 
 export const TIER1_SYSTEM = `You are a skeptical auditor deciding a few acceptance criteria of a coding session from a short evidence pack.
@@ -51,6 +90,13 @@ For each criterion return status met / partial / unmet / unverifiable, one sente
 Confidence is your honest probability that the status is right given the evidence you saw; use below 0.6 whenever the diff was truncated around the relevant code, the criterion needs behaviour you cannot see, or the claim rests only on the assistant's words.
 Also return quality_score (0-10) for the visible code, one-paragraph verdict_reason using the numbers given, and exactly three short recommendations.
 Return only the JSON object.`;
+
+/* Escalation re-judge: statuses and confidence only; the prose (quality, verdict reason, recommendations) stays with tier 1
+   so the extra call is as short as possible. */
+export const ESCALATION_SYSTEM = `You are an independent, skeptical auditor re-checking a few acceptance criteria that a first pass was unsure about or that decide the verdict.
+Evidence hierarchy: the independent test run, then the diff, then tool outputs; the assistant's own words are claims.
+For each listed criterion return status met / partial / unmet / unverifiable, one sentence of cited evidence, the files involved, and a confidence 0-1. Use "partial" when the work is visibly started but a stated requirement is missing. Use "unverifiable" rather than guessing.
+Return only the JSON object with the criteria array; leave quality_score, verdict_reason and recommendations empty.`;
 
 export const TIER_SCHEMA = {
   type: 'object',
@@ -64,9 +110,9 @@ export const TIER_SCHEMA = {
           status: { type: 'string', enum: ['met', 'partial', 'unmet', 'unverifiable'] },
           evidence: { type: 'string' },
           files: { type: 'array', items: { type: 'string' } },
-          confidence: { type: 'number' },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
         },
-        required: ['id', 'status', 'evidence', 'files', 'confidence'],
+        required: ['id', 'status', 'evidence'],
       },
     },
     quality_score: { type: 'number' },
@@ -74,7 +120,8 @@ export const TIER_SCHEMA = {
     verdict_reason: { type: 'string' },
     recommendations: { type: 'array', items: { type: 'string' } },
   },
-  required: ['criteria', 'quality_score', 'quality_reason', 'verdict_reason', 'recommendations'],
+  /* only `criteria` is hard-required: a strict schema made some models exhaust the structured-output retries */
+  required: ['criteria'],
 } as const;
 
 export function approxTokens(s: string): number {

@@ -6,7 +6,7 @@ import { PassThrough } from 'node:stream';
 import { isolate, basicFixture, tmpDir } from './helpers.js';
 import { loadConfig } from '../src/config.js';
 import { StubLlm, type LlmRequest } from '../src/llm/client.js';
-import { selectTiers, trimDiff, buildTier1Prompt, mechanicalSummary } from '../src/judge/tiers.js';
+import { selectTiers, trimDiff, buildTier1Prompt, mechanicalSummary, isCorrectnessCriterion, guardedConfidence, verdictSensitive, type Status } from '../src/judge/tiers.js';
 import { resolveCheck, parseCheck, commandAllowed } from '../src/judge/checks.js';
 import { judgeSession, existingReceiptFor, currentHead } from '../src/judge/judge.js';
 import { intake, loadTask, intakeCacheFile } from '../src/task/intake.js';
@@ -139,7 +139,7 @@ describe('tier 1 and tier 2', () => {
       judge: (req) => {
         calls.push(req);
         if (req.tier === 1) return { criteria: [{ id: 'c2', status: 'met', evidence: 'looks right', files: ['src.js'], confidence: 0.9 }, { id: 'c3', status: 'partial', evidence: 'unsure', files: [], confidence: 0.3 }], quality_score: 6, quality_reason: 'r1', verdict_reason: 'v1', recommendations: ['a', 'b', 'c'] };
-        return { criteria: [{ id: 'c3', status: 'unmet', evidence: 'strong model says no', files: [], confidence: 0.95 }], quality_score: 7, quality_reason: 'r2', verdict_reason: 'v2', recommendations: ['d', 'e', 'f'] };
+        return { criteria: [{ id: 'c2', status: 'met', evidence: 'confirmed', files: ['src.js'], confidence: 0.97 }, { id: 'c3', status: 'unmet', evidence: 'strong model says no', files: [], confidence: 0.95 }], quality_score: 7, quality_reason: 'r2', verdict_reason: 'v2', recommendations: ['d', 'e', 'f'] };
       },
     });
     const t = task(cwd, [
@@ -154,13 +154,15 @@ describe('tier 1 and tier 2', () => {
     expect(calls[0]!.prompt).toContain('c2: behaviour A');
     expect(calls[0]!.prompt).not.toContain('c1: tests pass');
     expect(Math.ceil(calls[0]!.prompt.length / 4)).toBeLessThanOrEqual(cfg.judge.tier1_evidence_tokens + 200);
-    expect(calls[1]!.model).toBe(cfg.models.judge);
+    expect(calls[1]!.model).toBe(cfg.models.tier2_escalation);
     expect(calls[1]!.prompt).toContain('c3: behaviour B');
-    expect(calls[1]!.prompt).not.toContain('c2: behaviour A');
-    expect(j.criteria.map((c) => [c.status, c.resolved_by])).toEqual([['met', 'tier0'], ['met', 'tier1'], ['unmet', 'tier2']]);
+    /* c2 is verdict-sensitive (met→partial would drop the verdict), so the guard escalates it too */
+    expect(calls[1]!.prompt).toContain('c2: behaviour A');
+    expect(j.criteria.map((c) => [c.status, c.resolved_by])).toEqual([['met', 'tier0'], ['met', 'tier2'], ['unmet', 'tier2']]);
     expect(j.criteria[2]!.confidence).toBe(0.95);
     expect(j.tiers.ran).toEqual(['tier0', 'tier1', 'tier2']);
-    expect(j.tiers.reason).toContain('confidence below 0.6 on c3');
+    expect(j.tiers.reason).toContain('verdict-sensitive');
+    expect(j.tiers.escalations).toEqual([{ id: 'c2', reason: 'verdict-sensitive' }, { id: 'c3', reason: 'verdict-sensitive' }]);
     expect(j.verdict.reason).toBe('v2');
     expect(j.tiers.calls.map((c) => c.tier)).toEqual(['tier1', 'tier2']);
   });
@@ -177,6 +179,57 @@ describe('tier 1 and tier 2', () => {
     const j = await judgeSession({ session: 'pricey', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'manual', events: events(cwd, base), task: t, consent: true });
     expect(calls.map((c) => c.tier)).toEqual([2, 2]);
     expect(j.tiers.reason).toContain('deepThreshold');
+  });
+});
+
+describe('escalation guard', () => {
+  it('caps confidence on partial/unmet correctness calls and flags verdict-sensitive criteria', () => {
+    expect(isCorrectnessCriterion('POST /api/login returns 429 after 5 failed attempts')).toBe(true);
+    expect(isCorrectnessCriterion('README documents the limit')).toBe(false);
+    expect(guardedConfidence('Login returns 429', 'unmet', 0.9)).toBe(0.5);
+    expect(guardedConfidence('Login returns 429', 'met', 0.9)).toBe(0.9);
+    expect(guardedConfidence('README documents the limit', 'unmet', 0.9)).toBe(0.9);
+    const verdictOf = (st: Record<string, Status>) => {
+      const v = Object.values(st);
+      const pct = ((v.filter((s) => s === 'met').length + 0.5 * v.filter((s) => s === 'partial').length) / v.length) * 100;
+      return pct >= 70 ? 'worth it' : pct >= 40 ? 'borderline' : 'not worth it';
+    };
+    expect(verdictSensitive({ statuses: { c1: 'met', c2: 'met', c3: 'met', c4: 'met' }, id: 'c1', verdictOf })).toBe(false);
+    expect(verdictSensitive({ statuses: { c1: 'met', c2: 'met', c3: 'unmet', c4: 'unmet' }, id: 'c1', verdictOf })).toBe(true);
+    const d = selectTiers({ judgmentIds: ['c1', 'c2'], sessionCostUsd: 0.7, deep: false, deepThreshold: 3, confidenceFloor: 0.6, tier1: [{ id: 'c1', status: 'unmet', confidence: 0.9, adjusted_confidence: 0.5 }, { id: 'c2', status: 'met', confidence: 0.95, verdict_sensitive: true }] });
+    expect(d.run_tier2).toBe(true);
+    expect(d.tier2_criteria.sort()).toEqual(['c1', 'c2']);
+    expect(d.escalations).toEqual([{ id: 'c1', reason: 'correctness' }, { id: 'c2', reason: 'verdict-sensitive' }]);
+    expect(d.explanation).toContain('verdict-sensitive');
+  });
+
+  it('rate-limit-partial: tier 1 calls the 429 criterion unmet, so tier 2 re-judges it on the escalation model', async () => {
+    const { cwd, base } = repo();
+    const calls: LlmRequest[] = [];
+    const llm = new StubLlm({
+      judge: (req) => {
+        calls.push(req);
+        if (req.tier === 1) return { criteria: [{ id: 'c1', status: 'unmet', evidence: 'no 15 minute window', files: ['src.js'], confidence: 0.9 }], quality_score: 6, quality_reason: 'r1', verdict_reason: 'v1', recommendations: ['a', 'b', 'c'] };
+        return { criteria: [{ id: 'c1', status: 'partial', evidence: 'counts attempts but never expires them', files: ['src.js'], confidence: 0.85 }], quality_score: 6, quality_reason: 'r2', verdict_reason: 'v2', recommendations: ['d', 'e', 'f'] };
+      },
+    });
+    const t = task(cwd, [
+      { id: 'c1', text: 'POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes', source: 'explicit', kind: 'judgment' },
+      { id: 'c2', text: 'A test covers the 429 path', source: 'explicit', kind: 'mechanical', check: { kind: 'file_contains', path: 'test.js', pattern: '429' } },
+      { id: 'c3', text: 'README documents the limit', source: 'explicit', kind: 'mechanical', check: { kind: 'file_changed', path: 'README.md' } },
+      { id: 'c4', text: 'Existing login behaviour is unchanged below the limit', source: 'inferred', kind: 'mechanical', check: { kind: 'tests_pass' } },
+    ]);
+    const cfg = loadConfig();
+    const j = await judgeSession({ session: 'guard', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: events(cwd, base), task: t, consent: true });
+    expect(calls.map((c) => c.tier)).toEqual([1, 2]);
+    expect(calls[1]!.model).toBe(cfg.models.tier2_escalation);
+    expect(calls[1]!.prompt).toContain('c1:');
+    expect(Math.ceil(calls[1]!.prompt.length / 4)).toBeLessThanOrEqual(cfg.judge.tier2_escalation_tokens + 300);
+    expect(j.criteria[0]).toMatchObject({ status: 'partial', resolved_by: 'tier2' });
+    expect(j.tiers.escalations).toEqual([{ id: 'c1', reason: 'correctness' }]);
+    expect(j.tiers.reason).toContain('correctness');
+    expect(j.tiers.calls.map((c) => c.tier)).toEqual(['tier1', 'tier2']);
+    expect(j.completion_pct).toBe(62.5);
   });
 });
 

@@ -9,6 +9,7 @@ export const ConfigSchema = z.object({
     .object({
       judge: z.string().default('opus'),
       tier1: z.string().default('haiku'),
+      tier2_escalation: z.string().default('sonnet'),
       coach: z.string().default('haiku'),
       intake: z.string().default('haiku'),
     })
@@ -32,7 +33,11 @@ export const ConfigSchema = z.object({
       run_tests: z.boolean().default(true),
       deepThreshold: z.number().nonnegative().default(3),
       tier1_confidence_floor: z.number().min(0).max(1).default(0.6),
-      tier1_evidence_tokens: z.number().int().positive().default(8000),
+      tier1_evidence_tokens: z.number().int().positive().default(6000),
+      tier2_escalation_tokens: z.number().int().positive().default(3000),
+      /* below this session cost an escalation re-check runs on the small model (a claude -p call has a ~5.6k-token floor,
+         so a sonnet escalation alone is ~5% of a $0.50 session); from here to deepThreshold it uses models.tier2_escalation */
+      escalation_model_from_usd: z.number().nonnegative().default(1),
     })
     .default({}),
   followup_days: z.number().int().positive().default(7),

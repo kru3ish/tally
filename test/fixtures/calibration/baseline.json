@@ -1,9 +1,9 @@
 {
-  "recorded_at": "2026-09-16T08:54:33.879Z",
+  "recorded_at": "2026-09-16T11:30:59.089Z",
   "judge_model": "claude-haiku-4-5",
-  "criterion_agreement": 0.9473684210526315,
-  "verdict_agreement": 0.8,
-  "avg_share_pct": 2.84,
+  "criterion_agreement": 1,
+  "verdict_agreement": 1,
+  "avg_share_pct": 4.06,
   "fixtures": [
     {
       "name": "claims-no-tests",
@@ -11,11 +11,12 @@
       "total": 4,
       "verdict_match": true,
       "session_usd": 0.4311,
-      "tally_usd": 0.0131,
-      "share_pct": 3,
+      "tally_usd": 0.0218,
+      "share_pct": 5.1,
       "tiers": [
         "tier0",
-        "tier1"
+        "tier1",
+        "tier2"
       ]
     },
     {
@@ -24,8 +25,8 @@
       "total": 4,
       "verdict_match": true,
       "session_usd": 0.5604,
-      "tally_usd": 0.0147,
-      "share_pct": 2.6,
+      "tally_usd": 0.0116,
+      "share_pct": 2.1,
       "tiers": [
         "tier0",
         "tier1"
@@ -33,15 +34,16 @@
     },
     {
       "name": "rate-limit-partial",
-      "matches": 3,
+      "matches": 4,
       "total": 4,
-      "verdict_match": false,
+      "verdict_match": true,
       "session_usd": 0.7324,
-      "tally_usd": 0.0181,
-      "share_pct": 2.5,
+      "tally_usd": 0.0266,
+      "share_pct": 3.6,
       "tiers": [
         "tier0",
-        "tier1"
+        "tier1",
+        "tier2"
       ]
     },
     {
@@ -50,11 +52,12 @@
       "total": 4,
       "verdict_match": true,
       "session_usd": 0.5712,
-      "tally_usd": 0.0194,
-      "share_pct": 3.4,
+      "tally_usd": 0.0272,
+      "share_pct": 4.8,
       "tiers": [
         "tier0",
-        "tier1"
+        "tier1",
+        "tier2"
       ]
     },
     {
@@ -63,11 +66,12 @@
       "total": 3,
       "verdict_match": true,
       "session_usd": 0.5182,
-      "tally_usd": 0.0139,
-      "share_pct": 2.7,
+      "tally_usd": 0.0241,
+      "share_pct": 4.7,
       "tiers": [
         "tier0",
-        "tier1"
+        "tier1",
+        "tier2"
       ]
     }
   ]

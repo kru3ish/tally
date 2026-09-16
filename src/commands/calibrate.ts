@@ -95,7 +95,7 @@ export async function run(args: Args): Promise<number | void> {
         return 1;
       }
       if (threshold !== undefined) process.stdout.write(`\nPASS: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% ≥ ${(threshold * 100).toFixed(1)}%${maxShare !== undefined ? `; average self-share ${s.avg_share_pct.toFixed(1)}% ≤ ${maxShare}%` : ''}.\n`);
-      if (record) process.stdout.write(`Recorded model outputs and baseline under test/fixtures/calibration/.\n`);
+      if (record) process.stdout.write(s.baseline_updated ? `Recorded model outputs and baseline under test/fixtures/calibration/.\n` : `Nothing recorded: agreement ${(s.criterion_agreement * 100).toFixed(1)}% is below the current baseline; the previous model outputs and baseline stay.\n`);
     } finally {
       if (!keep) {
         fs.rmSync(process.env.TALLY_HOME!, { recursive: true, force: true });

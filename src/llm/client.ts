@@ -54,6 +54,16 @@ export class ClaudeCli implements LlmClient {
   constructor(private readonly opts: { session?: string; claudeBin?: string } = {}) {}
 
   async complete<T>(req: LlmRequest): Promise<LlmResult<T>> {
+    try {
+      return await this.completeOnce<T>(req, 4);
+    } catch (err) {
+      /* the structured-output tool occasionally needs extra turns when the model's first JSON fails validation */
+      if (err instanceof Error && /error_max_turns/.test(err.message)) return this.completeOnce<T>(req, 10);
+      throw err;
+    }
+  }
+
+  private async completeOnce<T>(req: LlmRequest, maxTurns: number): Promise<LlmResult<T>> {
     const started = Date.now();
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-llm-'));
     const args = [
@@ -68,7 +78,7 @@ export class ClaudeCli implements LlmClient {
       '--system-prompt',
       req.system,
       '--max-turns',
-      '1',
+      String(maxTurns),
       '--tools',
       '',
       '--no-session-persistence',
@@ -86,7 +96,15 @@ export class ClaudeCli implements LlmClient {
     } catch {
       throw new Error(`claude -p returned non-JSON output: ${out.stdout.slice(0, 300)} ${out.stderr.slice(0, 300)}`);
     }
-    if (parsed.is_error) throw new Error(`claude -p error: ${parsed.result ?? out.stderr.slice(0, 300)}`);
+    if (parsed.is_error || process.env.TALLY_LLM_DEBUG) {
+      const dir = path.join(tallyHome(), 'llm-debug');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${Date.now()}-${req.kind}${req.tier ?? ''}.json`), JSON.stringify({ model: req.model, args: args.map((a) => (a.length > 4000 ? a.slice(0, 4000) + '…' : a)), stdout: out.stdout.slice(0, 20000), stderr: out.stderr.slice(0, 4000), code: out.code, timedOut: out.timedOut }, null, 2));
+    }
+    if (parsed.is_error) {
+      const p = parsed as CliOutput & { subtype?: string; api_error_status?: number | null };
+      throw new Error(`claude -p error (${p.subtype ?? 'error'}${p.api_error_status ? ` ${p.api_error_status}` : ''}, model ${req.model}): ${parsed.result || out.stderr.trim().slice(0, 300) || 'no detail'}`);
+    }
     let data = parsed.structured_output as T | undefined;
     if (data === undefined && typeof parsed.result === 'string') {
       try {
