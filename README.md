@@ -68,7 +68,7 @@ The full `report.md` adds the evidence table, the waste breakdown (failed loops,
 1. **Intake** (one small-model call): fetches the ticket via `gh`, the Jira REST API, the Linear API, a local `.md`, or plain text; freezes a checklist of acceptance criteria in `task.json` so the goalposts cannot move; scores spec quality 0–10 and lists the missing information; estimates human-hours (story points win when present) and sets a budget of 25% of the human-equivalent value.
 2. **Evidence**: the git diff from the session-start HEAD, files changed, every test and lint command Claude ran with its result, ship events, and Claude's final messages.
 3. **Independent verification**: Tally detects the project's test command (`package.json`, pytest, go, cargo, make, …) and runs it itself with a timeout. It never trusts "tests pass" in the transcript. Anything it cannot check is marked `unverifiable`, never guessed.
-4. **The judge model** (a strong model, with a skeptical system prompt that is not the one the working session used) rates each criterion met / partial / unmet / unverifiable with cited evidence, scores quality, and writes three recommendations.
+4. **Tiered judging**: criteria with a check spec are resolved mechanically (tier 0, no model); the rest go to a small model with a trimmed evidence pack (tier 1); the strong model with its skeptical system prompt (tier 2) runs only for expensive sessions, `--deep`, or criteria the small model was unsure about. Each rates met / partial / unmet / unverifiable with cited evidence; whichever model ran last also scores quality and writes three recommendations, and with no model at all those are a labelled mechanical proxy.
 5. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6, and a green independent test run).
 6. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps a final status of **held up / needed rework / reverted** and shows both the original and the adjusted verdict.
 
@@ -78,7 +78,7 @@ All dollar figures are **API-equivalent** at list price from `pricing.json` (wit
 
 A plain terminal pane (`tally watch`) beside Claude Code. Each suggestion has one-key actions: `[a]pply`, `[i]nject` (the note reaches Claude on its next turn, prefixed `[Tally]`), `[s]kip`, `[m]ute rule`.
 
-Rules are deterministic first, LLM second (a small model, at most one call per 90 s):
+Rules are deterministic first, LLM second (a small model, at most one call per 90 s, and only once the session has spent $1; `coach.llm_min_session_usd`):
 
 | Rule | Fires when | Action |
 |---|---|---|
@@ -161,29 +161,41 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## How accurate is Judge?
 
-Measured, not promised. Five fixture sessions with answers known by construction (`test/fixtures/calibration/`: a complete feature, a partial rate limiter, a session that claims tests it never wrote, an off-by-one "fix" that fails its own regression test, and a scope-creeping rename) are judged by the real model and compared with the authored grades.
+**These numbers are a regression baseline, not a benchmark. Real-world calibration is pending**: nobody has yet graded a set of receipts from real sessions against the Judge; grade your own with `tally calibrate add` and the report below starts filling in.
 
-Last live run, 2026-09-16, judge model `claude-opus-5`, 19 criteria across 5 sessions:
+The Judge runs in tiers so that most receipts cost nothing:
+
+| Tier | What runs | When |
+|---|---|---|
+| 0 | Mechanical checks the intake model attached to each criterion (`tests_pass`, `file_changed`, `file_contains`, `diff_contains`, `command`, `pr`); cost, waste, ship events, test results | Always, no model |
+| 1 | A small model (`models.tier1`, haiku) on the remaining `judgment` criteria, with an evidence pack trimmed to ~8k tokens; returns a confidence per criterion | Whenever judgment criteria remain |
+| 2 | The strong model (`models.judge`, opus) on only the criteria that need it | Session cost ≥ `judge.deepThreshold` ($3), `--deep`, or a tier-1 confidence below 0.6 |
+
+Every receipt says which tiers ran and why, and one HEAD is judged once (push and session-end share the receipt).
+
+Five fixture sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-16, tiers 0 → 1 on every fixture (no tier 2 triggered), 19 criteria across 5 sessions:
 
 | Measure | Result |
 |---|---|
-| Criterion agreement (exact) | 18 / 19 = 94.7% |
+| Criterion agreement (exact) | 18 / 19 = 94.7% (same as the strong-model-only baseline it replaced) |
 | Verdict agreement | 4 / 5 = 80% |
-| Disagreement 1 | "Page 2 returns items 11–20": human `unmet`, judge `partial` (the fix returns 11–21; the judge credited the overlap) |
-| Disagreement 2 | Verdict for the session that claimed unwritten tests: human `borderline`, judge `not worth it` (the model scored quality 2/10 for the false claim, which the verdict rule turns into `not worth it`) |
+| Criteria resolved mechanically | 9 of 19, at $0 |
+| Disagreement | "429 after 5 attempts within 15 minutes": human `partial` (no time window), tier-1 `unmet`; that also flips the verdict from `borderline` to `not worth it` |
 
-Three live runs of the same five sessions scored 19/19, 18/19 and 18/19 criteria (4/5 verdicts every time), so expect about ±1 criterion of run-to-run variance from the model.
+Self-overhead on those receipts (Tally's own model spend as a share of the session's spend):
 
-**What Judge costs.** On those five receipts the judge call cost $0.11–0.13 each (opus, 5–8k-token prompt), which is 17–25% of the fixture sessions' own spend ($0.43–0.73). That share is what the receipt's "Tally's own spend" line and `tally doctor` report; the 5% target only holds for sessions above roughly $2.50. For small tasks set `tally config models.judge sonnet` (about a fifth of the price) or judge only on ship. The recorded model outputs replay through the deterministic pipeline in CI (`tally calibrate eval`), which fails if agreement drops below `baseline.json`; `tally calibrate eval --live` re-measures the model itself.
+| Fixture | Session | Tally | Share |
+|---|---|---|---|
+| claims-no-tests | $0.431 | $0.013 | 3.0% |
+| health-endpoint-complete | $0.560 | $0.015 | 2.6% |
+| rate-limit-partial | $0.732 | $0.018 | 2.5% |
+| scope-creep | $0.571 | $0.019 | 3.4% |
+| wrong-fix-tests-fail | $0.518 | $0.014 | 2.7% |
+| **average** | $2.813 total | $0.079 total | **2.8%** |
 
-Grade your own receipts to build a real sample:
+Before tiering, the same five receipts cost $0.11–0.13 each (22% of session spend) with the strong model reading every criterion. CI replays the recorded tier calls through the deterministic pipeline (`tally calibrate eval --max-share 5`) and fails if criterion agreement drops below `baseline.json` or the average self-share exceeds 5%; `tally calibrate eval --live` re-measures the models.
 
-```bash
-tally calibrate add <session> --human met,partial,unmet,unverifiable --verdict borderline
-tally calibrate report      # exact and within-one-step agreement, confusion matrix, disagreements with the judge's evidence
-```
-
-Caveats: five authored sessions are a smoke test, not a benchmark; the fixtures are small JavaScript repos with one test file; the judge sees a scrubbed diff and an independent test run, which is more than it gets when a repo has no detectable test command or the user has not consented to re-runs (then test criteria are `unverifiable` by rule, not by judgment).
+Caveats: five authored sessions are a smoke test; the fixtures are small JavaScript repos with one test file; the small model's confidence is self-reported, so a confident wrong answer is not escalated (the one disagreement above was rated 0.9); and when a repo has no detectable test command, or the user has not consented to re-runs, test criteria are `unverifiable` by rule.
 
 ## Development
 

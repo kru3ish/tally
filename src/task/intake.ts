@@ -3,14 +3,18 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { LlmClient } from '../llm/client.js';
-import { sessionDir, ensureDir, writeJson, readJson } from '../paths.js';
+import crypto from 'node:crypto';
+import { sessionDir, ensureDir, writeJson, readJson, tallyHome } from '../paths.js';
 import { fetchTask, type FetchDeps, type FetchedTask, type TaskSource } from './fetchers.js';
 import { appendEvent } from '../store/events.js';
+import { CheckSpecSchema, CHECK_JSON_SCHEMA, parseCheck } from '../judge/checks.js';
 
 export const CriterionSchema = z.object({
   id: z.string(),
   text: z.string(),
   source: z.enum(['explicit', 'inferred']),
+  kind: z.enum(['mechanical', 'judgment']).default('judgment'),
+  check: CheckSpecSchema.optional(),
 });
 
 export const TaskSchema = z.object({
@@ -40,6 +44,8 @@ export const TaskSchema = z.object({
   hourly_rate: z.number(),
   tally_cost_usd: z.number(),
   model: z.string(),
+  cache_key: z.string().optional(),
+  cached: z.boolean().optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -54,7 +60,7 @@ export const INTAKE_SCHEMA = {
     title: { type: 'string' },
     criteria: {
       type: 'array',
-      items: { type: 'object', properties: { text: { type: 'string' }, source: { type: 'string', enum: ['explicit', 'inferred'] } }, required: ['text', 'source'] },
+      items: { type: 'object', properties: { text: { type: 'string' }, source: { type: 'string', enum: ['explicit', 'inferred'] }, check: CHECK_JSON_SCHEMA }, required: ['text', 'source', 'check'] },
     },
     spec_quality: {
       type: 'object',
@@ -73,11 +79,14 @@ Rules:
 - Mark a criterion "explicit" when the ticket states it (including checkbox lists), "inferred" when a competent engineer would assume it (tests for new behaviour, no regressions). Keep inferred criteria to at most 3.
 - spec_quality.score is 0-10: 10 = every criterion is testable and scoped; 5 = usable but missing key details; below 5 = the engineer should ask questions before starting. List what is missing and the exact questions to ask.
 - estimate_hours is the human-hours a competent engineer would need without AI assistance, including tests. Be realistic, not optimistic.
+- For each criterion give a "check": a mechanical test that decides it with no judgment, or kind "none" when only a reader can decide.
+  Kinds: "tests_pass" (the project's test suite passes), "file_exists" {path}, "file_changed" {path} (the file appears in the diff), "file_contains" {path, pattern (regex)}, "diff_contains" {pattern (regex)}, "command" {command, expect_exit} (only the repo's own npm/make/test scripts), "pr" {state: pushed|opened|merged}.
+  Prefer a check whenever the ticket names a file, a command, a test, or a PR outcome. Use "none" for behaviour that needs reading the code (correctness, edge cases, "works", "unchanged").
 Return only the JSON object.`;
 
 interface IntakeOut {
   title: string;
-  criteria: Array<{ text: string; source: 'explicit' | 'inferred' }>;
+  criteria: Array<{ text: string; source: 'explicit' | 'inferred'; check?: unknown }>;
   spec_quality: { score: number; missing: string[]; questions: string[] };
   estimate_hours: number;
   rationale: string;
@@ -85,6 +94,15 @@ interface IntakeOut {
 
 export function taskFile(session: string): string {
   return path.join(sessionDir(session), 'task.json');
+}
+
+export function intakeCacheKey(fetched: FetchedTask, model: string): string {
+  const material = JSON.stringify({ kind: fetched.source.kind, ref: fetched.source.url ?? fetched.source.ref, title: fetched.title, body: fetched.body, labels: fetched.labels, sp: fetched.story_points ?? null, model, v: 2 });
+  return crypto.createHash('sha256').update(material).digest('hex').slice(0, 32);
+}
+
+export function intakeCacheFile(key: string): string {
+  return path.join(tallyHome(), 'cache', 'intake', `${key}.json`);
 }
 
 export function loadTask(session: string): Task | null {
@@ -115,6 +133,7 @@ export async function intake(opts: {
   llm: LlmClient;
   deps?: FetchDeps;
   force?: boolean;
+  noCache?: boolean;
 }): Promise<{ task: Task; created: boolean }> {
   const existing = loadTask(opts.session);
   if (existing && !opts.force) return { task: existing, created: false };
@@ -123,10 +142,32 @@ export async function intake(opts: {
   const fetched = await fetchTask(ref, { cwd: opts.cwd, cfg: opts.cfg, deps: opts.deps, promptText: opts.text });
   const bodyForLlm = fetched.body.slice(0, 12000);
   const prompt = `TITLE: ${fetched.title}\nSOURCE: ${fetched.source.kind}${fetched.source.url ? ' ' + fetched.source.url : ''}\nLABELS: ${fetched.labels.join(', ') || '(none)'}\n${fetched.story_points ? `STORY POINTS: ${fetched.story_points}\n` : ''}\nDESCRIPTION:\n${bodyForLlm || '(empty)'}`;
-  const r = await opts.llm.complete<IntakeOut>({ kind: 'intake', model: opts.cfg.models.intake, system: INTAKE_SYSTEM, prompt, schema: INTAKE_SCHEMA as unknown as Record<string, unknown> });
-  const out = r.data;
-  const criteria = (out.criteria ?? []).filter((c) => c.text?.trim()).map((c, i) => ({ id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const) }));
-  if (criteria.length === 0) criteria.push({ id: 'c1', text: `Deliver: ${fetched.title}`, source: 'inferred' });
+  /* one small-model call per distinct task content; identical tickets are free to re-intake */
+  const cacheKey = intakeCacheKey(fetched, opts.cfg.models.intake);
+  const cachedOut = opts.noCache ? null : readJson<{ out: IntakeOut; model: string } | null>(intakeCacheFile(cacheKey), null);
+  let out: IntakeOut;
+  let cost = 0;
+  let model: string;
+  let cached = false;
+  if (cachedOut) {
+    out = cachedOut.out;
+    model = cachedOut.model;
+    cached = true;
+  } else {
+    const r = await opts.llm.complete<IntakeOut>({ kind: 'intake', model: opts.cfg.models.intake, system: INTAKE_SYSTEM, prompt, schema: INTAKE_SCHEMA as unknown as Record<string, unknown> });
+    out = r.data;
+    cost = r.cost_usd;
+    model = r.model;
+    writeJson(intakeCacheFile(cacheKey), { key: cacheKey, ts: new Date().toISOString(), model, out });
+  }
+  const criteria: Task['criteria'] = (out.criteria ?? [])
+    .filter((c) => c.text?.trim())
+    .map((c, i) => {
+      const check = parseCheck(c.check);
+      return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const), kind: check ? ('mechanical' as const) : ('judgment' as const), ...(check ? { check } : {}) };
+    });
+  if (criteria.length === 0) criteria.push({ id: 'c1', text: `Deliver: ${fetched.title}`, source: 'inferred', kind: 'judgment' });
+  const r = { cost_usd: cost, model };
   const score = Math.max(0, Math.min(10, Number(out.spec_quality?.score ?? 0)));
   const estimate = computeEstimate(fetched, Number(out.estimate_hours ?? 0));
   const task: Task = {
@@ -147,6 +188,8 @@ export async function intake(opts: {
     hourly_rate: opts.cfg.hourly_rate,
     tally_cost_usd: r.cost_usd,
     model: r.model,
+    cache_key: cacheKey,
+    cached,
   };
   TaskSchema.parse(task);
   ensureDir(sessionDir(opts.session));
@@ -168,7 +211,8 @@ export function renderTask(task: Task): string {
   lines.push(`Task: ${task.title}  [${task.source.kind}${task.source.url ? ' ' + task.source.url : ''}]`);
   if (task.fetch_error) lines.push(`  (fetch failed, used prompt text: ${task.fetch_error})`);
   lines.push(`Acceptance criteria (frozen):`);
-  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : ''}`);
+  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : ''}  [${c.kind === 'mechanical' ? `mechanical: ${c.check?.kind}` : 'judgment'}]`);
+  if (task.cached) lines.push(`  (intake served from cache; no model call)`);
   lines.push(`Spec quality: ${task.spec_quality.score}/10${task.needs_clarification ? '  -> Clarify the ticket first' : ''}`);
   if (task.spec_quality.missing.length) lines.push(`  Missing: ${task.spec_quality.missing.join('; ')}`);
   if (task.needs_clarification && task.spec_quality.questions.length) {

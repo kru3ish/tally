@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type Args, flag } from '../cli.js';
 import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
-import { judgeSession, loadJudge } from '../judge/judge.js';
+import { judgeSession, loadJudge, currentHead } from '../judge/judge.js';
 import { parseTranscriptFile } from '../transcript/parse.js';
 import { loadTask } from '../task/intake.js';
 import { readEvents } from '../store/events.js';
@@ -51,7 +51,11 @@ export async function run(args: Args): Promise<void> {
     log(`finalize: experiment restore failed: ${String(err)}`);
   }
 
-  if (!loadJudge(session) && transcriptPath && fs.existsSync(transcriptPath) && events.some((e) => e.type === 'prompt')) {
+  const existing = loadJudge(session);
+  const headNow = currentHead(cwd);
+  const alreadyJudged = !!existing && (!headNow || !existing.head || existing.head === headNow);
+  if (existing && !alreadyJudged) log(`finalize: ${session} HEAD moved since the last receipt (${existing.head?.slice(0, 8)} → ${headNow?.slice(0, 8)}); re-judging`);
+  if (!alreadyJudged && transcriptPath && fs.existsSync(transcriptPath) && events.some((e) => e.type === 'prompt')) {
     try {
       await judgeSession({ session, cwd, transcriptPath, cfg, llm: makeLlm({ session }), reason: 'session_end' });
     } catch (err) {

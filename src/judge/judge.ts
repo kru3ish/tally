@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import type { LlmClient } from '../llm/client.js';
@@ -12,6 +13,8 @@ import { runVerification, NO_CONSENT_REASON, type VerificationResult } from './v
 import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
+import { resolveCheck } from './checks.js';
+import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, type Tier1Result } from './tiers.js';
 
 const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
 
@@ -34,6 +37,7 @@ Cite concrete evidence: file paths, hunks, command output. Never invent files.
 quality_score (0-10) judges the code you can see: correctness, tests, scope discipline, no debris (debug prints, TODOs, unrelated churn).
 recommendations: exactly three short, specific, actionable habits for next time, ordered by expected dollars saved. Reference the waste figures when relevant.
 verdict_reason: one paragraph weighing completion, quality, cost, waste and ROI numbers provided. Be direct.
+confidence: your probability (0-1) that each status is right given the evidence.
 Return only the JSON object.`;
 
 export const JUDGE_SCHEMA = {
@@ -61,7 +65,7 @@ export const JUDGE_SCHEMA = {
 } as const;
 
 interface JudgeOut {
-  criteria: Array<{ id: string; status: 'met' | 'partial' | 'unmet' | 'unverifiable'; evidence: string; files: string[] }>;
+  criteria: Array<{ id: string; status: 'met' | 'partial' | 'unmet' | 'unverifiable'; evidence: string; files: string[]; confidence?: number }>;
   quality_score: number;
   quality_reason: string;
   verdict_reason: string;
@@ -150,6 +154,7 @@ export async function judgeSession(opts: {
   verification?: VerificationResult;
   task?: Task | null;
   consent?: boolean;
+  deep?: boolean;
 }): Promise<Judge> {
   const events = opts.events ?? readEvents(opts.session);
   const t = parseTranscriptFile(opts.transcriptPath);
@@ -163,31 +168,86 @@ export async function judgeSession(opts: {
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
   const humanValue = task.estimate.hours * task.hourly_rate;
 
-  const prompt = buildPrompt(task, t, ev, ver, { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd });
-  const r = await opts.llm.complete<JudgeOut>({ kind: 'judge', model: opts.cfg.models.judge, system: JUDGE_SYSTEM, prompt, schema: JUDGE_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
-  /* model output is text that may echo secrets from the diff; it goes through the same redactor as hook events */
-  const out = redactDeep(r.data);
-
+  const numbers = { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd };
   const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
-  const byId = new Map((out.criteria ?? []).map((c) => [c.id, c]));
-  const criteria = task.criteria.map((c) => {
-    const j = byId.get(c.id);
-    let status: 'met' | 'partial' | 'unmet' | 'unverifiable' = j && ['met', 'partial', 'unmet', 'unverifiable'].includes(j.status) ? j.status : 'unverifiable';
-    let evidence = j?.evidence ?? 'No assessment returned by the judge model.';
-    if (noConsent && isTestCriterion(c.text) && status !== 'unmet') {
-      status = 'unverifiable';
-      evidence = `unverifiable (${NO_CONSENT_REASON}). ${evidence}`;
+  type Resolved = { id: string; text: string; status: 'met' | 'partial' | 'unmet' | 'unverifiable'; evidence: string; files: string[]; resolved_by: 'tier0' | 'tier1' | 'tier2' | 'rule'; confidence?: number };
+  const resolved = new Map<string, Resolved>();
+
+  /* Tier 0: mechanical checks, no model */
+  for (const c of task.criteria) {
+    if (c.kind !== 'mechanical' || !c.check) continue;
+    const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms });
+    resolved.set(c.id, { id: c.id, text: c.text, status: r0.status, evidence: `[${c.check.kind}] ${r0.evidence}`, files: r0.files, resolved_by: 'tier0' });
+  }
+  const judgmentIds = task.criteria.filter((c) => !resolved.has(c.id)).map((c) => c.id);
+  const tierCosts: Judge['tiers']['calls'] = [];
+  let prose: { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null = null;
+  let tier1: Tier1Result[] = [];
+  let decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor });
+
+  const applyModel = (data: JudgeOut, ids: string[], tier: 'tier1' | 'tier2') => {
+    const byId = new Map((data.criteria ?? []).map((c) => [c.id, c]));
+    for (const id of ids) {
+      const c = task.criteria.find((x) => x.id === id)!;
+      const j = byId.get(id);
+      const status = j && ['met', 'partial', 'unmet', 'unverifiable'].includes(j.status) ? j.status : 'unverifiable';
+      const conf = typeof j?.confidence === 'number' ? Math.max(0, Math.min(1, j.confidence)) : 1;
+      resolved.set(id, { id, text: c.text, status, evidence: j?.evidence ?? 'No assessment returned by the model.', files: (j?.files ?? []).map(String), resolved_by: tier, confidence: conf });
     }
-    return { id: c.id, text: c.text, status, evidence, files: (j?.files ?? []).map(String) };
+    prose = { quality_score: Number(data.quality_score ?? 0), quality_reason: String(data.quality_reason ?? ''), verdict_reason: String(data.verdict_reason ?? ''), recommendations: (data.recommendations ?? []).map(String).filter(Boolean) };
+  };
+
+  /* Tier 1: small model, trimmed evidence pack, judgment criteria only */
+  let tier1Pack: { tokens: number; truncated: boolean } | undefined;
+  if (decision.run_tier1 && !(opts.deep || t.cost >= opts.cfg.judge.deepThreshold)) {
+    const pack = buildTier1Prompt(task, judgmentIds, ev, ver, numbers, opts.cfg.judge.tier1_evidence_tokens);
+    tier1Pack = { tokens: pack.tokens, truncated: pack.truncated };
+    const r1 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 1, model: opts.cfg.models.tier1, system: TIER1_SYSTEM, prompt: pack.prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 180000 });
+    const out1 = redactDeep(r1.data);
+    applyModel(out1, judgmentIds, 'tier1');
+    tier1 = judgmentIds.map((id) => ({ id, status: resolved.get(id)!.status, confidence: resolved.get(id)!.confidence ?? 1 }));
+    tierCosts.push({ tier: 'tier1', model: r1.model, cost_usd: round(r1.cost_usd), criteria: judgmentIds, prompt_tokens: pack.tokens });
+    decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor, tier1 });
+  }
+
+  /* Tier 2: strong model, full evidence, only the criteria that need it */
+  if (decision.run_tier2) {
+    const ids = decision.tier2_criteria;
+    const prompt = buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers);
+    const r2 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 2, model: opts.cfg.models.judge, system: JUDGE_SYSTEM, prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
+    applyModel(redactDeep(r2.data), ids, 'tier2');
+    tierCosts.push({ tier: 'tier2', model: r2.model, cost_usd: round(r2.cost_usd), criteria: ids, prompt_tokens: approxTokens(prompt) });
+  }
+
+  const criteria = task.criteria.map((c) => {
+    const r = resolved.get(c.id) ?? { id: c.id, text: c.text, status: 'unverifiable' as const, evidence: 'needs judgment; no model ran for this criterion', files: [], resolved_by: 'rule' as const };
+    if (noConsent && isTestCriterion(c.text) && r.status !== 'unmet' && r.resolved_by !== 'tier0') {
+      return { ...r, status: 'unverifiable' as const, evidence: `unverifiable (${NO_CONSENT_REASON}). ${r.evidence}` };
+    }
+    return r;
   });
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of criteria) counts[c.status] += 1;
   const completion_pct = criteria.length ? round(((counts.met + 0.5 * counts.partial) / criteria.length) * 100, 1) : 0;
-  const quality = Math.max(0, Math.min(10, Number(out.quality_score ?? 0)));
   const credited = round(humanValue * (completion_pct / 100), 2);
   const roi = t.cost > 0 ? round(credited / t.cost, 2) : null;
   const testsFailed = ver.ran && ver.passed === false;
+  const mech = mechanicalSummary({ ver, completion_pct, counts, waste: { total_usd: waste.total_usd, failed_loops: waste.failed_loops, repeated_reads: waste.repeated_reads, dead_weight: waste.dead_weight, compaction_churn: waste.compaction_churn }, cost: t.cost, budget: task.budget_usd, roi, unresolved: criteria.filter((c) => c.resolved_by === 'rule').length });
+  const finalProse = prose as { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null;
+  const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };
+  const quality = Math.max(0, Math.min(10, Number(out.quality_score ?? 0)));
   const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed });
+  const tiersRan: Array<'tier0' | 'tier1' | 'tier2'> = ['tier0', ...tierCosts.map((c) => c.tier)];
+  const tiers: Judge['tiers'] = {
+    ran: tiersRan,
+    reason: decision.explanation,
+    mechanical: task.criteria.length - judgmentIds.length,
+    judgment: judgmentIds.length,
+    calls: tierCosts,
+    llm_cost_usd: round(tierCosts.reduce((s, c) => s + c.cost_usd, 0)),
+    tier1_pack: tier1Pack,
+  };
+  const r = { cost_usd: tiers.llm_cost_usd, model: tierCosts.length ? tierCosts[tierCosts.length - 1]!.model : 'mechanical' };
 
   const rows = markTouched(
     attribute(t),
@@ -201,6 +261,8 @@ export async function judgeSession(opts: {
     session: opts.session,
     cwd: opts.cwd,
     judged_at: new Date().toISOString(),
+    head: ev.git.current_head,
+    tiers,
     reason: opts.reason,
     task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked },
     criteria,
@@ -233,8 +295,8 @@ export async function judgeSession(opts: {
       per_completed_criterion_usd: counts.met > 0 ? round(t.cost / counts.met, 2) : null,
       budget_usd: task.budget_usd,
       budget_used_pct: task.budget_usd > 0 ? round((t.cost / task.budget_usd) * 100, 1) : 0,
-      tally_own_usd: round(tallyOwn + r.cost_usd),
-      tally_share_pct: t.cost > 0 ? round(((tallyOwn + r.cost_usd) / t.cost) * 100, 1) : 0,
+      tally_own_usd: round(Math.max(tallyOwn, r.cost_usd)),
+      tally_share_pct: t.cost > 0 ? round((Math.max(tallyOwn, r.cost_usd) / t.cost) * 100, 1) : 0,
       confidence: t.cost_confidence,
       format: t.format,
       otel: otelCrossCheck(opts.session, t.cost),
@@ -308,7 +370,7 @@ export function implicitTask(session: string, cwd: string, t: Transcript, cfg: C
     title,
     body_excerpt: first.slice(0, 1500),
     labels: [],
-    criteria: [{ id: 'c1', text: `Deliver what the first prompt asked: ${title}`, source: 'inferred' }],
+    criteria: [{ id: 'c1', text: `Deliver what the first prompt asked: ${title}`, source: 'inferred', kind: 'judgment' }],
     spec_quality: { score: 0, missing: ['no linked task; criteria inferred from the first prompt'], questions: [] },
     needs_clarification: true,
     estimate: { hours: 1, basis: 'default' },
@@ -320,3 +382,17 @@ export function implicitTask(session: string, cwd: string, t: Transcript, cfg: C
 }
 
 export { renderReport, renderSummary };
+
+export function currentHead(cwd: string): string | undefined {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true });
+  return r.status === 0 ? r.stdout.trim() : undefined;
+}
+
+/* Push and SessionEnd triggers for the same HEAD share one receipt. */
+export function existingReceiptFor(session: string, cwd: string): Judge | null {
+  const j = loadJudge(session);
+  if (!j) return null;
+  const head = currentHead(cwd);
+  if (head && j.head && j.head !== head) return null;
+  return j;
+}

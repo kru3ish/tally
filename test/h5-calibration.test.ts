@@ -94,7 +94,11 @@ describe('H5 fixture eval', () => {
     const c = loadFixtures().find((x) => x.name === 'health-endpoint-complete')!;
     const bad = new StubLlm({ judge: () => ({ criteria: c.task.criteria.map((cr) => ({ id: cr.id, status: 'unmet', evidence: 'nope', files: [] })), quality_score: 2, quality_reason: 'r', verdict_reason: 'v', recommendations: ['a'] }) }, 'x');
     const r = await runFixture(c, { cfg: loadConfig(), llm: bad });
-    expect(r.matches).toBe(0);
+    const judged = r.judge.criteria.filter((x) => x.resolved_by !== 'tier0');
+    expect(judged.length).toBeGreaterThan(0);
+    expect(judged.every((x) => x.status === 'unmet')).toBe(true);
+    expect(r.judge.criteria.filter((x) => x.resolved_by === 'tier0').every((x) => x.status === 'met')).toBe(true);
+    expect(r.matches).toBe(r.total - judged.length);
     expect(r.judge.verdict.verdict).toBe('not worth it');
     expect(r.verdict_match).toBe(false);
   }, 60000);

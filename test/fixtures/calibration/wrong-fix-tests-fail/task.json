@@ -14,17 +14,23 @@
     {
       "id": "c1",
       "text": "Page 2 returns items 11–20",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c2",
       "text": "The page-2 regression test passes",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
     },
     {
       "id": "c3",
       "text": "Page 1 still returns items 1–10",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     }
   ],
   "spec_quality": {

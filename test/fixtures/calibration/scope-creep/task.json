@@ -14,22 +14,30 @@
     {
       "id": "c1",
       "text": "Config accepts timeoutMs",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c2",
       "text": "The old timeout key still works and logs a deprecation warning",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c3",
       "text": "CHANGELOG.md has an entry for the rename",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_changed",
+        "path": "CHANGELOG.md"
+      }
     },
     {
       "id": "c4",
       "text": "No unrelated files are changed",
-      "source": "inferred"
+      "source": "inferred",
+      "kind": "judgment"
     }
   ],
   "spec_quality": {

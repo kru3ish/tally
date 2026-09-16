@@ -26,7 +26,7 @@ export async function run(args: Args): Promise<number | void> {
   }
   recordAssignment(cwd, session);
   const llm = makeLlm({ session });
-  const { task, created } = await intake({ session, cwd, ref: ref || undefined, text, cfg, llm, force: has(args, 'force') });
+  const { task, created } = await intake({ session, cwd, ref: ref || undefined, text, cfg, llm, force: has(args, 'force'), noCache: has(args, 'no-cache') });
   if (!created && !has(args, 'auto')) process.stdout.write('(task already frozen for this session; use --force to replace)\n');
   if (!has(args, 'auto') || has(args, 'plain')) process.stdout.write(renderTask(task) + '\n');
 }

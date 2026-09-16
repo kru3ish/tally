@@ -14,22 +14,36 @@
     {
       "id": "c1",
       "text": "GET /health returns HTTP 200 with JSON containing status \"ok\"",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c2",
       "text": "The response includes uptime_seconds as a number",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c3",
       "text": "A test covers the /health endpoint",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_contains",
+        "path": "test.js",
+        "pattern": "/health"
+      }
     },
     {
       "id": "c4",
       "text": "README lists the endpoint",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_contains",
+        "path": "README.md",
+        "pattern": "/health"
+      }
     }
   ],
   "spec_quality": {

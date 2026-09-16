@@ -1,38 +1,74 @@
 {
-  "recorded_at": "2026-09-16T08:28:20.004Z",
-  "judge_model": "claude-opus-5",
+  "recorded_at": "2026-09-16T08:54:33.879Z",
+  "judge_model": "claude-haiku-4-5",
   "criterion_agreement": 0.9473684210526315,
   "verdict_agreement": 0.8,
+  "avg_share_pct": 2.84,
   "fixtures": [
     {
       "name": "claims-no-tests",
       "matches": 4,
       "total": 4,
-      "verdict_match": false
+      "verdict_match": true,
+      "session_usd": 0.4311,
+      "tally_usd": 0.0131,
+      "share_pct": 3,
+      "tiers": [
+        "tier0",
+        "tier1"
+      ]
     },
     {
       "name": "health-endpoint-complete",
       "matches": 4,
       "total": 4,
-      "verdict_match": true
+      "verdict_match": true,
+      "session_usd": 0.5604,
+      "tally_usd": 0.0147,
+      "share_pct": 2.6,
+      "tiers": [
+        "tier0",
+        "tier1"
+      ]
     },
     {
       "name": "rate-limit-partial",
-      "matches": 4,
+      "matches": 3,
       "total": 4,
-      "verdict_match": true
+      "verdict_match": false,
+      "session_usd": 0.7324,
+      "tally_usd": 0.0181,
+      "share_pct": 2.5,
+      "tiers": [
+        "tier0",
+        "tier1"
+      ]
     },
     {
       "name": "scope-creep",
       "matches": 4,
       "total": 4,
-      "verdict_match": true
+      "verdict_match": true,
+      "session_usd": 0.5712,
+      "tally_usd": 0.0194,
+      "share_pct": 3.4,
+      "tiers": [
+        "tier0",
+        "tier1"
+      ]
     },
     {
       "name": "wrong-fix-tests-fail",
-      "matches": 2,
+      "matches": 3,
       "total": 3,
-      "verdict_match": true
+      "verdict_match": true,
+      "session_usd": 0.5182,
+      "tally_usd": 0.0139,
+      "share_pct": 2.7,
+      "tiers": [
+        "tier0",
+        "tier1"
+      ]
     }
   ]
 }

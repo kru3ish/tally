@@ -7,6 +7,7 @@ import { canonicalModel, type Usage } from '../cost/pricing.js';
 
 export interface LlmRequest {
   kind: 'intake' | 'judge' | 'coach';
+  tier?: 1 | 2;
   model: string;
   system: string;
   prompt: string;
@@ -109,8 +110,8 @@ export class ClaudeCli implements LlmClient {
     const modelKey = usageEntries.find(([k]) => canonicalModel(k) === wanted)?.[0] ?? usageEntries.sort((a, b) => (b[1].costUSD ?? 0) - (a[1].costUSD ?? 0))[0]?.[0];
     const model = canonicalModel(modelKey ?? req.model);
     const cost_usd = parsed.total_cost_usd ?? 0;
-    recordTallySpend({ kind: req.kind, model, cost_usd, usage, session: this.opts.session });
-    log(`llm ${req.kind} model=${model} cost=${cost_usd.toFixed(4)} ms=${Date.now() - started}`);
+    recordTallySpend({ kind: req.tier ? `${req.kind}:tier${req.tier}` : req.kind, model, cost_usd, usage, session: this.opts.session });
+    log(`llm ${req.kind}${req.tier ? ':tier' + req.tier : ''} model=${model} cost=${cost_usd.toFixed(4)} ms=${Date.now() - started}`);
     return { data, usage, cost_usd, model, duration_ms: Date.now() - started };
   }
 }
@@ -126,7 +127,7 @@ export class StubLlm implements LlmClient {
     const r = this.responders[req.kind];
     if (!r) throw new Error(`StubLlm: no responder for ${req.kind}`);
     const usage: Usage = { input: 1200, output: 400, cache_write: 0, cache_write_1h: 0, cache_read: 0 };
-    const cost_usd = req.kind === 'judge' ? 0.05 : 0.004;
+    const cost_usd = req.kind === 'judge' ? (req.tier === 1 ? 0.012 : 0.05) : 0.004;
     recordTallySpend({ kind: req.kind, model: `stub:${req.model}`, cost_usd, usage, session: this.session });
     return { data: r(req) as T, usage, cost_usd, model: `stub:${req.model}`, duration_ms: 1 };
   }

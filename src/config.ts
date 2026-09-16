@@ -8,6 +8,7 @@ export const ConfigSchema = z.object({
   models: z
     .object({
       judge: z.string().default('opus'),
+      tier1: z.string().default('haiku'),
       coach: z.string().default('haiku'),
       intake: z.string().default('haiku'),
     })
@@ -19,6 +20,7 @@ export const ConfigSchema = z.object({
       min_interval_s: z.number().nonnegative().default(180),
       max_per_session: z.number().int().positive().default(8),
       llm_interval_s: z.number().nonnegative().default(90),
+      llm_min_session_usd: z.number().nonnegative().default(1),
       auto_mute_after_skips: z.number().int().positive().default(3),
       context_warn_pct: z.number().default(70),
       context_critical_pct: z.number().default(85),
@@ -28,6 +30,9 @@ export const ConfigSchema = z.object({
     .object({
       test_timeout_ms: z.number().int().positive().default(300000),
       run_tests: z.boolean().default(true),
+      deepThreshold: z.number().nonnegative().default(3),
+      tier1_confidence_floor: z.number().min(0).max(1).default(0.6),
+      tier1_evidence_tokens: z.number().int().positive().default(8000),
     })
     .default({}),
   followup_days: z.number().int().positive().default(7),

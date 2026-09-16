@@ -24,7 +24,11 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push('| # | Status | Criterion | Evidence |');
   L.push('|---|---|---|---|');
-  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.status]} ${c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.files.length ? ` (${c.files.join(', ')})` : ''} |`);
+  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.status]} ${c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.files.length ? ` (${c.files.join(', ')})` : ''} _${c.resolved_by}${c.confidence !== undefined && c.resolved_by !== 'tier0' ? `, conf ${c.confidence.toFixed(2)}` : ''}_ |`);
+  L.push('');
+  L.push(`## How it was judged`);
+  L.push('');
+  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString()} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}`);
   L.push('');
   L.push(`## Quality: ${j.quality.score}/10`);
   L.push('');
@@ -94,6 +98,10 @@ export function renderReport(j: Judge): string {
   return L.join('\n') + '\n';
 }
 
+function tierLabel(t: 'tier0' | 'tier1' | 'tier2'): string {
+  return t === 'tier0' ? 'tier 0 (mechanical)' : t === 'tier1' ? 'tier 1 (small model)' : 'tier 2 (strong model)';
+}
+
 function esc(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
@@ -106,8 +114,9 @@ export function renderSummary(j: Judge, color = true): string {
   L.push(`${c(verdictColor, c('1', j.verdict.verdict.toUpperCase()))}${j.followup ? `  → after follow-up: ${c('1', j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ''}  ·  ${j.completion_pct}% complete  ·  quality ${j.quality.score}/10  ·  ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`);
   for (const cr of j.criteria) {
     const col = cr.status === 'met' ? '32' : cr.status === 'partial' ? '33' : cr.status === 'unmet' ? '31' : '90';
-    L.push(`  ${c(col, STATUS_ICON[cr.status]!)} ${cr.id} ${cr.text}`);
+    L.push(`  ${c(col, STATUS_ICON[cr.status]!)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}`);
   }
+  L.push(`Judged by: ${j.tiers.ran.map((t) => t.replace('tier', 'tier ')).join(' → ')} · ${j.tiers.reason}${j.tiers.calls.length ? ` · model spend ${fmtUsd(j.tiers.llm_cost_usd)}` : ' · $0 in model calls'}`);
   L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')}` : c('90', `not run (${j.verification.reason})`)}`);
   L.push(`Cost (API-equivalent${j.cost.confidence === 'partial' ? ', PARTIAL: transcript not fully parsed' : ''}): ${fmtUsd(j.cost.total_usd)} / budget ${fmtUsd(j.cost.budget_usd)} (${j.cost.budget_used_pct}%) · per met criterion ${j.cost.per_completed_criterion_usd === null ? 'n/a' : fmtUsd(j.cost.per_completed_criterion_usd)} · waste ${fmtUsd(j.waste.total_usd)}`);
   L.push(`  Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (${j.cost.tally_share_pct}% of session spend, separate)${j.cost.otel?.available ? ` · OTel cross-check ${fmtUsd(j.cost.otel.total_usd ?? 0)}` : ''}`);

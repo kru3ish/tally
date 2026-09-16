@@ -14,22 +14,34 @@
     {
       "id": "c1",
       "text": "Signup rejects an email without an @",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c2",
       "text": "Signup rejects a password shorter than 8 characters",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c3",
       "text": "Unit tests cover both validation rules",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_contains",
+        "path": "test.js",
+        "pattern": "password"
+      }
     },
     {
       "id": "c4",
       "text": "The existing test suite still passes",
-      "source": "inferred"
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
     }
   ],
   "spec_quality": {

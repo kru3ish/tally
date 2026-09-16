@@ -19,7 +19,19 @@ export const JudgeSchema = z.object({
     budget_usd: z.number(),
     linked: z.boolean(),
   }),
-  criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()) })),
+  head: z.string().optional(),
+  criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()), resolved_by: z.enum(['tier0', 'tier1', 'tier2', 'rule']).default('tier2'), confidence: z.number().min(0).max(1).optional() })),
+  tiers: z
+    .object({
+      ran: z.array(z.enum(['tier0', 'tier1', 'tier2'])),
+      reason: z.string(),
+      mechanical: z.number(),
+      judgment: z.number(),
+      calls: z.array(z.object({ tier: z.enum(['tier1', 'tier2']), model: z.string(), cost_usd: z.number(), criteria: z.array(z.string()), prompt_tokens: z.number() })),
+      llm_cost_usd: z.number(),
+      tier1_pack: z.object({ tokens: z.number(), truncated: z.boolean() }).optional(),
+    })
+    .default({ ran: ['tier2'], reason: 'legacy receipt', mechanical: 0, judgment: 0, calls: [], llm_cost_usd: 0 }),
   completion_pct: z.number().min(0).max(100),
   counts: z.object({ met: z.number(), partial: z.number(), unmet: z.number(), unverifiable: z.number() }),
   quality: z.object({ score: z.number().min(0).max(10), reason: z.string() }),

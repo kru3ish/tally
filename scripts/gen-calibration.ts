@@ -14,7 +14,7 @@ type Status = 'met' | 'partial' | 'unmet' | 'unverifiable';
 interface Scenario {
   name: string;
   session: string;
-  task: { title: string; criteria: Array<{ text: string; source: 'explicit' | 'inferred' }>; spec: number; hours: number; body: string };
+  task: { title: string; criteria: Array<{ text: string; source: 'explicit' | 'inferred'; check?: Record<string, unknown> }>; spec: number; hours: number; body: string };
   repo: { base: Record<string, string>; after: Record<string, string>; delete?: string[] };
   expected: { criteria: Status[]; verdict: 'worth it' | 'borderline' | 'not worth it'; notes: string };
   build: (b: Builder) => void;
@@ -34,7 +34,7 @@ function taskJson(s: Scenario) {
     title: s.task.title,
     body_excerpt: s.task.body,
     labels: [],
-    criteria: s.task.criteria.map((c, i) => ({ id: `c${i + 1}`, text: c.text, source: c.source })),
+    criteria: s.task.criteria.map((c, i) => ({ id: `c${i + 1}`, text: c.text, source: c.source, kind: c.check ? 'mechanical' : 'judgment', ...(c.check ? { check: c.check } : {}) })),
     spec_quality: { score: s.task.spec, missing: [], questions: [] },
     needs_clarification: s.task.spec < 5,
     estimate: { hours, basis: 'llm' },
@@ -56,9 +56,9 @@ const scenarios: Scenario[] = [
       hours: 3,
       criteria: [
         { text: 'POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes', source: 'explicit' },
-        { text: 'A test covers the 429 path', source: 'explicit' },
-        { text: 'README documents the limit', source: 'explicit' },
-        { text: 'Existing login behaviour is unchanged below the limit', source: 'inferred' },
+        { text: 'A test covers the 429 path', source: 'explicit', check: { kind: 'file_contains', path: 'test.js', pattern: '429' } },
+        { text: 'README documents the limit', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } },
+        { text: 'Existing login behaviour is unchanged below the limit', source: 'inferred', check: { kind: 'tests_pass' } },
       ],
     },
     repo: {
@@ -108,8 +108,8 @@ const scenarios: Scenario[] = [
       criteria: [
         { text: 'GET /health returns HTTP 200 with JSON containing status "ok"', source: 'explicit' },
         { text: 'The response includes uptime_seconds as a number', source: 'explicit' },
-        { text: 'A test covers the /health endpoint', source: 'explicit' },
-        { text: 'README lists the endpoint', source: 'explicit' },
+        { text: 'A test covers the /health endpoint', source: 'explicit', check: { kind: 'file_contains', path: 'test.js', pattern: '/health' } },
+        { text: 'README lists the endpoint', source: 'explicit', check: { kind: 'file_contains', path: 'README.md', pattern: '/health' } },
       ],
     },
     repo: {
@@ -155,8 +155,8 @@ const scenarios: Scenario[] = [
       criteria: [
         { text: 'Signup rejects an email without an @', source: 'explicit' },
         { text: 'Signup rejects a password shorter than 8 characters', source: 'explicit' },
-        { text: 'Unit tests cover both validation rules', source: 'explicit' },
-        { text: 'The existing test suite still passes', source: 'inferred' },
+        { text: 'Unit tests cover both validation rules', source: 'explicit', check: { kind: 'file_contains', path: 'test.js', pattern: 'password' } },
+        { text: 'The existing test suite still passes', source: 'inferred', check: { kind: 'tests_pass' } },
       ],
     },
     repo: {
@@ -194,7 +194,7 @@ const scenarios: Scenario[] = [
       hours: 1,
       criteria: [
         { text: 'Page 2 returns items 11–20', source: 'explicit' },
-        { text: 'The page-2 regression test passes', source: 'explicit' },
+        { text: 'The page-2 regression test passes', source: 'explicit', check: { kind: 'tests_pass' } },
         { text: 'Page 1 still returns items 1–10', source: 'explicit' },
       ],
     },
@@ -236,7 +236,7 @@ const scenarios: Scenario[] = [
       criteria: [
         { text: 'Config accepts timeoutMs', source: 'explicit' },
         { text: 'The old timeout key still works and logs a deprecation warning', source: 'explicit' },
-        { text: 'CHANGELOG.md has an entry for the rename', source: 'explicit' },
+        { text: 'CHANGELOG.md has an entry for the rename', source: 'explicit', check: { kind: 'file_changed', path: 'CHANGELOG.md' } },
         { text: 'No unrelated files are changed', source: 'inferred' },
       ],
     },

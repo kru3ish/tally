@@ -14,22 +14,38 @@
     {
       "id": "c1",
       "text": "POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "judgment"
     },
     {
       "id": "c2",
       "text": "A test covers the 429 path",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_contains",
+        "path": "test.js",
+        "pattern": "429"
+      }
     },
     {
       "id": "c3",
       "text": "README documents the limit",
-      "source": "explicit"
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_changed",
+        "path": "README.md"
+      }
     },
     {
       "id": "c4",
       "text": "Existing login behaviour is unchanged below the limit",
-      "source": "inferred"
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
     }
   ],
   "spec_quality": {

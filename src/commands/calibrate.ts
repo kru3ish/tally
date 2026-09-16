@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { type Args, flag, has } from '../cli.js';
 import { addCalibration, buildCalibrationReport, parseStatuses, parseVerdict, readCalibration, renderCalibrationReport } from '../calibrate/calibrate.js';
-import { loadBaseline, runEval } from '../calibrate/eval.js';
+import { loadBaseline, runEval, renderOverheadTable } from '../calibrate/eval.js';
 import { renderSummary } from '../judge/judge.js';
 import { loadJudge } from '../judge/judge.js';
 import { resolveSession } from '../session.js';
@@ -52,10 +52,11 @@ export async function run(args: Args): Promise<number | void> {
     if (!keep) process.env.TALLY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-cal-home-'));
     try {
       const only = flag(args, 'only')?.split(',').filter(Boolean);
-      const s = await runEval({ live, record, only });
+      const s = await runEval({ live, record, only, deep: has(args, 'deep') });
       process.stdout.write(`Calibration eval (${live ? 'live judge model: ' + s.judge_model : 'recorded model output replayed through the pipeline'})\n\n`);
       for (const f of s.fixtures) process.stdout.write(`${f.verdict_match && f.matches === f.total ? 'ok  ' : 'diff'} ${f.name.padEnd(26)} ${f.matches}/${f.total} criteria · verdict ${f.judge_verdict}${f.verdict_match ? '' : ` (expected ${f.expected_verdict})`}${f.matches === f.total ? '' : '  [' + f.statuses.filter((x) => x.human !== x.judge).map((x) => `${x.id}: judge ${x.judge}, human ${x.human}`).join('; ') + ']'}\n`);
       process.stdout.write('\n' + renderCalibrationReport(s.report, 'Fixture agreement') + '\n');
+      process.stdout.write('\nSelf-overhead (Tally spend as a share of each session)\n' + renderOverheadTable(s) + '\n');
       if (has(args, 'verbose')) for (const f of s.fixtures) process.stdout.write('\n' + renderSummary(loadJudge(f.name.startsWith('cal-') ? f.name : `cal-${f.name}`) ?? ({} as never), false) + '\n');
       const baseline = loadBaseline();
       const threshold = flag(args, 'fail-below') !== undefined ? Number(flag(args, 'fail-below')) : baseline ? baseline.criterion_agreement - 1e-9 : undefined;
@@ -63,7 +64,12 @@ export async function run(args: Args): Promise<number | void> {
         process.stderr.write(`\nFAIL: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% is below ${(threshold * 100).toFixed(1)}%${baseline && flag(args, 'fail-below') === undefined ? ` (baseline recorded ${baseline.recorded_at?.slice(0, 10)})` : ''}.\n`);
         return 1;
       }
-      if (threshold !== undefined) process.stdout.write(`\nPASS: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% ≥ ${(threshold * 100).toFixed(1)}%.\n`);
+      const maxShare = flag(args, 'max-share') !== undefined ? Number(flag(args, 'max-share')) : undefined;
+      if (maxShare !== undefined && s.avg_share_pct > maxShare) {
+        process.stderr.write(`\nFAIL: average self-share ${s.avg_share_pct.toFixed(1)}% is above ${maxShare}%.\n`);
+        return 1;
+      }
+      if (threshold !== undefined) process.stdout.write(`\nPASS: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% ≥ ${(threshold * 100).toFixed(1)}%${maxShare !== undefined ? `; average self-share ${s.avg_share_pct.toFixed(1)}% ≤ ${maxShare}%` : ''}.\n`);
       if (record) process.stdout.write(`Recorded model outputs and baseline under test/fixtures/calibration/.\n`);
     } finally {
       if (!keep) {

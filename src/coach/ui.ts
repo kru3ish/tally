@@ -143,7 +143,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
   refreshTranscript();
   let ctx = makeCtx();
   w(renderHeader(ctx, color));
-  w(paint(color, C.gray, `mode: ${mode} · rules: deterministic first, LLM (${opts.cfg.models.coach}) at most every ${opts.cfg.coach.llm_interval_s}s · q to quit`));
+  w(paint(color, C.gray, `mode: ${mode} · rules: deterministic first, LLM (${opts.cfg.models.coach}) at most every ${opts.cfg.coach.llm_interval_s}s once the session passes $${opts.cfg.coach.llm_min_session_usd} · q to quit`));
   w('');
 
   for (;;) {
@@ -154,7 +154,8 @@ export async function watch(opts: WatchOptions): Promise<void> {
     ctx = makeCtx();
     const result = engine.tick(ctx);
     let shown = result.show;
-    if (opts.llm && engine.llmAllowed(ctx.now, events.length) && !shown.length && events.some((e) => e.type === 'post_tool')) {
+    /* the LLM pass is off below coach.llm_min_session_usd (default $1): small sessions get the deterministic rules only */
+    if (opts.llm && ctx.spendUsd >= opts.cfg.coach.llm_min_session_usd && engine.llmAllowed(ctx.now, events.length) && !shown.length && events.some((e) => e.type === 'post_tool')) {
       engine.markLlm(ctx.now, events.length);
       try {
         const s = await llmCoach(ctx, opts.llm);

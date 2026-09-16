@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type Args, flag, has } from '../cli.js';
 import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
-import { judgeSession, loadJudge, renderSummary } from '../judge/judge.js';
+import { judgeSession, existingReceiptFor, renderSummary } from '../judge/judge.js';
 import { writeBack } from '../judge/writeback.js';
 import { resolveSession, sessionCwd, transcriptPathFor } from '../session.js';
 import { sessionDir, log } from '../paths.js';
@@ -32,12 +32,16 @@ export async function run(args: Args): Promise<number | void> {
   const auto = has(args, 'auto');
   const reasonFlag = flag(args, 'reason');
   const reason = (['push', 'pr', 'merge', 'publish', 'session_end', 'manual'].includes(reasonFlag ?? '') ? reasonFlag : auto ? 'session_end' : 'manual') as Judge['reason'];
-  const existing = loadJudge(session);
-  if (existing && auto && reason === 'session_end') {
-    log(`judge: ${session} already judged, skipping session_end re-run`);
+  const cwd = sessionCwd(session) ?? process.cwd();
+  const existing = existingReceiptFor(session, cwd);
+  if (existing && !has(args, 'force') && !has(args, 'deep')) {
+    log(`judge: ${session} already judged at HEAD ${existing.head?.slice(0, 8) ?? '?'} (${existing.reason}); reusing`);
+    if (!auto) {
+      process.stdout.write(`Receipt already exists for this HEAD (judged on ${existing.reason}); showing it. Use --force to re-judge or --deep for the strong model.\n`);
+      process.stdout.write(renderSummary(existing, !has(args, 'plain')) + '\n');
+    }
     return;
   }
-  const cwd = sessionCwd(session) ?? process.cwd();
   const transcriptPath = flag(args, 'transcript') ?? transcriptPathFor(session);
   if (!transcriptPath || !fs.existsSync(transcriptPath)) {
     if (!auto) process.stderr.write(`No transcript found for session ${session}.\n`);
@@ -61,7 +65,7 @@ export async function run(args: Args): Promise<number | void> {
         process.stdout.write(consent ? 'Saved: test re-runs allowed for this repo (tally config consent.test_rerun.<repo> false to revoke).\n' : 'Saved: tests will not be run here; test criteria will be marked unverifiable.\n');
       }
     }
-    const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason, consent });
+    const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason, consent, deep: has(args, 'deep') });
     const plain = has(args, 'plain');
     process.stdout.write(renderSummary(judge, !plain) + '\n');
     process.stdout.write(`Receipt: ${path.join(sessionDir(session), 'report.md')}\n`);

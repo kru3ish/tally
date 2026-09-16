@@ -26,8 +26,8 @@ jobs:
       - run: npm test
       - name: demo (definition of done)
         run: node dist/cli.js demo --plain --fast
-      - name: calibration eval (regression; fails if agreement on the fixture sessions drops)
-        run: node dist/cli.js calibrate eval --fail-below 0.9
+      - name: calibration eval (fails if fixture agreement drops below baseline.json or average self-share exceeds 5%)
+        run: node dist/cli.js calibrate eval --max-share 5
       - name: install / uninstall round trip is byte-identical
         shell: bash
         run: |
