@@ -3,6 +3,7 @@ import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
 import { intake, loadTask, renderTask } from '../task/intake.js';
 import { resolveSession } from '../session.js';
+import { recordAssignment } from '../experiment/experiment.js';
 
 export async function run(args: Args): Promise<number | void> {
   const cfg = loadConfig();
@@ -23,6 +24,7 @@ export async function run(args: Args): Promise<number | void> {
     process.stderr.write('Usage: tally task <url|path|text>\n');
     return 1;
   }
+  recordAssignment(cwd, session);
   const llm = makeLlm({ session });
   const { task, created } = await intake({ session, cwd, ref: ref || undefined, text, cfg, llm, force: has(args, 'force') });
   if (!created && !has(args, 'auto')) process.stdout.write('(task already frozen for this session; use --force to replace)\n');
