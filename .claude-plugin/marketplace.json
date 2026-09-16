@@ -1,0 +1,11 @@
+{
+  "name": "tally",
+  "owner": { "name": "Krish Mehta" },
+  "plugins": [
+    {
+      "name": "tally",
+      "source": "./",
+      "description": "Per-task receipts and live coaching for Claude Code"
+    }
+  ]
+}

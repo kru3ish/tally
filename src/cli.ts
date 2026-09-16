@@ -1,0 +1,125 @@
+import { log } from './paths.js';
+
+export interface Args {
+  _: string[];
+  flags: Record<string, string | boolean>;
+}
+
+export function parseArgs(argv: string[]): Args {
+  const out: Args = { _: [], flags: {} };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      if (eq > 0) {
+        out.flags[a.slice(2, eq)] = a.slice(eq + 1);
+      } else {
+        const key = a.slice(2);
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith('--')) {
+          out.flags[key] = next;
+          i += 1;
+        } else {
+          out.flags[key] = true;
+        }
+      }
+    } else {
+      out._.push(a);
+    }
+  }
+  return out;
+}
+
+export function flag(args: Args, name: string): string | undefined {
+  const v = args.flags[name];
+  return typeof v === 'string' ? v : undefined;
+}
+
+export function has(args: Args, name: string): boolean {
+  return args.flags[name] !== undefined && args.flags[name] !== false;
+}
+
+const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<number | void> }>> = {
+  install: () => import('./commands/install.js'),
+  uninstall: () => import('./commands/install.js').then((m) => ({ run: m.runUninstall })),
+  task: () => import('./commands/task.js'),
+  judge: () => import('./commands/judge.js'),
+  finalize: () => import('./commands/finalize.js'),
+  followup: () => import('./commands/followup.js'),
+  watch: () => import('./commands/watch.js'),
+  start: () => import('./commands/start.js'),
+  coach: () => import('./commands/coach.js'),
+  undo: () => import('./commands/undo.js'),
+  experiment: () => import('./commands/experiment.js'),
+  report: () => import('./commands/report.js'),
+  doctor: () => import('./commands/doctor.js'),
+  demo: () => import('./commands/demo.js'),
+  status: () => import('./commands/status.js'),
+  config: () => import('./commands/config.js'),
+  sessions: () => import('./commands/sessions.js'),
+};
+
+const HELP = `tally — per-task receipts and live coaching for Claude Code
+
+Usage: tally <command> [options]
+
+Setup
+  install [--project]         Add Tally hooks to Claude Code settings (backs up first)
+  uninstall [--project]       Remove hooks; settings return byte-identical
+  doctor                      Check claude, gh, hooks, pricing, config
+  config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
+
+Judge
+  task <url|path|text>        Link a task to the current session; freeze acceptance criteria
+  judge [session] [--post]    Produce the receipt (judge.json + report.md); --post comments on issue/PR
+  followup [session]          Post-merge truth: merged, reverted, reopened, review churn, CI
+  report                      Trends: cost per task, completion, rework, skill/MCP payoff
+  sessions                    List tracked sessions
+  status [--session id]       What Tally knows about a session
+
+Coach
+  start                       Open the Coach pane (tmux split if available)
+  watch [session]             Attach the Coach to the latest active session
+  coach --once                Print pending suggestions and exit
+  undo [n]                    Reverse the last Coach change(s)
+
+Experiments
+  experiment start <skill|mcp> <name> --tasks N
+  experiment report
+  experiment stop
+
+Demo
+  demo                        Replay a fixture session end to end with a stubbed LLM
+`;
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const cmd = args._.shift();
+  if (!cmd || cmd === 'help' || cmd === '--help' || has(args, 'help')) {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (cmd === '--version' || cmd === 'version') {
+    process.stdout.write('tally 0.1.0\n');
+    return;
+  }
+  const loader = COMMANDS[cmd];
+  if (!loader) {
+    process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
+    process.exitCode = 2;
+    return;
+  }
+  try {
+    const mod = await loader();
+    const code = await mod.run(args);
+    if (typeof code === 'number') process.exitCode = code;
+  } catch (err) {
+    const msg = err instanceof Error ? err.stack ?? err.message : String(err);
+    log(`command ${cmd} failed: ${msg}`);
+    if (has(args, 'auto')) return;
+    process.stderr.write(`tally ${cmd}: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exitCode = 1;
+  }
+}
+
+void main();
