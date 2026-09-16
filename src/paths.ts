@@ -97,3 +97,37 @@ export function log(msg: string): void {
 export function repoKey(cwd: string): string {
   return cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }
+
+let cachedRoot: string | null = null;
+
+/* The package root, found by walking up from this module (works from both src/ under tests and dist/ at runtime). */
+export function packageRoot(): string {
+  if (cachedRoot) return cachedRoot;
+  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  for (let i = 0; i < 6; i++) {
+    const pkg = path.join(dir, 'package.json');
+    if (fs.existsSync(pkg)) {
+      try {
+        if ((JSON.parse(fs.readFileSync(pkg, 'utf8')) as { name?: string }).name === 'tally-cc') {
+          cachedRoot = dir;
+          return dir;
+        }
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  cachedRoot = dir;
+  return dir;
+}
+
+export function builtHookPath(): string {
+  return path.join(packageRoot(), 'dist', 'hooks', 'hook.js');
+}
+
+export function builtCliPath(): string {
+  return path.join(packageRoot(), 'dist', 'cli.js');
+}

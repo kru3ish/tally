@@ -12,14 +12,15 @@ export const reread: Rule = {
       postTools(ctx).filter((e) => toolName(e) === 'Read'),
       (e) => normPath(toolInput(e).file_path),
     );
-    for (const [file, evs] of reads) {
+    for (const [key, evs] of reads) {
       if (evs.length < REREAD_THRESHOLD) continue;
+      const file = String(toolInput(evs[0]!).file_path ?? key);
       const chars = evs.reduce((s, e) => s + Number(e.data.response_chars ?? 0), 0);
       const extra = evs.length - 1;
       const tokens = Math.round(chars / 4 / evs.length);
       out.push({
         rule: this.id,
-        key: `reread:${file}:${evs.length}`,
+        key: `reread:${key}:${evs.length}`,
         severity: 'warn',
         title: `${shortPath(file, ctx.cwd)} read ${evs.length}×`,
         message: `${shortPath(file, ctx.cwd)} has been read ${evs.length} times (~${tokens.toLocaleString()} tokens each). Every re-read is billed again and sits in context. Pin the parts that matter instead.`,

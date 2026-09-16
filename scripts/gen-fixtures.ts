@@ -16,7 +16,7 @@ class Clock {
   constructor(iso: string) {
     this.t = Date.parse(iso);
   }
-  tick(s = 4): string {
+  tick(s = 25): string {
     this.t += s * 1000;
     return new Date(this.t).toISOString();
   }
@@ -84,7 +84,7 @@ class Builder {
 
   prompt(text: string): void {
     this.turnN += 1;
-    this.clock.tick(20);
+    this.clock.tick(90);
     this.lines.push(this.base({ type: 'user', promptId: this.uuid(), message: { role: 'user', content: text } }));
     this.event('prompt', { prompt: text, turn: this.turnN });
   }
@@ -92,7 +92,7 @@ class Builder {
   assistant(
     opts: { model?: string; agent?: string; output?: number; text?: string; tools?: Array<{ name: string; input: Record<string, unknown> }>; afterCompaction?: boolean },
   ): string[] {
-    this.clock.tick(3);
+    this.clock.tick(25);
     this.msgN += 1;
     const id = `msg_fx${String(this.msgN).padStart(6, '0')}`;
     const model = opts.model ?? 'claude-opus-5';
@@ -154,7 +154,7 @@ class Builder {
   }
 
   result(toolUseId: string, tool: { name: string; input: Record<string, unknown> }, text: string, isError = false, agent?: string): void {
-    this.clock.tick(isError ? 6 : 2);
+    this.clock.tick(isError ? 40 : 10);
     this.lines.push(
       this.base(
         {
@@ -186,7 +186,7 @@ class Builder {
   }
 
   compact(): void {
-    this.clock.tick(5);
+    this.clock.tick(30);
     this.event('pre_compact', { trigger: 'auto', context_tokens: this.ctx });
     this.lines.push(
       this.base({

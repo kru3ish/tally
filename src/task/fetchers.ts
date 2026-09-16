@@ -33,7 +33,7 @@ export interface FetchDeps {
 
 export const realDeps: FetchDeps = {
   exec: (bin, args) => {
-    const r = spawnSync(bin, args, { encoding: 'utf8', shell: process.platform === 'win32', windowsHide: true, timeout: 30000 });
+    const r = spawnSync(bin, args, { encoding: 'utf8', windowsHide: true, timeout: 30000, ...(process.platform === 'win32' ? { shell: false } : {}) });
     return { ok: r.status === 0, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
   },
   fetch: async (url, init) => {

@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { claudeHome, ensureDir, tallyHome } from '../paths.js';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
+import { claudeHome, ensureDir, tallyHome, builtHookPath } from '../paths.js';
 
 export const HOOK_EVENTS: Array<{ event: string; matcher?: string; async: boolean }> = [
   { event: 'SessionStart', async: false },
@@ -18,7 +15,7 @@ export const HOOK_EVENTS: Array<{ event: string; matcher?: string; async: boolea
 ];
 
 export function hookScriptPath(): string {
-  return path.join(here, '..', 'hooks', 'hook.js').replace(/\\/g, '/');
+  return builtHookPath().replace(/\\/g, '/');
 }
 
 export function hookCommand(event: string, scriptPath = hookScriptPath()): string {
