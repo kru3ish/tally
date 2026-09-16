@@ -154,7 +154,7 @@ describe('cli smoke', () => {
     const r = spawnSync(process.execPath, [cli, 'config', 'hourly_rate', '120'], { encoding: 'utf8', env: { ...process.env } });
     expect(r.stdout).toContain('hourly_rate = 120');
     expect(loadConfig().hourly_rate).toBe(120);
-    const s = spawnSync(process.execPath, [cli, 'start'], { encoding: 'utf8', env: { ...process.env, TMUX: '' } });
+    const s = spawnSync(process.execPath, [cli, 'start'], { encoding: 'utf8', env: { ...process.env, TMUX: '', WT_SESSION: '', PATH: path.dirname(process.execPath) } });
     expect(s.stdout).toContain('tally watch');
     enqueueInject('x', 'n', 'test');
     expect(fs.existsSync(path.join(iso.home, 'sessions', 'x', 'inject.jsonl'))).toBe(true);

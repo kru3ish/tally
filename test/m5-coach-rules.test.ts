@@ -127,13 +127,14 @@ describe('rules', () => {
     const history: HistoryEntry[] = [1, 2, 3, 4].map((i) => ({ kind: 'session', repo, session: `s${i}`, loaded: { mcp: ['github', 'postgres'], skills: ['deploy-checklist'], plugins: [] }, used: { mcp: ['github'], skills: [] }, first_turn_tokens: 45000 }));
     const s = deadWeight.evaluate(ctx({ history }));
     const names = s.map((x) => x.key);
-    expect(names).toContain('dead:mcp:postgres');
-    expect(names).toContain('dead:skill:deploy-checklist');
-    expect(names).not.toContain('dead:mcp:github');
+    expect(names).toContain('dead:mcp:postgres:watch');
+    expect(names).toContain('dead:skill:deploy-checklist:watch');
+    expect(names.some((n) => n.startsWith('dead:mcp:github'))).toBe(false);
     expect(s[0]!.message).toContain('45,000');
     expect(s[0]!.message).toContain('30,000 above baseline');
-    expect(s[0]!.message).toContain('tally experiment');
-    expect(s[0]!.action.kind).toBe('snippet');
+    expect(s[0]!.message).toContain('Estimated');
+    expect(s[0]!.message).toContain('Recommendation: watch');
+    expect(s[0]!.action.kind).toBe('none');
     expect(deadWeight.evaluate(ctx({ history: history.slice(0, 2) })).length).toBe(0);
   });
 

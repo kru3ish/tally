@@ -57,6 +57,8 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   status: () => import('./commands/status.js'),
   config: () => import('./commands/config.js'),
   sessions: () => import('./commands/sessions.js'),
+  otel: () => import('./commands/otel.js'),
+  calibrate: () => import('./commands/calibrate.js'),
 };
 
 const HELP = `tally — per-task receipts and live coaching for Claude Code
@@ -88,7 +90,13 @@ Experiments
   experiment report
   experiment stop
 
-Demo
+Calibration
+  calibrate add <session> --human met,partial,... [--verdict "worth it"]
+  calibrate report            Agreement, confusion matrix, disagreements with evidence
+  calibrate eval [--live] [--record] [--fail-below N]   Regression eval on the fixture sessions
+
+Other
+  otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)
   demo                        Replay a fixture session end to end with a stubbed LLM
 `;
 

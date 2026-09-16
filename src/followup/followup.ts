@@ -8,6 +8,7 @@ import { listSessions } from '../store/events.js';
 import { tallyHome, readJson, writeJson, log } from '../paths.js';
 import type { Exec } from '../judge/evidence.js';
 import { gitExec } from '../judge/evidence.js';
+import { ghStatus } from './gh.js';
 
 export type FinalStatus = NonNullable<Judge['followup']>['final_status'];
 
@@ -73,7 +74,14 @@ export function followupSession(session: string, deps: FollowupDeps = realFollow
   let mergeSha: string | undefined;
   let branch = judge.evidence.branch;
 
-  if (prUrl) {
+  const needsGh = !!(prUrl || issueUrl);
+  const gh = needsGh && deps === realFollowupDeps ? ghStatus() : { ok: true, reason: '', fix: '' };
+  if (needsGh && !gh.ok) {
+    notes.push(`Follow-up skipped: ${gh.reason}. Fix: ${gh.fix}. Revert detection still ran on the local git log.`);
+    fu.gh_skipped = true;
+  }
+
+  if (prUrl && gh.ok) {
     const r = deps.exec('gh', ['pr', 'view', prUrl, '--json', 'state,mergedAt,mergeCommit,reviews,comments,number,headRefName,closed'], cwd);
     const pr = r.ok ? parseJson<PrView>(r.stdout) : null;
     if (pr) {
@@ -96,11 +104,11 @@ export function followupSession(session: string, deps: FollowupDeps = realFollow
     } else {
       notes.push(`Could not read PR ${prUrl} (${r.stderr.trim().slice(0, 120) || 'gh unavailable'}).`);
     }
-  } else {
+  } else if (!prUrl) {
     notes.push('No PR URL recorded for this session.');
   }
 
-  if (issueUrl) {
+  if (issueUrl && gh.ok) {
     const m = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(issueUrl);
     if (m) {
       const r = deps.exec('gh', ['api', `repos/${m[1]}/${m[2]}/issues/${m[3]}/events`, '--jq', '[.[] | {event, created_at}]'], cwd);
@@ -112,7 +120,9 @@ export function followupSession(session: string, deps: FollowupDeps = realFollow
     }
   }
 
-  const revert = detectRevert(cwd, deps.exec, { prNumber, mergeSha, branch, since: judge.judged_at.slice(0, 10) });
+  /* full ISO timestamp, one day of slack: a date-only --since is parsed in git's local midnight and can drop same-day commits */
+  const sinceIso = new Date(Date.parse(judge.judged_at) - 24 * 3600 * 1000).toISOString();
+  const revert = detectRevert(cwd, deps.exec, { prNumber, mergeSha, branch, since: sinceIso });
   fu.reverted = revert.reverted;
   if (revert.reverted) {
     fu.revert_commit = revert.commit;

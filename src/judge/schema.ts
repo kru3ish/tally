@@ -104,6 +104,7 @@ export const JudgeSchema = z.object({
       review_comments: z.number().optional(),
       change_requests: z.number().optional(),
       ci_failed_after_merge: z.boolean().optional(),
+      gh_skipped: z.boolean().optional(),
       notes: z.array(z.string()),
     })
     .optional(),

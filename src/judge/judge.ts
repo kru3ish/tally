@@ -10,6 +10,7 @@ import { loadTask, type Task } from '../task/intake.js';
 import { collectEvidence, type Evidence, type Exec } from './evidence.js';
 import { runVerification, NO_CONSENT_REASON, type VerificationResult } from './verify.js';
 import { redactDeep } from '../redact.js';
+import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
 
 const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
@@ -65,6 +66,13 @@ interface JudgeOut {
   quality_reason: string;
   verdict_reason: string;
   recommendations: string[];
+}
+
+export function otelCrossCheck(session: string, transcriptCost: number): Judge['cost']['otel'] {
+  const o = otelCostForSession(session);
+  if (o.available) return { available: true, total_usd: round(o.total_usd), delta_usd: round(o.total_usd - transcriptCost), note: `${o.points} metric points` };
+  if (process.env.CLAUDE_CODE_ENABLE_TELEMETRY) return { available: false, note: 'CLAUDE_CODE_ENABLE_TELEMETRY is set but no metrics reached Tally for this session; run `tally otel` and point OTEL_EXPORTER_OTLP_ENDPOINT at it' };
+  return undefined;
 }
 
 export function judgeFile(session: string): string {
@@ -229,6 +237,7 @@ export async function judgeSession(opts: {
       tally_share_pct: t.cost > 0 ? round(((tallyOwn + r.cost_usd) / t.cost) * 100, 1) : 0,
       confidence: t.cost_confidence,
       format: t.format,
+      otel: otelCrossCheck(opts.session, t.cost),
       models: t.models,
     },
     waste: {
