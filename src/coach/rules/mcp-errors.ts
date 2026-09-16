@@ -24,7 +24,7 @@ export const mcpErrors: Rule = {
         title: `${server} MCP failed ${evs.length}×`,
         message: `${tool} has errored ${evs.length} times (${head || 'no detail'}). Retrying an MCP tool that returns the same error burns turns. Check auth or the server with /mcp, or tell Claude to stop using it.`,
         usd_saved: ctx.avgTurnCostUsd * evs.length,
-        action: { kind: 'inject', label: 'Tell Claude to stop calling it', note: `The MCP tool ${tool} has failed ${evs.length} times with: ${head || 'the same error'}. Do not call it again this session; use another route or ask the user to fix the server.` },
+        action: { kind: 'inject', label: 'Tell Claude to stop calling it', note: `Tally observed the MCP tool ${tool} fail ${evs.length} times this session with: ${head || 'the same error'}.` },
       });
     }
     return out;

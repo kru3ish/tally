@@ -18,6 +18,7 @@ export interface Trend {
   recent_vs_prior: { recent_cost: number | null; prior_cost: number | null; recent_completion: number | null; prior_completion: number | null } | null;
   payoff: Array<{ kind: 'skill' | 'mcp'; name: string; used_in: number; completion_with: number | null; completion_without: number | null; cpc_with: number | null; cpc_without: number | null }>;
   top_recommendations: Array<{ text: string; count: number }>;
+  by_task_source: Array<{ source: string; tasks: number; completion_pct: number | null; cost_per_task_usd: number | null; rework_rate: number | null }>;
 }
 
 function mean(xs: number[]): number | null {
@@ -84,6 +85,11 @@ export function computeTrend(opts: { repo?: string; days?: number; history?: His
     recent_vs_prior: half > 0 ? { recent_cost: mean(recent.map((r) => r.cost_usd ?? 0)), prior_cost: mean(prior.map((r) => r.cost_usd ?? 0)), recent_completion: mean(recent.map((r) => r.completion_pct ?? 0)), prior_completion: mean(prior.map((r) => r.completion_pct ?? 0)) } : null,
     payoff,
     top_recommendations: [...recCount.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+    by_task_source: ['linked', 'confirmed', 'inferred'].map((source) => {
+      const rs = receipts.filter((r) => (r.task_source ?? (r.linked ? 'linked' : 'inferred')) === source);
+      const fu = rs.filter((r) => r.final_status && r.final_status !== 'unknown');
+      return { source, tasks: rs.length, completion_pct: mean(rs.map((r) => r.completion_pct ?? 0)), cost_per_task_usd: mean(rs.map((r) => r.cost_usd ?? 0)), rework_rate: fu.length ? fu.filter((r) => r.final_status !== 'held up').length / fu.length : null };
+    }).filter((x) => x.tasks > 0),
   };
 }
 
@@ -107,6 +113,11 @@ export function renderTrend(t: Trend, opts: { repo?: string; days?: number } = {
   if (t.recent_vs_prior) {
     const r = t.recent_vs_prior;
     L.push(`trend                cost ${f(r.prior_cost, fmtUsd)} → ${f(r.recent_cost, fmtUsd)}, completion ${f(r.prior_completion, (n) => n.toFixed(0) + '%')} → ${f(r.recent_completion, (n) => n.toFixed(0) + '%')} (older half → newer half)`);
+  }
+  if (t.by_task_source.length > 1) {
+    L.push('');
+    L.push('By task source (linked ticket vs inferred from prompts)');
+    for (const s of t.by_task_source) L.push(`  ${s.source.padEnd(10)} ${String(s.tasks).padStart(3)} task(s)  completion ${f(s.completion_pct, (n) => n.toFixed(0) + '%')}  cost/task ${f(s.cost_per_task_usd, fmtUsd)}  rework ${f(s.rework_rate, (n) => (n * 100).toFixed(0) + '%')}`);
   }
   if (t.payoff.length) {
     L.push('');

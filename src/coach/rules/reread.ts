@@ -28,7 +28,7 @@ export const reread: Rule = {
         action: {
           kind: 'inject',
           label: 'Ask Claude to keep notes instead of re-reading',
-          note: `You have read ${shortPath(file, ctx.cwd)} ${evs.length} times. Keep the relevant symbols and line ranges in your working notes (or HANDOFF.md) rather than re-reading the whole file.`,
+          note: `Tally observed ${shortPath(file, ctx.cwd)} being read ${evs.length} times this session (~${tokens.toLocaleString()} tokens each time); the file has not changed between reads.`,
         },
       });
     }

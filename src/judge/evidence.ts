@@ -3,6 +3,7 @@ import type { Transcript } from '../transcript/parse.js';
 import { isTestCommand, isLintCommand } from '../transcript/parse.js';
 import type { TallyEvent } from '../store/events.js';
 import { redact } from '../redact.js';
+import { reconstructChanges, type Reconstruction } from './reconstruct.js';
 
 export interface GitEvidence {
   base_head?: string;
@@ -32,6 +33,7 @@ export interface Evidence {
   prompts: string[];
   tool_call_count: number;
   edited_files: string[];
+  reconstruction: Reconstruction;
 }
 
 export type Exec = (bin: string, args: string[], cwd: string) => { ok: boolean; stdout: string; stderr: string };
@@ -79,11 +81,11 @@ export function collectGit(cwd: string, baseHead: string | undefined, exec: Exec
   return out;
 }
 
-export function collectEvidence(opts: { cwd: string; transcript: Transcript; events: TallyEvent[]; exec?: Exec }): Evidence {
+export function collectEvidence(opts: { cwd: string; transcript: Transcript; events: TallyEvent[]; exec?: Exec; skipGit?: boolean }): Evidence {
   const { transcript: t, events } = opts;
   const startEv = events.find((e) => e.type === 'session_start');
   const baseHead = typeof startEv?.data.git_head === 'string' ? startEv.data.git_head : undefined;
-  const git = collectGit(opts.cwd, baseHead, opts.exec);
+  const git: GitEvidence = opts.skipGit ? { base_head: baseHead, files_changed: [], diff_stat: '', insertions: 0, deletions: 0, diff_excerpt: '', error: 'no git tree for this session; changes reconstructed from the transcript' } : collectGit(opts.cwd, baseHead, opts.exec);
 
   const command_runs: CommandRun[] = [];
   for (const c of t.toolCalls) {
@@ -106,5 +108,6 @@ export function collectEvidence(opts: { cwd: string; transcript: Transcript; eve
   for (const c of t.toolCalls) {
     if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(c.name) && typeof c.input.file_path === 'string') edited.add(c.input.file_path.replace(/\\/g, '/'));
   }
-  return { git, command_runs, ship_events, final_messages, prompts, tool_call_count: t.toolCalls.length, edited_files: [...edited].sort() };
+  const reconstruction = reconstructChanges(t, git.files_changed, opts.cwd);
+  return { git, command_runs, ship_events, final_messages, prompts, tool_call_count: t.toolCalls.length, edited_files: [...edited].sort(), reconstruction };
 }

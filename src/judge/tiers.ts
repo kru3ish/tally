@@ -163,8 +163,10 @@ export function buildTier1Prompt(task: Task, ids: string[], ev: Evidence, ver: V
   const final = ev.final_messages.at(-1) ?? '';
   const tail = `\n# ASSISTANT'S FINAL MESSAGE (a claim)\n> ${final.slice(0, 600).replace(/\n/g, '\n> ')}\n# COMMANDS RUN\n${ev.command_runs.slice(-6).map((c) => `- ${c.command} → ${c.passed ? 'ok' : 'FAILED'}`).join('\n') || '(none)'}\n`;
   const budgetChars = tokenBudget * 4 - head.length - tail.length - 200;
-  const { text, truncated } = trimDiff(ev.git.diff_excerpt || '(empty diff)', prioritized, Math.max(1500, budgetChars));
-  const prompt = `${head}# DIFF${truncated ? ' (trimmed to fit; hunks touching the criteria came first)' : ''}\n${text}\n${tail}`;
+  const diffSource = ev.git.diff_excerpt ? ev.git.diff_excerpt : ev.reconstruction.diff_text || '(empty diff)';
+  const { text, truncated } = trimDiff(diffSource, prioritized, Math.max(1500, budgetChars));
+  const label = ev.git.diff_excerpt ? '# DIFF' : ev.reconstruction.diff_text ? '# CHANGES RECONSTRUCTED FROM THE TRANSCRIPT (not verified against disk)' : '# DIFF';
+  const prompt = `${head}${label}${truncated ? ' (trimmed to fit; hunks touching the criteria came first)' : ''}\n${text}\n${tail}`;
   return { prompt, tokens: approxTokens(prompt), truncated };
 }
 

@@ -30,7 +30,7 @@ export const taskQuality: Rule = {
         title: `Clarify the ticket first (spec quality ${ctx.task.spec_quality.score}/10)`,
         message: `"${ctx.task.title}" scored ${ctx.task.spec_quality.score}/10 at intake. Missing: ${ctx.task.spec_quality.missing.join('; ') || 'details'}. Building on a vague spec is the most expensive kind of rework.${qs.length ? '\n  Ask: ' + qs.map((q) => `\n   - ${q}`).join('') : ''}`,
         usd_saved: ctx.task.budget_usd * 0.3,
-        action: { kind: 'inject', label: 'Have Claude ask the questions before building', note: `The task spec is vague (${ctx.task.spec_quality.score}/10). Before writing code, ask the user these questions and wait for answers: ${qs.join(' | ')}` },
+        action: { kind: 'inject', label: 'Have Claude ask the questions before building', note: `Tally scored this task's spec ${ctx.task.spec_quality.score}/10 at intake; the open questions it recorded are: ${qs.join(' | ')}` },
       });
     }
     return out;

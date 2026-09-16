@@ -37,7 +37,7 @@ describe('actions', () => {
     expect(r.injected).toBe(true);
     expect(pendingInjects('s')[0]!.note).toBe('Stop re-reading.');
     const hook = spawnSync(process.execPath, [path.join(root, 'dist', 'hooks', 'hook.js'), 'UserPromptSubmit'], { input: JSON.stringify({ session_id: 's', prompt: 'x' }), encoding: 'utf8', env: { ...process.env, TALLY_NO_SPAWN: '1' } });
-    expect(hook.stdout).toContain('[Tally] Stop re-reading.');
+    expect(hook.stdout).toContain('Tally: Stop re-reading.');
     expect(pendingInjects('s').length).toBe(0);
     expect(readInjects('s')[0]!.delivered).toBe(true);
     expect(readEvents('s').some((e) => e.type === 'inject')).toBe(true);

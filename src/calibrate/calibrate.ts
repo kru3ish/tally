@@ -20,6 +20,8 @@ export interface CalibrationEntry {
   human_verdict?: VerdictText;
   judge_model?: string;
   coach?: Array<{ rule: string; key: string; title: string; mark: 'useful' | 'noise' }>;
+  task_source?: 'linked' | 'inferred' | 'confirmed';
+  task_edited?: boolean;
 }
 
 export function calibrationFile(): string {
@@ -57,6 +59,7 @@ export function entryFromJudge(judge: Judge, human: Status[], humanVerdict: Verd
     judge_verdict: judge.verdict.verdict,
     human_verdict: humanVerdict,
     judge_model: judge.judge_model,
+    task_source: judge.task.task_source,
   };
 }
 
@@ -99,6 +102,7 @@ export interface CalibrationReport {
   lean: { lenient: number; stricter: number; same: number };
   inter_grader: { sessions: number; criteria: number; agreement: number | null; graders: string[] } | null;
   coach: { total: number; useful: number; precision: number | null; per_rule: Array<{ rule: string; total: number; useful: number; precision: number }> };
+  by_task_source: Array<{ source: string; entries: number; criteria: number; agreement: number | null }>;
 }
 
 const ORDER: Record<Status, number> = { met: 3, partial: 2, unverifiable: 1, unmet: 0 };
@@ -167,7 +171,13 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     if (m.mark === 'useful') r.useful += 1;
     perRule.set(m.rule, r);
   }
+  const by_task_source = ['linked', 'confirmed', 'inferred'].map((source) => {
+    const es = entries.filter((e) => (e.task_source ?? 'linked') === source);
+    const cs = es.flatMap((e) => e.criteria);
+    return { source, entries: es.length, criteria: cs.length, agreement: cs.length ? cs.filter((c) => c.human === c.judge).length / cs.length : null };
+  }).filter((x) => x.entries > 0);
   return {
+    by_task_source,
     lean,
     inter_grader: igSessions ? { sessions: igSessions, criteria: igCriteria, agreement: igCriteria ? igAgree / igCriteria : null, graders: [...graders] } : null,
     coach: { total: coachMarks.length, useful: coachMarks.filter((m) => m.mark === 'useful').length, precision: coachMarks.length ? coachMarks.filter((m) => m.mark === 'useful').length / coachMarks.length : null, per_rule: [...perRule.entries()].map(([rule, v]) => ({ rule, total: v.total, useful: v.useful, precision: v.useful / v.total })).sort((x, y) => y.total - x.total) },
@@ -202,6 +212,7 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
     L.push(`coach precision       ${pct(r.coach.precision)} of ${r.coach.total} replayed suggestion(s) marked useful`);
     for (const p of r.coach.per_rule) L.push(`  ${p.rule.padEnd(22)} ${pct(p.precision)} (${p.useful}/${p.total})`);
   } else L.push('coach precision       n/a (no Coach suggestions graded)');
+  if (r.by_task_source.length > 1) for (const s of r.by_task_source) L.push(`by task source        ${s.source.padEnd(10)} ${pct(s.agreement)} on ${s.criteria} criteria (${s.entries} session(s))`);
   L.push('');
   L.push('confusion (rows = human, columns = judge)');
   L.push(`${'human \\ judge'.padEnd(16)}${STATUSES.map((s) => s.padStart(13)).join('')}   recall`);

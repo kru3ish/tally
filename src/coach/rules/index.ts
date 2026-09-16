@@ -11,7 +11,8 @@ import { burnRate } from './burn-rate.js';
 import { taskQuality } from './task-quality.js';
 import { historyLesson } from './history-lesson.js';
 import { verificationConsent } from './verification-consent.js';
+import { taskConfirm } from './task-confirm.js';
 
-export const RULES: Rule[] = [loopDetect, reread, contextPressure, claudeMd, mcpOpportunity, deadWeight, mcpErrors, permissionFriction, burnRate, taskQuality, historyLesson, verificationConsent];
+export const RULES: Rule[] = [loopDetect, reread, contextPressure, claudeMd, mcpOpportunity, deadWeight, mcpErrors, permissionFriction, burnRate, taskQuality, historyLesson, verificationConsent, taskConfirm];
 
-export { loopDetect, reread, contextPressure, claudeMd, mcpOpportunity, deadWeight, mcpErrors, permissionFriction, burnRate, taskQuality, historyLesson, verificationConsent };
+export { loopDetect, reread, contextPressure, claudeMd, mcpOpportunity, deadWeight, mcpErrors, permissionFriction, burnRate, taskQuality, historyLesson, verificationConsent, taskConfirm };

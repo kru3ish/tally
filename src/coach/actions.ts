@@ -4,6 +4,7 @@ import { setTestRerunConsent, type Config } from '../config.js';
 import { appendEvent } from '../store/events.js';
 import { ensureDir, tallyHome } from '../paths.js';
 import { enqueueInject } from './inject.js';
+import { confirmTask } from '../task/intake.js';
 import { recordChange } from './undo.js';
 import type { Suggestion } from './types.js';
 
@@ -16,6 +17,7 @@ export interface ApplyResult {
 
 export function isAutoApplicable(s: Suggestion): boolean {
   if (s.action.kind === 'inject') return true;
+  if (s.action.kind === 'confirm') return false;
   if (s.action.kind === 'write_md') return /\.md$/i.test(s.action.file);
   return false;
 }
@@ -67,6 +69,11 @@ export function applySuggestion(s: Suggestion, opts: { session: string; cwd: str
       result = { ok: true, detail: `updated ${path.relative(opts.cwd, a.file) || a.file} (undo with \`tally undo\`)`, file: a.file };
       break;
     }
+    case 'confirm': {
+      const t = confirmTask(opts.session);
+      result = t ? { ok: true, detail: `task confirmed: "${t.title}" (${t.criteria.length} criteria)` } : { ok: false, detail: 'no task to confirm' };
+      break;
+    }
     case 'consent': {
       setTestRerunConsent(opts.cwd, true);
       result = { ok: true, detail: `test re-runs allowed in this repo (\`${a.command}\`); revoke with: tally config consent off` };
@@ -84,7 +91,7 @@ export function applySuggestion(s: Suggestion, opts: { session: string; cwd: str
 }
 
 export function injectSuggestion(s: Suggestion, opts: { session: string; cwd: string }): ApplyResult {
-  const note = s.action.kind === 'inject' ? s.action.note : s.inject_note ?? `${s.title}: ${s.message}`;
+  const note = s.action.kind === 'inject' ? s.action.note : s.inject_note ?? `Tally observed: ${s.title}. ${s.message.split('\n')[0]}`;
   enqueueInject(opts.session, note, s.rule, opts.cwd);
   return { ok: true, detail: 'note queued; Claude sees it on the next turn', injected: true };
 }

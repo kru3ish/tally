@@ -91,7 +91,7 @@ describe('hook entry', () => {
     expect(r1.code).toBe(0);
     const out = JSON.parse(r1.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     expect(out.hookSpecificOutput.hookEventName).toBe('UserPromptSubmit');
-    expect(out.hookSpecificOutput.additionalContext).toBe('[Tally] Run the tests before pushing.');
+    expect(out.hookSpecificOutput.additionalContext).toBe('Tally: Run the tests before pushing.');
     const r2 = runHook('UserPromptSubmit', JSON.stringify({ session_id: 'sess-4', prompt: 'again' }));
     expect(r2.stdout).toBe('');
   });

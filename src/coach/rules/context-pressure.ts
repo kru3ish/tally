@@ -53,7 +53,7 @@ export const contextPressure: Rule = {
       message: `Context is ${ctx.contextTokensNow.toLocaleString()} of ${ctx.contextWindow.toLocaleString()} tokens (${pct.toFixed(0)}%). Auto-compact will lose working state. Write HANDOFF.md now, then run /compact on your terms. Re-caching after compaction costs about $${recacheUsd.toFixed(2)}.`,
       usd_saved: recacheUsd + ctx.avgTurnCostUsd * 2,
       action: { kind: 'write_md', label: 'Write HANDOFF.md, then suggest /compact', file: path.join(ctx.cwd, 'HANDOFF.md'), content: buildHandoff(ctx), mode: 'replace' },
-      inject_note: 'Context is nearly full. HANDOFF.md now holds the goal, state, and next steps. Suggest the user runs /compact, and after compaction read HANDOFF.md first.',
+      inject_note: `Tally observed the context at ${pct.toFixed(0)}% of the window; HANDOFF.md in the repo root now holds the goal, current state, and next steps as of ${ctx.now.toISOString().slice(11, 16)} UTC.`,
     };
     return [s];
   },

@@ -47,6 +47,10 @@ export const TaskSchema = z.object({
   cache_key: z.string().optional(),
   cached: z.boolean().optional(),
   historical: z.object({ ticket_as_of: z.enum(['current', 'session_start']), note: z.string() }).optional(),
+  /* no tracker link: criteria were inferred from the prompts, branch name and commits; unconfirmed until the user says so */
+  inferred: z.boolean().optional(),
+  confirmed: z.boolean().optional(),
+  context: z.object({ branch: z.string().optional(), commits: z.array(z.string()).optional() }).optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -138,6 +142,8 @@ export async function intake(opts: {
   /* backfill: ticket text as it read at session start, and a note stored on the task */
   override?: { title: string; body: string };
   historical?: { ticket_as_of: 'current' | 'session_start'; note: string };
+  /* branch name and commit subjects, used when the task is inferred from prompts */
+  context?: { branch?: string; commits?: string[] };
 }): Promise<{ task: Task; created: boolean }> {
   const existing = loadTask(opts.session);
   if (existing && !opts.force) return { task: existing, created: false };
@@ -149,7 +155,9 @@ export async function intake(opts: {
     fetched.body = opts.override.body;
   }
   const bodyForLlm = fetched.body.slice(0, 12000);
-  const prompt = `TITLE: ${fetched.title}\nSOURCE: ${fetched.source.kind}${fetched.source.url ? ' ' + fetched.source.url : ''}\nLABELS: ${fetched.labels.join(', ') || '(none)'}\n${fetched.story_points ? `STORY POINTS: ${fetched.story_points}\n` : ''}\nDESCRIPTION:\n${bodyForLlm || '(empty)'}`;
+  const inferred = fetched.source.kind === 'text';
+  const ctxText = inferred && opts.context ? `\n${opts.context.branch ? `BRANCH: ${opts.context.branch}\n` : ''}${opts.context.commits?.length ? `COMMITS MADE DURING THE SESSION:\n${opts.context.commits.slice(0, 20).map((c) => '- ' + c).join('\n')}\n` : ''}` : '';
+  const prompt = `TITLE: ${fetched.title}\nSOURCE: ${fetched.source.kind}${fetched.source.url ? ' ' + fetched.source.url : ''}${inferred ? ' (no ticket: infer the task from the developer\'s own words, branch and commits; keep criteria to what they evidently set out to do)' : ''}\nLABELS: ${fetched.labels.join(', ') || '(none)'}\n${fetched.story_points ? `STORY POINTS: ${fetched.story_points}\n` : ''}${ctxText}\nDESCRIPTION:\n${bodyForLlm || '(empty)'}`;
   /* one small-model call per distinct task content; identical tickets are free to re-intake */
   const cacheKey = intakeCacheKey(fetched, opts.cfg.models.intake);
   const cachedOut = opts.noCache ? null : readJson<{ out: IntakeOut; model: string } | null>(intakeCacheFile(cacheKey), null);
@@ -199,6 +207,7 @@ export async function intake(opts: {
     cache_key: cacheKey,
     cached,
     ...(opts.historical ? { historical: opts.historical } : {}),
+    ...(inferred ? { inferred: true, confirmed: false, context: opts.context } : {}),
   };
   TaskSchema.parse(task);
   ensureDir(sessionDir(opts.session));
@@ -215,9 +224,18 @@ export async function intake(opts: {
   return { task, created: true };
 }
 
+export function confirmTask(session: string): Task | null {
+  const t = loadTask(session);
+  if (!t) return null;
+  t.confirmed = true;
+  writeJson(taskFile(session), t);
+  appendEvent({ ts: new Date().toISOString(), type: 'task', session, cwd: t.cwd, data: { confirmed: true, title: t.title } });
+  return t;
+}
+
 export function renderTask(task: Task): string {
   const lines: string[] = [];
-  lines.push(`Task: ${task.title}  [${task.source.kind}${task.source.url ? ' ' + task.source.url : ''}]`);
+  lines.push(`Task: ${task.title}  [${task.inferred ? (task.confirmed ? 'inferred task (confirmed)' : 'inferred task (unconfirmed)') : task.source.kind}${task.source.url ? ' ' + task.source.url : ''}]`);
   if (task.fetch_error) lines.push(`  (fetch failed, used prompt text: ${task.fetch_error})`);
   lines.push(`Acceptance criteria (frozen):`);
   for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : ''}  [${c.kind === 'mechanical' ? `mechanical: ${c.check?.kind}` : 'judgment'}]`);

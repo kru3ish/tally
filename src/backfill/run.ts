@@ -11,7 +11,7 @@ import { fetchTask, type FetchDeps } from '../task/fetchers.js';
 import { judgeSession, tallyOwnSpend, loadJudge } from '../judge/judge.js';
 import { followupSession, type FollowupDeps } from '../followup/followup.js';
 import type { Judge } from '../judge/schema.js';
-import { detectTaskLink, realLinkDeps, type LinkDeps, type TaskLink } from './link.js';
+import { detectTaskLink, commitsInWindow, realLinkDeps, type LinkDeps, type TaskLink } from './link.js';
 import { reconstructWindow, addWorktree, runHistoricalTests, gitExecRaw, HISTORICAL_UNRUNNABLE, type Exec } from './history.js';
 import { eventsFromTranscript, replayCoach, type CoachReplay } from './events.js';
 import { ticketAsOf } from './ticket.js';
@@ -75,7 +75,8 @@ export async function backfillSession(c: SessionCandidate, opts: { cfg: Config; 
   const link = opts.taskRef ? { kind: /^https?:\/\//.test(opts.taskRef) ? ('url' as const) : ('key' as const), ref: opts.taskRef, url: /^https?:\/\//.test(opts.taskRef) ? opts.taskRef : undefined, confidence: 1, evidence: 'given with --task' } : detectTaskLink({ cwd, branch: c.branch, prompts: c.prompts, start, end }, deps.link ?? realLinkDeps);
   const window = reconstructWindow(cwd, { branch: c.branch, start, end, exec: deps.git, ghOk: deps.ghOk });
   log(`  window: ${window.start_head?.slice(0, 8) ?? '?'} → ${window.end_head?.slice(0, 8) ?? '?'} (${window.commits_in_window} commit(s))${window.notes.length ? '; ' + window.notes.join('; ') : ''}`);
-  if (!window.end_head || !window.start_head) return { session, link, window, skipped: 'could not reconstruct the session window from git history', tally_spend_usd: 0 };
+  const noTree = !window.end_head || !window.start_head;
+  if (noTree) window.notes.push('no commits inside the session window: evidence reconstructed from the transcript, tests not run');
 
   const dir = ensureDir(sessionDir(session)) ?? sessionDir(session);
   const events = eventsFromTranscript(t, session, cwd, c.transcript, window.start_head);
@@ -89,20 +90,27 @@ export async function backfillSession(c: SessionCandidate, opts: { cfg: Config; 
     const text = c.prompts[0] ?? c.first_prompt;
     const fetched = await fetchTask(ref ?? text, { cwd, cfg, deps: deps.fetch, promptText: text });
     const asOf = ref ? await ticketAsOf(fetched, start, cfg, deps.fetch) : { title: fetched.title, body: fetched.body, as_of: 'current' as const, note: 'no tracker link; criteria come from the first prompt as recorded in the transcript' };
-    const r = await intake({ session, cwd, ref, text: ref ? undefined : text, cfg, llm: opts.llm, deps: deps.fetch, override: { title: asOf.title, body: asOf.body }, historical: { ticket_as_of: asOf.as_of, note: asOf.note } });
+    const commits = commitsInWindow(cwd, c.branch, start, end, deps.link ?? realLinkDeps).map((x) => x.subject);
+    const r = await intake({ session, cwd, ref, text: ref ? undefined : text, cfg, llm: opts.llm, deps: deps.fetch, override: ref ? { title: asOf.title, body: asOf.body } : undefined, historical: { ticket_as_of: asOf.as_of, note: asOf.note }, context: ref ? undefined : { branch: c.branch, commits } });
     task = r.task;
     log(`  task: "${task.title}" (${task.criteria.length} criteria, ${task.criteria.filter((x) => x.kind === 'mechanical').length} mechanical${task.cached ? ', intake cached' : ''}) · ${asOf.note}`);
   }
 
-  const wt = addWorktree(cwd, window.end_head, deps.git ?? gitExecRaw);
   let judge: Judge | undefined;
-  try {
-    const consent = testRerunConsent(cfg, cwd);
-    const ver = await runHistoricalTests(wt.path, { consent, timeoutMs: cfg.judge.test_timeout_ms });
-    log(`  tests: ${ver.ran ? `${ver.command} → ${ver.passed ? 'passed' : 'failed'}` : ver.reason}`);
-    judge = await judgeSession({ session, cwd: wt.path, repoCwd: cwd, transcriptPath: c.transcript, cfg, llm: opts.llm, reason: 'manual', events, verification: ver, task, consent, historical: { start_head: window.start_head, end_head: window.end_head, notes: [...window.notes, ver.reason?.startsWith(HISTORICAL_UNRUNNABLE) ? ver.reason : ''].filter(Boolean) } });
-  } finally {
-    wt.remove();
+  if (noTree) {
+    /* tests only ever run against a real tree; with none, the receipt is built from transcript-reconstructed changes */
+    judge = await judgeSession({ session, cwd, repoCwd: cwd, transcriptPath: c.transcript, cfg, llm: opts.llm, reason: 'manual', events, verification: { ran: false, reason: 'no git tree for this session; tests run only against a real tree' }, task, skipGit: true, historical: { start_head: window.start_head, end_head: window.end_head, notes: window.notes } });
+    log(`  evidence: reconstructed from the transcript (${judge.evidence.reconstructed_files.length} file(s), ${judge.evidence.bash_edits} shell edit(s))`);
+  } else {
+    const wt = addWorktree(cwd, window.end_head!, deps.git ?? gitExecRaw);
+    try {
+      const consent = testRerunConsent(cfg, cwd);
+      const ver = await runHistoricalTests(wt.path, { consent, timeoutMs: cfg.judge.test_timeout_ms });
+      log(`  tests: ${ver.ran ? `${ver.command} → ${ver.passed ? 'passed' : 'failed'}` : ver.reason}`);
+      judge = await judgeSession({ session, cwd: wt.path, repoCwd: cwd, transcriptPath: c.transcript, cfg, llm: opts.llm, reason: 'manual', events, verification: ver, task, consent, historical: { start_head: window.start_head, end_head: window.end_head, notes: [...window.notes, ver.reason?.startsWith(HISTORICAL_UNRUNNABLE) ? ver.reason : ''].filter(Boolean) } });
+    } finally {
+      wt.remove();
+    }
   }
   const fu = followupSession(session, deps.followup);
   if (fu) judge = fu;

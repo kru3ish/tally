@@ -221,11 +221,11 @@ export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
       if (r.status !== 0) out(yellow(`  hook ${payload.event} exited ${r.status}`));
       if (e.type === 'prompt') {
         out(`  ${dim(now.toISOString().slice(11, 19))} ${bold('user>')} ${String(e.data.prompt).slice(0, 90)}`);
-        if (r.stdout.includes('[Tally]')) {
+        if (r.stdout.includes('Tally:')) {
           lastPromptDelivery = (JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
           out(green(`  ↳ hook delivered to Claude: ${lastPromptDelivery.split('\n')[0]!.slice(0, 110)}`));
         }
-      } else if (e.type === 'session_start' && r.stdout.includes('[Tally]')) {
+      } else if (e.type === 'session_start' && r.stdout.includes('Tally:')) {
         out(green(`  ↳ SessionStart hook injected history lessons: ${(JSON.parse(r.stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext.split('\n')[1]?.slice(0, 100)}`));
       } else if (e.type === 'post_tool') {
         const inp = e.data.tool_input as Record<string, unknown>;

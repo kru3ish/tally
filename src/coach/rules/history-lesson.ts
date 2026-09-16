@@ -26,7 +26,7 @@ export const historyLesson: Rule = {
         title: `${receipts.length} past receipt${receipts.length === 1 ? '' : 's'} for this repo`,
         message: `Lessons from earlier tasks here${reworkRate > 0 ? ` (${Math.round(reworkRate * 100)}% needed rework or were reverted)` : ''}:\n${lessons.map((l) => `   - ${l}`).join('\n')}`,
         usd_saved: (recent[0]?.waste_usd ?? 0) * 0.5,
-        action: { kind: 'inject', label: 'Give Claude these lessons now', note: `Lessons from past receipts in this repo: ${lessons.join(' ')}` },
+        action: { kind: 'inject', label: 'Share these lessons with Claude', note: `Tally's past receipts in this repo recorded: ${lessons.join(' ')}` },
       },
     ];
   },

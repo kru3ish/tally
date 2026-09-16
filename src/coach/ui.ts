@@ -10,7 +10,9 @@ import { llmCoach } from './llm-coach.js';
 import type { LlmClient } from '../llm/client.js';
 import type { Suggestion, RuleContext } from './types.js';
 import { transcriptPathFor } from '../session.js';
-import { loadTask } from '../task/intake.js';
+import { loadTask, intake, confirmTask } from '../task/intake.js';
+import { makeLlm } from '../llm/client.js';
+import readline from 'node:readline';
 
 const C = {
   reset: '\x1b[0m',
@@ -50,7 +52,8 @@ export function renderSuggestion(s: Suggestion, color = true, index?: number): s
     .map((l) => `    ${l}`)
     .join('\n');
   const act = s.action.kind === 'none' ? '' : `\n    ${paint(color, C.gray, `[a]pply: ${s.action.label}`)}`;
-  return `${head}\n${body}${act}\n    ${paint(color, C.gray, '[a]pply  [i]nject  [s]kip  [m]ute rule')}`;
+  const keys = s.action.kind === 'confirm' ? '[c]onfirm  [e]dit  [l]ink  [s]kip' : '[a]pply  [i]nject  [s]kip  [m]ute rule';
+  return `${head}\n${body}${act}\n    ${paint(color, C.gray, keys)}`;
 }
 
 export interface WatchOptions {
@@ -97,7 +100,36 @@ export async function watch(opts: WatchOptions): Promise<void> {
 
   const makeCtx = () => buildContext({ session: opts.session, cwd: opts.cwd, cfg: opts.cfg, events, transcript, now: opts.now?.() });
 
+  const readLine = (question: string): Promise<string> =>
+    new Promise((resolve) => {
+      const inp = opts.input ?? process.stdin;
+      if (!inp.isTTY) return resolve('');
+      const rl = readline.createInterface({ input: inp, output: out });
+      rl.question(question, (a) => {
+        rl.close();
+        resolve(a.trim());
+      });
+    });
+
   const handle = async (s: Suggestion, key: string, ctx: RuleContext) => {
+    if (s.action.kind === 'confirm' && (key === 'c' || key === 'a')) {
+      const r = applySuggestion(s, { session: opts.session, cwd: opts.cwd, cfg: opts.cfg, mode: 'ask' });
+      w(paint(color, r.ok ? C.green : C.red, `    → ${r.detail}`));
+      saveState(opts.session, engine.state);
+      return;
+    }
+    if (s.action.kind === 'confirm' && (key === 'e' || key === 'l')) {
+      const answer = await readLine(key === 'e' ? '    Describe the task in your words: ' : '    Ticket URL: ');
+      if (!answer) {
+        w(paint(color, C.gray, '    → nothing entered; task left unconfirmed'));
+        return;
+      }
+      const r = await intake({ session: opts.session, cwd: opts.cwd, ref: key === 'l' ? answer : undefined, text: key === 'e' ? answer : undefined, cfg: opts.cfg, llm: opts.llm ?? makeLlm({ session: opts.session }), force: true });
+      if (key === 'e') confirmTask(opts.session);
+      w(paint(color, C.green, `    → task ${key === 'l' ? 'linked' : 'rewritten and confirmed'}: "${r.task.title}" (${r.task.criteria.length} criteria)`));
+      saveState(opts.session, engine.state);
+      return;
+    }
     if (key === 'a') {
       const r = applySuggestion(s, { session: opts.session, cwd: opts.cwd, cfg: opts.cfg, mode: 'ask' });
       w(paint(color, r.ok ? C.green : C.red, `    → ${r.ok ? 'applied' : 'not applied'}: ${r.detail}`));

@@ -11,6 +11,7 @@ export type Action =
   | { kind: 'snippet'; label: string; snippet: string; where: string }
   | { kind: 'settings'; label: string; file: string; patch: Record<string, unknown>; snippet: string }
   | { kind: 'consent'; label: string; command: string }
+  | { kind: 'confirm'; label: string }
   | { kind: 'none'; label: string };
 
 export interface Suggestion {
@@ -49,6 +50,7 @@ export interface HistoryEntry {
   spec_quality?: number;
   prompts?: string[];
   internal?: boolean;
+  task_source?: 'linked' | 'inferred' | 'confirmed';
   tally_own_usd?: number;
   tally_share_pct?: number;
   cost_confidence?: 'full' | 'partial';

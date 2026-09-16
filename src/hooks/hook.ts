@@ -165,7 +165,7 @@ function historyLessons(cwd: string | undefined): string {
       /* skip */
     }
   }
-  return lessons.length ? `[Tally] Lessons from past receipts in this repo:\n- ${lessons.join('\n- ')}` : '';
+  return lessons.length ? `Tally: past receipts in this repo recorded these lessons:\n- ${lessons.join('\n- ')}` : '';
 }
 
 function deliverInjects(session: string): string {
@@ -188,7 +188,7 @@ function deliverInjects(session: string): string {
   }
   if (!pending.length) return '';
   fs.writeFileSync(file, kept.join('\n') + '\n');
-  return pending.map((n) => `[Tally] ${n}`).join('\n');
+  return pending.map((n) => `Tally: ${n}`).join('\n');
 }
 
 function followupDue(): boolean {

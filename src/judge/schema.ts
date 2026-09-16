@@ -18,6 +18,7 @@ export const JudgeSchema = z.object({
     estimate_hours: z.number(),
     budget_usd: z.number(),
     linked: z.boolean(),
+    task_source: z.enum(['linked', 'inferred', 'confirmed']).default('linked'),
   }),
   head: z.string().optional(),
   historical: z.object({ start_head: z.string().optional(), end_head: z.string().optional(), notes: z.array(z.string()) }).optional(),
@@ -64,6 +65,9 @@ export const JudgeSchema = z.object({
     ship_events: z.array(z.object({ kind: z.string(), command: z.string(), url: z.string().optional(), ts: z.string() })),
     final_message: z.string(),
     tool_calls: z.number(),
+    diff_source: z.enum(['git', 'reconstructed', 'mixed', 'none']).default('git'),
+    reconstructed_files: z.array(z.string()).default([]),
+    bash_edits: z.number().default(0),
   }),
   cost: z.object({
     label: z.literal('API-equivalent'),

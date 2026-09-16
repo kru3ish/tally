@@ -5,7 +5,7 @@ import { toolInput, toolName } from './helpers.js';
 export const COACH_SYSTEM = `You are a terse pair-programming coach watching a Claude Code session from the outside. You see the task's acceptance criteria and the last few tool calls.
 Return at most ONE suggestion, and only if it would clearly save money or prevent rework right now. Otherwise return has_suggestion=false. Never restate what the deterministic rules already cover: loops, re-reads, context size, budget, MCP errors, missing CLAUDE.md.
 Good suggestions: a criterion is being ignored, the approach contradicts the ticket, tests are being skipped, scope is creeping, a simpler path exists.
-usd_saved is your honest estimate in dollars. Keep message under 40 words. inject_note is what to tell Claude, in the second person, under 60 words.`;
+usd_saved is your honest estimate in dollars. Keep message under 40 words. inject_note is a factual observation for Claude's context, starting with "Tally observed", never an instruction or a command, under 60 words.`;
 
 export const COACH_SCHEMA = {
   type: 'object',
@@ -55,6 +55,6 @@ export async function llmCoach(ctx: RuleContext, llm: LlmClient): Promise<Sugges
     title: o.title ?? 'Coach',
     message: o.message,
     usd_saved: Math.max(0, Number(o.usd_saved ?? 0)),
-    action: { kind: 'inject', label: 'Tell Claude', note: o.inject_note ?? o.message },
+    action: { kind: 'inject', label: 'Share with Claude', note: /^Tally observed/i.test(o.inject_note ?? '') ? o.inject_note! : `Tally observed: ${o.inject_note ?? o.message}` },
   };
 }

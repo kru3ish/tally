@@ -72,7 +72,7 @@ describe('demo (definition of done)', () => {
     expect(r.injected.length).toBe(1);
     expect(text).toContain('[a] applied');
     expect(text).toContain('[i] injected');
-    expect(text).toContain('hook delivered to Claude: [Tally]');
+    expect(text).toContain('hook delivered to Claude: Tally:');
     expect(r.shipDetected).toBe(true);
     expect(text).toContain('ship detected (git push)');
     expect(text).toContain('Tally receipt');

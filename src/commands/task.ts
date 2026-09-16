@@ -1,7 +1,7 @@
 import { type Args, flag, has } from '../cli.js';
 import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
-import { intake, loadTask, renderTask } from '../task/intake.js';
+import { intake, loadTask, renderTask, confirmTask } from '../task/intake.js';
 import { resolveSession } from '../session.js';
 import { recordAssignment } from '../experiment/experiment.js';
 
@@ -12,6 +12,19 @@ export async function run(args: Args): Promise<number | void> {
   if (!session) {
     process.stderr.write('No active Tally session found. Start Claude Code with Tally hooks installed, or pass --session <id>.\n');
     return 1;
+  }
+  if (has(args, 'confirm')) {
+    const t = confirmTask(session);
+    process.stdout.write(t ? `Confirmed: ${t.title} (${t.criteria.length} criteria)\n` : 'No task to confirm.\n');
+    return t ? 0 : 1;
+  }
+  const editText = flag(args, 'edit');
+  const linkRef = flag(args, 'link');
+  if (editText || linkRef) {
+    const r = await intake({ session, cwd, ref: linkRef, text: editText, cfg, llm: makeLlm({ session }), force: true });
+    if (editText) confirmTask(session);
+    process.stdout.write(renderTask(loadTask(session) ?? r.task) + '\n');
+    return;
   }
   const text = flag(args, 'text');
   const ref = args._.join(' ').trim();

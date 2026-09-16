@@ -64,9 +64,26 @@ export async function gradeSession(session: string, opts: { grader: string; ask:
   const task = loadTask(session)!;
   opts.out(`Blind grading · session ${session.slice(0, 8)} · grader ${opts.grader}\n(Tally's own statuses and verdict stay hidden until you have graded.)\n`);
   opts.out(summary);
+  let criteria = task.criteria.map((c) => ({ id: c.id, text: c.text }));
+  let taskEdited = false;
+  if (task.inferred) {
+    opts.out(`\nThese criteria were inferred from the prompts${task.context?.branch ? `, branch "${task.context.branch}"` : ''}${task.context?.commits?.length ? ' and commits' : ''} (${task.confirmed ? 'confirmed' : 'unconfirmed'}). [a]ccept them or [e]dit: `);
+    let choice = '';
+    while (!/^[ae]$/.test(choice)) choice = (await opts.ask('  > ')).trim().toLowerCase();
+    if (choice === 'e') {
+      opts.out('  Enter each criterion as you understood the task (same count and order; empty keeps the original):');
+      const edited: string[] = [];
+      for (const c of criteria) {
+        const line = (await opts.ask(`  ${c.id} [${c.text.slice(0, 60)}] > `)).trim();
+        edited.push(line || c.text);
+      }
+      taskEdited = edited.some((t, i) => t !== criteria[i]!.text);
+      criteria = criteria.map((c, i) => ({ id: c.id, text: edited[i]! }));
+    }
+  }
   opts.out('\nGrade each criterion: [m]et  [p]artial  [u]nmet  [x] unverifiable');
   const human: Status[] = [];
-  for (const c of task.criteria) {
+  for (const c of criteria) {
     let s: Status | null = null;
     while (!s) s = statusFrom(await opts.ask(`  ${c.id} "${c.text.slice(0, 80)}" > `));
     human.push(s);
@@ -87,7 +104,8 @@ export async function gradeSession(session: string, opts: { grader: string; ask:
       coach.push({ rule: s.rule, key: s.key, title: s.title, mark });
     }
   }
-  const entry: CalibrationEntry = { ...entryFromJudge(j, human, verdict, 'backfill'), grader: opts.grader, coach };
+  const base = entryFromJudge(j, human, verdict, 'backfill');
+  const entry: CalibrationEntry = { ...base, criteria: base.criteria.map((c, i) => ({ ...c, text: criteria[i]!.text })), grader: opts.grader, coach, task_edited: taskEdited };
   ensureDir(tallyHome());
   appendLine(calibrationFile(), JSON.stringify(entry));
   const R: string[] = [];

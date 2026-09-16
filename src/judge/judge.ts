@@ -132,6 +132,7 @@ function buildPrompt(task: Task, t: Transcript, ev: Evidence, ver: VerificationR
   if (ver.ran) parts.push(`Command: ${ver.command}\nResult: ${ver.passed ? 'PASSED' : ver.timed_out ? 'TIMED OUT' : `FAILED (exit ${ver.exit_code})`} in ${ver.duration_ms} ms\nOutput tail:\n${ver.output_tail}`);
   else parts.push(`Not run: ${ver.reason}.${ver.reason === NO_CONSENT_REASON ? ' The user has not allowed the auditor to run tests in this repo. Any criterion about tests passing or coverage can only be "unverifiable" unless the diff itself proves it; transcript claims of passing tests do not count.' : ''}`);
   parts.push(`\n# GIT EVIDENCE\nBranch: ${ev.git.branch ?? '?'}  Base: ${ev.git.base_head?.slice(0, 8) ?? 'unknown'}  ${ev.git.error ? 'NOTE: ' + ev.git.error : ''}\nFiles changed (${ev.git.files_changed.length}): ${ev.git.files_changed.join(', ') || '(none)'}\n+${ev.git.insertions} -${ev.git.deletions}\n\n## Diff\n${ev.git.diff_excerpt || '(empty diff)'}`);
+  if (ev.reconstruction.reconstructed.length) parts.push(`\n# CHANGES RECONSTRUCTED FROM THE TRANSCRIPT (not verified against disk; the Edit/Write calls the assistant made)\nFiles only the transcript saw: ${ev.reconstruction.reconstructed.join(', ')}\n${ev.reconstruction.bash_edits.length ? 'Shell commands that wrote files: ' + ev.reconstruction.bash_edits.map((b) => b.command).join('; ') + '\n' : ''}${ev.reconstruction.changes.filter((c) => c.verification === 'reconstructed').map((c) => c.detail).join('\n\n')}`);
   parts.push(`\n# COMMANDS THE ASSISTANT RAN (from transcript; outputs are tool results, not claims)`);
   if (ev.command_runs.length === 0) parts.push('(no test or lint commands run)');
   for (const r of ev.command_runs) parts.push(`- [${r.kind}] ${r.command} -> ${r.passed ? 'exit 0' : 'FAILED'}\n  ${r.output_tail.split('\n').slice(-6).join('\n  ')}`);
@@ -158,6 +159,8 @@ export async function judgeSession(opts: {
   /* evidence and checks run in `cwd` (e.g. a historical worktree); the receipt records `repoCwd` when given */
   repoCwd?: string;
   historical?: { start_head?: string; end_head?: string; notes: string[] };
+  /* backfill without a git window: evidence comes from the transcript only; no tests run */
+  skipGit?: boolean;
 }): Promise<Judge> {
   const events = opts.events ?? readEvents(opts.session);
   const t = parseTranscriptFile(opts.transcriptPath);
@@ -165,7 +168,7 @@ export async function judgeSession(opts: {
   let task = opts.task === undefined ? loadTask(opts.session) : opts.task;
   const linked = !!task;
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
-  const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec });
+  const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec, skipGit: opts.skipGit });
   const consent = opts.consent ?? testRerunConsent(opts.cfg, opts.cwd);
   const ver = opts.verification ?? (await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent }));
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
@@ -295,7 +298,7 @@ export async function judgeSession(opts: {
     head: ev.git.current_head,
     tiers,
     reason: opts.reason,
-    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked },
+    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked) },
     criteria,
     completion_pct,
     counts,
@@ -315,6 +318,9 @@ export async function judgeSession(opts: {
       ship_events: ev.ship_events,
       final_message: ev.final_messages.at(-1) ?? '',
       tool_calls: ev.tool_call_count,
+      diff_source: ev.reconstruction.source,
+      reconstructed_files: ev.reconstruction.reconstructed,
+      bash_edits: ev.reconstruction.bash_edits.length,
     },
     cost: {
       label: 'API-equivalent',
@@ -378,6 +384,7 @@ export function persistJudge(judge: Judge, task: Task | null): void {
     final_status: judge.followup?.final_status,
     final_verdict: judge.followup?.final_verdict,
     linked: judge.task.linked,
+    task_source: judge.task.task_source,
     tally_own_usd: judge.cost.tally_own_usd,
     tally_share_pct: judge.cost.tally_share_pct,
     cost_confidence: judge.cost.confidence,
@@ -413,6 +420,12 @@ export function implicitTask(session: string, cwd: string, t: Transcript, cfg: C
 }
 
 export { renderReport, renderSummary };
+
+/* linked = a tracker ticket or file; inferred = criteria derived from prompts/branch/commits; confirmed = inferred and accepted by the user */
+export function taskSourceOf(task: Task, linked: boolean): 'linked' | 'inferred' | 'confirmed' {
+  if (!linked || task.inferred) return task.confirmed ? 'confirmed' : 'inferred';
+  return 'linked';
+}
 
 export function currentHead(cwd: string): string | undefined {
   const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true });

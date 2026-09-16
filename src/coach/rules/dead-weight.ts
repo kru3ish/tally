@@ -108,7 +108,7 @@ export const deadWeight: Rule = {
         key: `dead:${item.kind}:${item.name}:${item.recommendation}`,
         severity: 'info',
         title: `${item.kind} "${item.name}" unused for ${item.unused_streak} session${item.unused_streak === 1 ? '' : 's'} (${item.basis}${remove ? ', remove' : ', watch'})`,
-        message: `${measure} ${remove ? 'Recommendation: remove it, or run `tally experiment start ' + item.kind + ' ' + item.name + ' --tasks 6` to measure its effect on outcomes.' : `Recommendation: watch. Removal is suggested once the overhead is measured or after ${REMOVE_AFTER_UNUSED_SESSIONS} unused sessions (${item.unused_streak} so far).`}`,
+        message: `${measure} ${remove ? 'Recommendation: remove it, or run `tally experiment start ' + item.kind + ' ' + item.name + ' --tasks 6` to measure its effect on outcomes.' : `Recommendation: watch. Removal is suggested once the overhead is measured or after ${REMOVE_AFTER_UNUSED_SESSIONS} unused sessions (${item.unused_streak} so far).`} Claude Code's /plugin Stats tab and its "Not used recently" view show the same usage; Tally adds the per-task dollar impact.`,
         usd_saved: item.usd_per_session,
         action: remove
           ? { kind: 'snippet', label: 'Show the removal command', snippet: removal, where: 'settings change: run it yourself; Tally never edits MCP or plugin config automatically' }
