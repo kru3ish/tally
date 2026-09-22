@@ -10,6 +10,9 @@ import { makeLlm } from '../llm/client.js';
 import { readFlags, flagsFile } from './statusline.js';
 import { writeJson, builtCliPath } from '../paths.js';
 import { enqueueInject } from '../coach/inject.js';
+import { loadPolicy } from '../policy.js';
+import { hardStopFile, isApproved } from './budget.js';
+import fs from 'node:fs';
 
 export async function run(args: Args): Promise<number | void> {
   const cfg = loadConfig();
@@ -35,6 +38,13 @@ export async function run(args: Args): Promise<number | void> {
       } catch {
         /* the deterministic rules already ran */
       }
+    }
+    /* repo policy hard stop: spend past the budget writes a marker the PreToolUse hook enforces; approval clears it */
+    const pol = loadPolicy(cwd);
+    if (ctx.task && pol.policy.budget.hard_stop && ctx.task.budget_usd > 0) {
+      const over = ctx.spendUsd >= ctx.task.budget_usd;
+      if (over && !isApproved(session) && !fs.existsSync(hardStopFile(session))) writeJson(hardStopFile(session), { ts: new Date().toISOString(), spend_usd: ctx.spendUsd, budget_usd: ctx.task.budget_usd, policy_file: pol.file });
+      else if (!over && fs.existsSync(hardStopFile(session))) fs.unlinkSync(hardStopFile(session));
     }
     const flags = readFlags(session);
     /* a flag whose rule no longer fires (the file got written, the task was confirmed) is dropped */

@@ -6,7 +6,7 @@ Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coachi
 
 Everything runs locally. No server, no database, no API key: Tally talks to Claude through `claude -p` on your existing login.
 
-This is a **preview** (v0.1.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
+This is a **preview** (v0.2.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
 
 ## See it run
 
@@ -53,6 +53,9 @@ What each path gives you:
 | Optional one-key Coach pane (`tally watch`, `tally start`) | no, the slash command prints the install hint | yes |
 | Receipts for past sessions (`tally backfill`) and blind grading (`tally calibrate`) | no | yes |
 | Experiments, `tally undo`, `tally doctor`, `tally followup` on demand | no | yes |
+| Evidence explorer, disputes, hard-stop approval (`/tally:explain`, `/tally:dispute`, `/tally:budget`) | yes | yes |
+| Repo policy in `tally.json`: standing criteria, budget, hard stop | yes | yes |
+| Playbook and numbers-only export (`tally playbook`, `tally export`) | no | yes |
 
 Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional (GitHub intake, write-back, follow-up). Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
 
@@ -119,10 +122,35 @@ The full `report.md` adds the evidence table, the waste breakdown (failed loops,
 | 1 | A small model (`models.tier1`, haiku) on the remaining `judgment` criteria, with an evidence pack trimmed to ~6k tokens; returns a confidence per criterion | Whenever judgment criteria remain |
 | 2 | A stronger model on only the criteria that need it: the small model again under $1 of session spend, sonnet up to `judge.deepThreshold` ($3), opus above | Session cost ≥ $3, `--deep`, a tier-1 confidence below 0.6, a partial/unmet call on a correctness criterion, or a criterion whose one-step change would flip the verdict |
 
-5. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run; `not worth it` is <40%, ROI <1 or quality <4).
-6. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps **held up / needed rework / reverted** and shows both the original and the adjusted verdict.
+5. **Abstention**: when nothing could be checked, or most criteria were unverifiable, the verdict is `insufficient evidence` rather than a guess. `tally report` shows how often that happens.
+6. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run; `not worth it` is <40%, ROI <1 or quality <4).
+7. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps **held up / needed rework / reverted**, records the review burden (review rounds, hours from open to merge) and shows both the original and the adjusted verdict.
 
 All dollar figures are **API-equivalent** at list price from `pricing.json` (with a `last_verified` date), since most people are on subscriptions. Tally's own calls are counted separately and shown on every receipt.
+
+## Audit, dispute, policy
+
+**See the evidence.** `tally judge <session> --explain c3` (or `/tally:explain c3`) prints the cited evidence line, the diff hunks for the files involved from the session's base commit, the independent test output, and the transcript moments that touched those files. A manager who sees "c3 unmet" can confirm in ten seconds that the README really was not touched.
+
+**Disagree on the record.** `tally dispute <session> c3 --status met --reason "docs landed in the follow-up PR"` (or `/tally:dispute c3 met <reason>`). The receipt keeps the original status next to the override, is re-scored, says so on the report and in the PR brief, and the disagreement goes into the calibration log with its reason. Every dispute is a labelled data point about how your team reads "done".
+
+**Repo policy.** A `tally.json` at the repo root, committed like any config:
+
+```json
+{
+  "criteria": [
+    { "text": "New code has tests", "check": { "kind": "tests_pass" } },
+    { "text": "No changes under /billing without a CODEOWNERS review" }
+  ],
+  "budget": { "hourly_rate": 120, "fraction": 0.25, "hard_stop": true }
+}
+```
+
+Standing criteria are appended to every task's frozen checklist (mechanical where a check is given, judged otherwise). The budget block sets the rate, the fraction of human-equivalent value, or a fixed `usd`. With `hard_stop`, once a session passes its budget the PreToolUse hook denies every tool call, the status line says `HARD STOP`, and a human lifts it with `tally budget approve --note "why"` (or `/tally:budget`), which is recorded on the receipt.
+
+**Reviewer brief.** `tally judge --post` (or `writeback: true`) now posts a brief for the reviewer rather than a score: what was verified independently, what the model rated, what needs a manual look, where the agent struggled, and what was not verified against disk.
+
+**Playbook and export.** `tally playbook` clusters the recurring "Next time" lessons across receipts and `--write` puts them in CLAUDE.md. `tally export --since 30d --out receipts.jsonl` writes one line per receipt with numbers, statuses and outcomes only, the record a platform team can collect centrally without collecting anyone's prompts or code.
 
 ## How accurate is the Judge?
 
@@ -140,9 +168,9 @@ Early, and measured two ways. Neither is a benchmark.
 
 Across six live runs the same fixtures scored between 18/19 and 19/19; CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the self-share exceeds 5%.
 
-**Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (63% within one step), verdict agreement 9% exact and 82% within one step on 11 verdicts, Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
+**Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22; re-scored under 0.2.0's rules on 2026-09-23).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (61% within one step); the Judge abstains on 3 of 11 (insufficient evidence), and on the other 8 the verdict is exact on 1 and within one step on 6; Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
 
-What those numbers say: on real sessions Tally and a human mostly agree on individual criteria and rarely on the exact verdict, but they are usually one step apart. The first grading pass scored 35% / 1 of 11; it exposed a bias in the mechanical checks (on sessions with no git tree they answered `unmet` against a repo that had moved on, where a human said `unverifiable`), and fixing that bias, not the grader, moved criteria to 51%. 0.1.1 then stopped counting unverifiable criteria as failures, which moved verdicts from 7 to 9 of 11 within one step (exact stayed at 1). What remains is value estimation: on four expensive sessions the author called worth it, Tally's ROI rule says the spend exceeded the task's estimated value. Until that is calibrated, read the criteria lines and treat the verdict as a second opinion.
+What those numbers say: on real sessions Tally and a human mostly agree on individual criteria and rarely on the exact verdict, but they are usually one step apart. The first grading pass scored 35% / 1 of 11; it exposed a bias in the mechanical checks (on sessions with no git tree they answered `unmet` against a repo that had moved on, where a human said `unverifiable`), and fixing that bias, not the grader, moved criteria to 51%. 0.1.1 then stopped counting unverifiable criteria as failures, which moved verdicts from 7 to 9 of 11 within one step (exact stayed at 1), and 0.2.0 made the Judge abstain on the 3 sessions where most criteria could not be checked instead of calling them borderline. What remains is value estimation: on four expensive sessions the author called worth it, Tally's ROI rule says the spend exceeded the task's estimated value. Until that is calibrated, read the criteria lines and treat the verdict as a second opinion.
 
 Caveats: the fixtures are small JavaScript repos with one test file each; the small model's confidence is self-reported, so a confident wrong answer is only caught by the verdict-sensitivity and correctness guards; when a repo has no detectable test command, or you have not consented to re-runs, test criteria are `unverifiable` by rule; and on sessions with no commits the evidence is a transcript reconstruction, which the receipt says.
 
@@ -224,7 +252,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## Known limitations
 
-- **Calibration is early and exact verdicts rarely match the author.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement, verdicts 1 of 11 exact and 9 of 11 within one step. No external graders yet. Treat verdicts as a second opinion and read the criteria lines.
+- **Calibration is early and exact verdicts rarely match the author.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement; 3 abstentions, and on the rest verdicts 1 of 8 exact, 6 of 8 within one step. No external graders yet. Treat verdicts as a second opinion, read the criteria lines, and dispute what is wrong.
 - **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), and moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`).
 - Sessions with no commits are judged from the transcript reconstruction; edits made by tools Tally does not parse (an MCP file server, an editor) are invisible, and tests are not run.
 - Inferred tasks are only as good as the first prompts; confirm or edit them before trusting completion %.
@@ -246,7 +274,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 ## Development
 
 ```bash
-npm test            # typecheck, bundle with esbuild, then vitest (154 tests)
+npm test            # typecheck, bundle with esbuild, then vitest (161 tests)
 npm run build       # dist/cli.js + dist/hook.js, committed because the marketplace clones this repo
 npm run fixtures    # regenerates test/fixtures/session-basic
 ```

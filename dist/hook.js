@@ -330,6 +330,14 @@ function main() {
     }
     case "PreToolUse": {
       if (alreadySeen(session, event, input.tool_use_id)) break;
+      const stopFile = path2.join(sessionDir(session), "hard-stop.json");
+      const cmd0 = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
+      if (fs2.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
+        const stop = readJson(stopFile, {});
+        out = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` } };
+        record(session, "hard_stop_denied", cwd, { tool_name: input.tool_name, tool_use_id: input.tool_use_id });
+        break;
+      }
       record(session, "pre_tool", cwd, {
         tool_name: input.tool_name,
         tool_input: shrinkInput(input.tool_input),

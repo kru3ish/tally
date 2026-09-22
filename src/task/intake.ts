@@ -8,11 +8,12 @@ import { sessionDir, ensureDir, writeJson, readJson, tallyHome } from '../paths.
 import { fetchTask, type FetchDeps, type FetchedTask, type TaskSource } from './fetchers.js';
 import { appendEvent } from '../store/events.js';
 import { CheckSpecSchema, CHECK_JSON_SCHEMA, parseCheck } from '../judge/checks.js';
+import { loadPolicy } from '../policy.js';
 
 export const CriterionSchema = z.object({
   id: z.string(),
   text: z.string(),
-  source: z.enum(['explicit', 'inferred']),
+  source: z.enum(['explicit', 'inferred', 'policy']),
   kind: z.enum(['mechanical', 'judgment']).default('judgment'),
   check: CheckSpecSchema.optional(),
 });
@@ -193,6 +194,13 @@ export async function intake(opts: {
     return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const), kind: check ? ('mechanical' as const) : ('judgment' as const), ...(check ? { check } : {}) };
   });
   if (criteria.length === 0) criteria.push({ id: 'c1', text: `Deliver: ${fetched.title}`, source: 'inferred', kind: 'judgment' });
+  /* repo policy: standing criteria the org appends to every task, checked mechanically where a check is given */
+  const pol = loadPolicy(opts.cwd);
+  for (const pc of pol.policy.criteria) {
+    if (criteria.some((c) => c.text.trim().toLowerCase() === pc.text.trim().toLowerCase())) continue;
+    const check = sanitiseCheck(pc.check ?? null);
+    criteria.push({ id: `c${criteria.length + 1}`, text: pc.text.trim(), source: 'policy', kind: check ? 'mechanical' : 'judgment', ...(check ? { check } : {}) });
+  }
   const r = { cost_usd: cost, model };
   const score = Math.max(0, Math.min(10, Number(out.spec_quality?.score ?? 0)));
   const estimate = computeEstimate(fetched, Number(out.estimate_hours ?? 0));
@@ -210,8 +218,8 @@ export async function intake(opts: {
     spec_quality: { score, missing: out.spec_quality?.missing ?? [], questions: out.spec_quality?.questions ?? [] },
     needs_clarification: score < 5,
     estimate,
-    budget_usd: computeBudget(estimate.hours, opts.cfg.hourly_rate),
-    hourly_rate: opts.cfg.hourly_rate,
+    budget_usd: pol.policy.budget.usd ?? (pol.policy.budget.fraction ? Math.max(BUDGET_FLOOR_USD, Math.round(estimate.hours * (pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate) * pol.policy.budget.fraction * 100) / 100) : computeBudget(estimate.hours, pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate)),
+    hourly_rate: pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate,
     tally_cost_usd: r.cost_usd,
     model: r.model,
     cache_key: cacheKey,
@@ -248,7 +256,7 @@ export function renderTask(task: Task): string {
   lines.push(`Task: ${task.title}  [${task.inferred ? (task.confirmed ? 'inferred task (confirmed)' : 'inferred task (unconfirmed)') : task.source.kind}${task.source.url ? ' ' + task.source.url : ''}]`);
   if (task.fetch_error) lines.push(`  (fetch failed, used prompt text: ${task.fetch_error})`);
   lines.push(`Acceptance criteria (frozen):`);
-  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : ''}  [${c.kind === 'mechanical' ? `mechanical: ${c.check?.kind}` : 'judgment'}]`);
+  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === 'inferred' ? '  (inferred)' : c.source === 'policy' ? '  (repo policy)' : ''}  [${c.kind === 'mechanical' ? `mechanical: ${c.check?.kind}` : 'judgment'}]`);
   if (task.cached) lines.push(`  (intake served from cache; no model call)`);
   if (task.historical) lines.push(`  (historical: ${task.historical.note})`);
   lines.push(`Spec quality: ${task.spec_quality.score}/10${task.needs_clarification ? '  -> Clarify the ticket first' : ''}`);

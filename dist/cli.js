@@ -826,8 +826,8 @@ var init_parseUtil = __esm({
     init_errors();
     init_en();
     makeIssue = (params) => {
-      const { data, path: path37, errorMaps, issueData } = params;
-      const fullPath = [...path37, ...issueData.path || []];
+      const { data, path: path42, errorMaps, issueData } = params;
+      const fullPath = [...path42, ...issueData.path || []];
       const fullIssue = {
         ...issueData,
         path: fullPath
@@ -1135,11 +1135,11 @@ var init_types = __esm({
     init_parseUtil();
     init_util();
     ParseInputLazyPath = class {
-      constructor(parent, value, path37, key) {
+      constructor(parent, value, path42, key) {
         this._cachedPath = [];
         this.parent = parent;
         this.data = value;
-        this._path = path37;
+        this._path = path42;
         this._key = key;
       }
       get path() {
@@ -5261,9 +5261,60 @@ var init_checks = __esm({
   }
 });
 
-// src/task/intake.ts
+// src/policy.ts
 import fs10 from "node:fs";
 import path9 from "node:path";
+function policyFile(cwd) {
+  let dir = path9.resolve(cwd);
+  for (let i = 0; i < 8; i++) {
+    for (const name of POLICY_FILES) {
+      const p = path9.join(dir, name);
+      if (fs10.existsSync(p)) return p;
+    }
+    if (fs10.existsSync(path9.join(dir, ".git"))) break;
+    const parent = path9.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return void 0;
+}
+function loadPolicy(cwd) {
+  if (!cwd) return { policy: PolicySchema.parse({}) };
+  const file = policyFile(cwd);
+  if (!file) return { policy: PolicySchema.parse({}) };
+  try {
+    const raw = JSON.parse(fs10.readFileSync(file, "utf8"));
+    const p = PolicySchema.safeParse(raw);
+    if (!p.success) return { policy: PolicySchema.parse({}), file, error: p.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+    return { policy: p.data, file };
+  } catch (err) {
+    return { policy: PolicySchema.parse({}), file, error: String(err) };
+  }
+}
+var PolicySchema, POLICY_FILES;
+var init_policy = __esm({
+  "src/policy.ts"() {
+    "use strict";
+    init_zod();
+    init_checks();
+    PolicySchema = external_exports.object({
+      criteria: external_exports.array(external_exports.object({ text: external_exports.string().min(1), check: CheckSpecSchema.optional() })).default([]),
+      budget: external_exports.object({
+        hourly_rate: external_exports.number().positive().optional(),
+        fraction: external_exports.number().positive().max(1).optional(),
+        usd: external_exports.number().positive().optional(),
+        hard_stop: external_exports.boolean().default(false)
+      }).default({}),
+      consent: external_exports.boolean().optional(),
+      note: external_exports.string().optional()
+    });
+    POLICY_FILES = ["tally.json", ".tally.json"];
+  }
+});
+
+// src/task/intake.ts
+import fs11 from "node:fs";
+import path10 from "node:path";
 import crypto from "node:crypto";
 function sanitiseCheck(check) {
   if (!check) return null;
@@ -5272,14 +5323,14 @@ function sanitiseCheck(check) {
   return check;
 }
 function taskFile(session) {
-  return path9.join(sessionDir(session), "task.json");
+  return path10.join(sessionDir(session), "task.json");
 }
 function intakeCacheKey(fetched, model) {
   const material = JSON.stringify({ kind: fetched.source.kind, ref: fetched.source.url ?? fetched.source.ref, title: fetched.title, body: fetched.body, labels: fetched.labels, sp: fetched.story_points ?? null, model, v: 2 });
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
 function intakeCacheFile(key) {
-  return path9.join(tallyHome(), "cache", "intake", `${key}.json`);
+  return path10.join(tallyHome(), "cache", "intake", `${key}.json`);
 }
 function loadTask(session) {
   const raw = readJson(taskFile(session), null);
@@ -5345,6 +5396,12 @@ ${bodyForLlm || "(empty)"}`;
     return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === "explicit" ? "explicit" : "inferred", kind: check ? "mechanical" : "judgment", ...check ? { check } : {} };
   });
   if (criteria.length === 0) criteria.push({ id: "c1", text: `Deliver: ${fetched.title}`, source: "inferred", kind: "judgment" });
+  const pol = loadPolicy(opts.cwd);
+  for (const pc of pol.policy.criteria) {
+    if (criteria.some((c) => c.text.trim().toLowerCase() === pc.text.trim().toLowerCase())) continue;
+    const check = sanitiseCheck(pc.check ?? null);
+    criteria.push({ id: `c${criteria.length + 1}`, text: pc.text.trim(), source: "policy", kind: check ? "mechanical" : "judgment", ...check ? { check } : {} });
+  }
   const r = { cost_usd: cost, model };
   const score = Math.max(0, Math.min(10, Number(out.spec_quality?.score ?? 0)));
   const estimate = computeEstimate(fetched, Number(out.estimate_hours ?? 0));
@@ -5362,8 +5419,8 @@ ${bodyForLlm || "(empty)"}`;
     spec_quality: { score, missing: out.spec_quality?.missing ?? [], questions: out.spec_quality?.questions ?? [] },
     needs_clarification: score < 5,
     estimate,
-    budget_usd: computeBudget(estimate.hours, opts.cfg.hourly_rate),
-    hourly_rate: opts.cfg.hourly_rate,
+    budget_usd: pol.policy.budget.usd ?? (pol.policy.budget.fraction ? Math.max(BUDGET_FLOOR_USD, Math.round(estimate.hours * (pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate) * pol.policy.budget.fraction * 100) / 100) : computeBudget(estimate.hours, pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate)),
+    hourly_rate: pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate,
     tally_cost_usd: r.cost_usd,
     model: r.model,
     cache_key: cacheKey,
@@ -5374,8 +5431,8 @@ ${bodyForLlm || "(empty)"}`;
   TaskSchema.parse(task);
   ensureDir(sessionDir(opts.session));
   writeJson(taskFile(opts.session), task);
-  const pending = path9.join(sessionDir(opts.session), "task.pending");
-  if (fs10.existsSync(pending)) fs10.unlinkSync(pending);
+  const pending = path10.join(sessionDir(opts.session), "task.pending");
+  if (fs11.existsSync(pending)) fs11.unlinkSync(pending);
   appendEvent({
     ts: (/* @__PURE__ */ new Date()).toISOString(),
     type: "task",
@@ -5398,7 +5455,7 @@ function renderTask(task) {
   lines.push(`Task: ${task.title}  [${task.inferred ? task.confirmed ? "inferred task (confirmed)" : "inferred task (unconfirmed)" : task.source.kind}${task.source.url ? " " + task.source.url : ""}]`);
   if (task.fetch_error) lines.push(`  (fetch failed, used prompt text: ${task.fetch_error})`);
   lines.push(`Acceptance criteria (frozen):`);
-  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === "inferred" ? "  (inferred)" : ""}  [${c.kind === "mechanical" ? `mechanical: ${c.check?.kind}` : "judgment"}]`);
+  for (const c of task.criteria) lines.push(`  ${c.id}. ${c.text}${c.source === "inferred" ? "  (inferred)" : c.source === "policy" ? "  (repo policy)" : ""}  [${c.kind === "mechanical" ? `mechanical: ${c.check?.kind}` : "judgment"}]`);
   if (task.cached) lines.push(`  (intake served from cache; no model call)`);
   if (task.historical) lines.push(`  (historical: ${task.historical.note})`);
   lines.push(`Spec quality: ${task.spec_quality.score}/10${task.needs_clarification ? "  -> Clarify the ticket first" : ""}`);
@@ -5419,10 +5476,11 @@ var init_intake = __esm({
     init_fetchers();
     init_events();
     init_checks();
+    init_policy();
     CriterionSchema = external_exports.object({
       id: external_exports.string(),
       text: external_exports.string(),
-      source: external_exports.enum(["explicit", "inferred"]),
+      source: external_exports.enum(["explicit", "inferred", "policy"]),
       kind: external_exports.enum(["mechanical", "judgment"]).default("judgment"),
       check: CheckSpecSchema.optional()
     });
@@ -5496,8 +5554,8 @@ Return only the JSON object.`;
 });
 
 // src/session.ts
-import fs11 from "node:fs";
-import path10 from "node:path";
+import fs12 from "node:fs";
+import path11 from "node:path";
 function activeSessions() {
   const a = readJson(activeFile(), {});
   return Object.entries(a).map(([id, v]) => ({ id, cwd: v.cwd, transcript_path: v.transcript_path, model: v.model, last_seen: v.last_seen })).sort((x, y) => (y.last_seen ?? "").localeCompare(x.last_seen ?? ""));
@@ -5523,17 +5581,17 @@ function transcriptPathFor(session) {
   const events = readEvents(session);
   for (const e of events) {
     const p = e.data.transcript_path;
-    if (typeof p === "string" && fs11.existsSync(p)) return p;
+    if (typeof p === "string" && fs12.existsSync(p)) return p;
   }
   const active = activeSessions().find((s) => s.id === session);
-  if (active?.transcript_path && fs11.existsSync(active.transcript_path)) return active.transcript_path;
+  if (active?.transcript_path && fs12.existsSync(active.transcript_path)) return active.transcript_path;
   const cwd = events.find((e) => e.cwd)?.cwd;
   if (cwd) {
-    const candidate = path10.join(projectTranscriptsDir(cwd), `${session}.jsonl`);
-    if (fs11.existsSync(candidate)) return candidate;
+    const candidate = path11.join(projectTranscriptsDir(cwd), `${session}.jsonl`);
+    if (fs12.existsSync(candidate)) return candidate;
   }
-  const local = path10.join(sessionDir(session), "transcript.jsonl");
-  if (fs11.existsSync(local)) return local;
+  const local = path11.join(sessionDir(session), "transcript.jsonl");
+  if (fs12.existsSync(local)) return local;
   return void 0;
 }
 function sessionCwd(session) {
@@ -5549,8 +5607,8 @@ var init_session = __esm({
 });
 
 // src/experiment/experiment.ts
-import fs12 from "node:fs";
-import path11 from "node:path";
+import fs13 from "node:fs";
+import path12 from "node:path";
 function loadExperiments() {
   return readJson(experimentsFile(), { experiments: [] });
 }
@@ -5582,20 +5640,20 @@ function stopExperiment(cwd) {
   return exp;
 }
 function localSettingsPath(cwd) {
-  return path11.join(cwd, ".claude", "settings.local.json");
+  return path12.join(cwd, ".claude", "settings.local.json");
 }
 function backupPath(exp) {
-  return path11.join(tallyHome(), "backups", `experiment-${exp.id}-settings.local.json`);
+  return path12.join(tallyHome(), "backups", `experiment-${exp.id}-settings.local.json`);
 }
 function applyArm(cwd, exp) {
   if (exp.applied) return;
   const file = localSettingsPath(cwd);
-  const hadFile = fs12.existsSync(file);
+  const hadFile = fs13.existsSync(file);
   const bk = backupPath(exp);
-  ensureDir(path11.dirname(bk));
-  if (hadFile) fs12.copyFileSync(file, bk);
-  else if (fs12.existsSync(bk)) fs12.unlinkSync(bk);
-  const settings = hadFile ? JSON.parse(fs12.readFileSync(file, "utf8")) : {};
+  ensureDir(path12.dirname(bk));
+  if (hadFile) fs13.copyFileSync(file, bk);
+  else if (fs13.existsSync(bk)) fs13.unlinkSync(bk);
+  const settings = hadFile ? JSON.parse(fs13.readFileSync(file, "utf8")) : {};
   if (exp.next_arm === "off") {
     if (exp.kind === "skill") {
       const perms = settings.permissions ??= {};
@@ -5612,8 +5670,8 @@ function applyArm(cwd, exp) {
   } else {
     settings._tally_experiment = { id: exp.id, arm: "on", note: "temporary marker; restored by tally at session end" };
   }
-  ensureDir(path11.dirname(file));
-  fs12.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+  ensureDir(path12.dirname(file));
+  fs13.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   const db = loadExperiments();
   const target = db.experiments.find((e) => e.id === exp.id);
   if (target) {
@@ -5641,9 +5699,9 @@ function restoreExperimentConfig(cwd, session) {
     if (exp.repo !== key || !exp.applied) continue;
     if (session && exp.applied.session && exp.applied.session !== session) continue;
     const { settings_file, backup_file, had_file } = exp.applied;
-    if (had_file && fs12.existsSync(backup_file)) fs12.copyFileSync(backup_file, settings_file);
-    else if (!had_file && fs12.existsSync(settings_file)) fs12.unlinkSync(settings_file);
-    if (fs12.existsSync(backup_file)) fs12.unlinkSync(backup_file);
+    if (had_file && fs13.existsSync(backup_file)) fs13.copyFileSync(backup_file, settings_file);
+    else if (!had_file && fs13.existsSync(settings_file)) fs13.unlinkSync(settings_file);
+    if (fs13.existsSync(backup_file)) fs13.unlinkSync(backup_file);
     exp.next_arm = exp.applied.arm === "on" ? "off" : "on";
     delete exp.applied;
     restored = true;
@@ -5719,8 +5777,8 @@ var init_task = __esm({
 });
 
 // src/transcript/parse.ts
-import fs13 from "node:fs";
-import path12 from "node:path";
+import fs14 from "node:fs";
+import path13 from "node:path";
 function isKnownFormatVersion(version) {
   if (!version) return false;
   const mm = version.split(".").slice(0, 2).join(".");
@@ -5736,11 +5794,11 @@ function isShipCommand(cmd) {
   return SHIP_RE.test(cmd);
 }
 function readTranscriptLines(file) {
-  if (!fs13.existsSync(file)) return { lines: [], unparseable: 0, total: 0 };
+  if (!fs14.existsSync(file)) return { lines: [], unparseable: 0, total: 0 };
   const out = [];
   let unparseable = 0;
   let total = 0;
-  for (const line of fs13.readFileSync(file, "utf8").split("\n")) {
+  for (const line of fs14.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     total += 1;
     try {
@@ -5762,11 +5820,11 @@ function parseTranscriptFile(file, pricing = loadPricing()) {
   let unparseable = main2.unparseable;
   let total = main2.total;
   const dir = file.replace(/\.jsonl$/, "");
-  const subDir = path12.join(dir, "subagents");
-  if (fs13.existsSync(subDir)) {
-    for (const f of fs13.readdirSync(subDir).filter((x) => x.endsWith(".jsonl"))) {
+  const subDir = path13.join(dir, "subagents");
+  if (fs14.existsSync(subDir)) {
+    for (const f of fs14.readdirSync(subDir).filter((x) => x.endsWith(".jsonl"))) {
       const agent = f.replace(/\.jsonl$/, "");
-      const sub = readTranscriptLines(path12.join(subDir, f));
+      const sub = readTranscriptLines(path13.join(subDir, f));
       unparseable += sub.unparseable;
       total += sub.total;
       for (const l of sub.lines) {
@@ -6292,11 +6350,11 @@ var init_evidence = __esm({
 });
 
 // src/cost/otel.ts
-import fs14 from "node:fs";
+import fs15 from "node:fs";
 import http from "node:http";
-import path13 from "node:path";
+import path14 from "node:path";
 function otelFile() {
-  return path13.join(tallyHome(), "otel", "metrics.jsonl");
+  return path14.join(tallyHome(), "otel", "metrics.jsonl");
 }
 function attrValue(v) {
   if (!v) return "";
@@ -6329,13 +6387,13 @@ function parseOtlpMetrics(body, now = /* @__PURE__ */ new Date()) {
 }
 function recordOtelPoints(points, file = otelFile()) {
   if (!points.length) return;
-  ensureDir(path13.dirname(file));
+  ensureDir(path14.dirname(file));
   for (const p of points) appendLine(file, JSON.stringify(p));
 }
 function readOtelPoints(file = otelFile()) {
-  if (!fs14.existsSync(file)) return [];
+  if (!fs15.existsSync(file)) return [];
   const out = [];
-  for (const line of fs14.readFileSync(file, "utf8").split("\n")) {
+  for (const line of fs15.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       out.push(JSON.parse(line));
@@ -6600,7 +6658,7 @@ var init_schema = __esm({
       }),
       head: external_exports.string().optional(),
       historical: external_exports.object({ start_head: external_exports.string().optional(), end_head: external_exports.string().optional(), notes: external_exports.array(external_exports.string()) }).optional(),
-      criteria: external_exports.array(external_exports.object({ id: external_exports.string(), text: external_exports.string(), status: CriterionStatus, evidence: external_exports.string(), files: external_exports.array(external_exports.string()), resolved_by: external_exports.enum(["tier0", "tier1", "tier2", "rule"]).default("tier2"), confidence: external_exports.number().min(0).max(1).optional() })),
+      criteria: external_exports.array(external_exports.object({ id: external_exports.string(), text: external_exports.string(), status: CriterionStatus, evidence: external_exports.string(), files: external_exports.array(external_exports.string()), resolved_by: external_exports.enum(["tier0", "tier1", "tier2", "rule"]).default("tier2"), confidence: external_exports.number().min(0).max(1).optional(), override: external_exports.object({ status: CriterionStatus, reason: external_exports.string(), by: external_exports.string(), ts: external_exports.string(), original: CriterionStatus }).optional() })),
       tiers: external_exports.object({
         ran: external_exports.array(external_exports.enum(["tier0", "tier1", "tier2"])),
         reason: external_exports.string(),
@@ -6683,14 +6741,14 @@ var init_schema = __esm({
         note: external_exports.string(),
         rows: external_exports.array(external_exports.object({ kind: external_exports.enum(["skill", "mcp"]), name: external_exports.string(), invocations: external_exports.number(), errors: external_exports.number(), tokens: external_exports.number(), usd: external_exports.number(), touched_met_criteria: external_exports.boolean().nullable() }))
       }),
-      verdict: external_exports.object({ verdict: external_exports.enum(["worth it", "borderline", "not worth it"]), reason: external_exports.string() }),
+      verdict: external_exports.object({ verdict: external_exports.enum(["worth it", "borderline", "not worth it", "insufficient evidence"]), reason: external_exports.string() }),
       recommendations: external_exports.array(external_exports.string()).max(3),
       judge_model: external_exports.string(),
       followup: external_exports.object({
         checked_at: external_exports.string(),
         final_status: external_exports.enum(["held up", "needed rework", "reverted", "unknown"]),
-        final_verdict: external_exports.enum(["worth it", "borderline", "not worth it"]),
-        original_verdict: external_exports.enum(["worth it", "borderline", "not worth it"]),
+        final_verdict: external_exports.enum(["worth it", "borderline", "not worth it", "insufficient evidence"]),
+        original_verdict: external_exports.enum(["worth it", "borderline", "not worth it", "insufficient evidence"]),
         pr_state: external_exports.string().optional(),
         merged: external_exports.boolean().optional(),
         reverted: external_exports.boolean().optional(),
@@ -6699,6 +6757,9 @@ var init_schema = __esm({
         review_comments: external_exports.number().optional(),
         change_requests: external_exports.number().optional(),
         ci_failed_after_merge: external_exports.boolean().optional(),
+        /* review burden the PR put on humans: distinct review submissions, and hours from PR open to merge */
+        review_rounds: external_exports.number().int().nonnegative().optional(),
+        hours_to_approval: external_exports.number().nonnegative().optional(),
         gh_skipped: external_exports.boolean().optional(),
         notes: external_exports.array(external_exports.string())
       }).optional()
@@ -6728,7 +6789,7 @@ function renderReport(j) {
   L.push("");
   L.push("| # | Status | Criterion | Evidence |");
   L.push("|---|---|---|---|");
-  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.status]} ${c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.files.length ? ` (${c.files.join(", ")})` : ""} _${c.resolved_by}${c.confidence !== void 0 && c.resolved_by !== "tier0" ? `, conf ${c.confidence.toFixed(2)}` : ""}_ |`);
+  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.override?.status ?? c.status]} ${c.override ? `${c.override.status} (disputed, was ${c.override.original})` : c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.override ? ` \xB7 dispute by ${esc(c.override.by)}: ${esc(c.override.reason)}` : ""}${c.files.length ? ` (${c.files.join(", ")})` : ""} _${c.resolved_by}${c.confidence !== void 0 && c.resolved_by !== "tier0" ? `, conf ${c.confidence.toFixed(2)}` : ""}_ |`);
   L.push("");
   L.push(`## How it was judged`);
   L.push("");
@@ -6811,13 +6872,13 @@ function esc(s) {
 }
 function renderSummary(j, color = true) {
   const c = (code, s) => color ? `\x1B[${code}m${s}\x1B[0m` : s;
-  const verdictColor = j.verdict.verdict === "worth it" ? "32" : j.verdict.verdict === "borderline" ? "33" : "31";
+  const verdictColor = j.verdict.verdict === "worth it" ? "32" : j.verdict.verdict === "borderline" ? "33" : j.verdict.verdict === "insufficient evidence" ? "90" : "31";
   const L = [];
   L.push(c("1", `Tally receipt \xB7 ${j.task.title}`));
   L.push(`${c(verdictColor, c("1", j.verdict.verdict.toUpperCase()))}${j.followup ? `  \u2192 after follow-up: ${c("1", j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ""}  \xB7  ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` (${j.counts.unverifiable} unverifiable)` : ""}  \xB7  quality ${j.quality.score}/10  \xB7  ROI ${j.value.roi_multiple === null ? "n/a" : j.value.roi_multiple + "\xD7"}`);
   for (const cr of j.criteria) {
     const col = cr.status === "met" ? "32" : cr.status === "partial" ? "33" : cr.status === "unmet" ? "31" : "90";
-    L.push(`  ${c(col, STATUS_ICON[cr.status])} ${cr.id} ${cr.text} ${c("90", `[${cr.resolved_by === "tier0" ? "check" : cr.resolved_by === "rule" ? "rule" : cr.resolved_by}${cr.confidence !== void 0 && cr.resolved_by !== "tier0" ? ` ${cr.confidence.toFixed(2)}` : ""}]`)}`);
+    L.push(`  ${c(col, STATUS_ICON[cr.override?.status ?? cr.status])} ${cr.id} ${cr.text} ${c("90", `[${cr.resolved_by === "tier0" ? "check" : cr.resolved_by === "rule" ? "rule" : cr.resolved_by}${cr.confidence !== void 0 && cr.resolved_by !== "tier0" ? ` ${cr.confidence.toFixed(2)}` : ""}]`)}${cr.override ? c("36", `  disputed: ${cr.override.original} \u2192 ${cr.override.status} by ${cr.override.by} (${cr.override.reason})`) : ""}`);
   }
   L.push(`Judged by: ${j.tiers.ran.map((t) => t.replace("tier", "tier ")).join(" \u2192 ")} \xB7 ${j.tiers.reason}${j.tiers.calls.length ? ` \xB7 model spend ${fmtUsd(j.tiers.llm_cost_usd)}` : " \xB7 $0 in model calls"}`);
   L.push(`Verification: ${j.verification.ran ? `${j.verification.command} \u2192 ${j.verification.passed ? c("32", "passed") : c("31", j.verification.timed_out ? "timed out" : "FAILED")}` : c("90", `not run (${j.verification.reason})`)}`);
@@ -6844,9 +6905,9 @@ var init_report = __esm({
 });
 
 // src/judge/judge.ts
-import fs15 from "node:fs";
+import fs16 from "node:fs";
 import { spawnSync as spawnSync4 } from "node:child_process";
-import path14 from "node:path";
+import path15 from "node:path";
 function isTestCriterion(text) {
   return TEST_CRITERION_RE.test(text);
 }
@@ -6857,7 +6918,7 @@ function otelCrossCheck(session, transcriptCost) {
   return void 0;
 }
 function judgeFile(session) {
-  return path14.join(sessionDir(session), "judge.json");
+  return path15.join(sessionDir(session), "judge.json");
 }
 function loadJudge(session) {
   const raw = readJson(judgeFile(session), null);
@@ -6878,30 +6939,39 @@ function computeVerdict(input) {
   const { completion_pct, roi, quality, testsFailed } = input;
   const verifiable = input.verifiable ?? 1;
   const unverifiable = input.unverifiable ?? 0;
-  if (verifiable === 0) return "borderline";
+  if (verifiable === 0) return "insufficient evidence";
+  if (unverifiable > verifiable) return "insufficient evidence";
   const roiOk = roi === null ? true : roi >= 2;
   const roiBad = roi !== null && roi < 1;
   let verdict = "borderline";
   if (completion_pct < 40 || roiBad || quality < 4) verdict = "not worth it";
   else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = "worth it";
-  if (unverifiable > verifiable) return "borderline";
   return verdict;
+}
+function effectiveStatus(c) {
+  return c.override?.status ?? c.status;
+}
+function rescoreJudge(j, why) {
+  const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
+  for (const c of j.criteria) counts[effectiveStatus(c)] += 1;
+  const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
+  const testsFailed = j.verification.ran && j.verification.passed === false;
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
+  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
+  const next = {
+    ...j,
+    counts,
+    completion_pct: scored.completion_pct,
+    completion_basis: { verifiable: scored.verifiable, total: scored.total },
+    value: { ...j.value, credited_value_usd: scored.credited, roi_multiple: scored.roi },
+    verdict: { verdict, reason: changed ? `${j.verdict.reason} [re-scored: ${why}; ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${counts.unverifiable} unverifiable]` : j.verdict.reason }
+  };
+  return JudgeSchema.parse(next);
 }
 function recomputeReceipt(session) {
   const j = loadJudge(session);
   if (!j) return null;
-  const scored = scoreCounts(j.counts, j.value.human_value_usd, j.cost.total_usd);
-  const testsFailed = j.verification.ran && j.verification.passed === false;
-  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: j.counts.unverifiable });
-  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct;
-  const next = {
-    ...j,
-    completion_pct: scored.completion_pct,
-    completion_basis: { verifiable: scored.verifiable, total: scored.total },
-    value: { ...j.value, credited_value_usd: scored.credited, roi_multiple: scored.roi },
-    verdict: { verdict, reason: changed && !/\[recomputed/.test(j.verdict.reason) ? `${j.verdict.reason} [recomputed with the 0.1.1 completion rule: ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${j.counts.unverifiable} unverifiable]` : j.verdict.reason }
-  };
-  const validated = JudgeSchema.parse(next);
+  const validated = rescoreJudge(j, "current scoring rule");
   persistJudge(validated, loadTask(session));
   return validated;
 }
@@ -6914,9 +6984,9 @@ function round(n, d = 4) {
 }
 function tallyOwnSpend(session) {
   const f = tallySpendFile();
-  if (!fs15.existsSync(f)) return 0;
+  if (!fs16.existsSync(f)) return 0;
   let sum = 0;
-  for (const line of fs15.readFileSync(f, "utf8").split("\n")) {
+  for (const line of fs16.readFileSync(f, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const j = JSON.parse(line);
@@ -7160,9 +7230,9 @@ function persistJudge(judge, task) {
   const dir = sessionDir(judge.session);
   ensureDir(dir);
   const file = judgeFile(judge.session);
-  if (fs15.existsSync(file)) fs15.copyFileSync(file, path14.join(dir, "judge.prev.json"));
+  if (fs16.existsSync(file)) fs16.copyFileSync(file, path15.join(dir, "judge.prev.json"));
   writeJson(file, judge);
-  fs15.writeFileSync(path14.join(dir, "report.md"), renderReport(judge));
+  fs16.writeFileSync(path15.join(dir, "report.md"), renderReport(judge));
   appendEvent({ ts: (/* @__PURE__ */ new Date()).toISOString(), type: "judge", session: judge.session, cwd: judge.cwd, data: { verdict: judge.verdict.verdict, completion_pct: judge.completion_pct, cost_usd: judge.cost.total_usd, reason: judge.reason } });
   const entry = {
     ts: judge.judged_at,
@@ -7268,8 +7338,96 @@ Return only the JSON object.`;
   }
 });
 
-// src/followup/gh.ts
+// src/judge/explain.ts
+import fs17 from "node:fs";
+import path16 from "node:path";
 import { spawnSync as spawnSync5 } from "node:child_process";
+function baseCommit(j, session) {
+  if (j.historical?.start_head) return j.historical.start_head;
+  const start = readEvents(session).find((e) => e.type === "session_start");
+  const head = start?.data.git_head;
+  return typeof head === "string" && head ? head : void 0;
+}
+function diffFor(cwd, base, files, maxLines = 60) {
+  if (!base || !files.length || !fs17.existsSync(path16.join(cwd, ".git"))) return "";
+  const r = spawnSync5("git", ["diff", "--no-color", base, "--", ...files], { cwd, encoding: "utf8", windowsHide: true });
+  if (r.status !== 0 || !r.stdout.trim()) return "";
+  const lines = r.stdout.split("\n");
+  return lines.slice(0, maxLines).join("\n") + (lines.length > maxLines ? `
+\u2026 ${lines.length - maxLines} more lines (git diff ${base.slice(0, 8)} -- ${files.join(" ")})` : "");
+}
+function moments(session, files, max = 12) {
+  const p = transcriptPathFor(session);
+  if (!p || !fs17.existsSync(p) || !files.length) return [];
+  let t;
+  try {
+    t = parseTranscriptFile(p);
+  } catch {
+    return [];
+  }
+  const names = files.map((f) => path16.basename(f).toLowerCase());
+  const out = [];
+  for (const c of t.toolCalls) {
+    const target = String(c.input.file_path ?? c.input.command ?? c.input.pattern ?? "").toLowerCase();
+    if (!names.some((n) => target.includes(n))) continue;
+    const what = c.name === "Bash" ? String(c.input.command).slice(0, 80) : `${c.name} ${path16.basename(String(c.input.file_path ?? ""))}`;
+    out.push(`${c.ts.slice(11, 19)}  ${what}${c.result?.isError ? "  \u2718" : ""}`);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+function explainCriterion(session, id) {
+  const j = loadJudge(session);
+  if (!j) return `No receipt for session ${session}.`;
+  const c = j.criteria.find((x) => x.id === id);
+  if (!c) return `No criterion ${id} on this receipt (${j.criteria.map((x) => x.id).join(", ")}).`;
+  const L = [];
+  L.push(`${c.id} \xB7 ${c.override ? `${c.override.original} \u2192 ${c.override.status} (disputed by ${c.override.by}: ${c.override.reason})` : c.status} \xB7 resolved by ${c.resolved_by}${c.confidence !== void 0 && c.resolved_by !== "tier0" ? ` at confidence ${c.confidence.toFixed(2)}` : ""}`);
+  L.push(`  ${c.text}`);
+  L.push("");
+  L.push("Evidence cited");
+  L.push(`  ${c.evidence}`);
+  if (c.files.length) L.push(`  files: ${c.files.join(", ")}`);
+  if (j.evidence.diff_source && j.evidence.diff_source !== "git") L.push(`  note: changes were ${j.evidence.diff_source} from the transcript${j.evidence.reconstructed_files?.length ? ` (${j.evidence.reconstructed_files.length} file(s) not verified against disk)` : ""}`);
+  const diff = j.cwd ? diffFor(j.cwd, baseCommit(j, session), c.files) : "";
+  if (diff) {
+    L.push("");
+    L.push(`Diff for those files (from the session's base commit)`);
+    L.push(diff.split("\n").map((x) => "  " + x).join("\n"));
+  }
+  if (/tests|test suite|passes/i.test(c.text) || c.resolved_by === "tier0") {
+    L.push("");
+    L.push("Independent verification");
+    L.push(`  ${j.verification.ran ? `${j.verification.command} \u2192 ${j.verification.passed ? "passed" : "FAILED"}` : `not run (${j.verification.reason ?? "unknown"})`}`);
+    if (j.verification.output_tail) L.push(j.verification.output_tail.split("\n").slice(-15).map((x) => "  | " + x).join("\n"));
+  }
+  const m = moments(session, c.files);
+  if (m.length) {
+    L.push("");
+    L.push("Transcript moments touching those files");
+    for (const x of m) L.push("  " + x);
+  }
+  L.push("");
+  L.push(`Disagree? tally dispute ${session.slice(0, 8)} ${c.id} --status <met|partial|unmet|unverifiable> --reason "<why>"`);
+  return L.join("\n");
+}
+function explainAll(session) {
+  const j = loadJudge(session);
+  if (!j) return `No receipt for session ${session}.`;
+  return j.criteria.map((c) => explainCriterion(session, c.id)).join("\n\n" + "\u2500".repeat(72) + "\n\n");
+}
+var init_explain = __esm({
+  "src/judge/explain.ts"() {
+    "use strict";
+    init_judge();
+    init_events();
+    init_session();
+    init_parse();
+  }
+});
+
+// src/followup/gh.ts
+import { spawnSync as spawnSync6 } from "node:child_process";
 function ghInstallHint() {
   if (process.platform === "win32") return "winget install GitHub.cli (then reopen the terminal) and run `gh auth login`";
   if (process.platform === "darwin") return "brew install gh && gh auth login";
@@ -7277,12 +7435,12 @@ function ghInstallHint() {
 }
 function ghStatus(force = false) {
   if (cached2 && !force) return cached2;
-  const v = spawnSync5("gh", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 1e4 });
+  const v = spawnSync6("gh", ["--version"], { encoding: "utf8", windowsHide: true, timeout: 1e4 });
   if (v.error || v.status !== 0) {
     cached2 = { ok: false, installed: false, reason: "gh is not installed or not on PATH", fix: ghInstallHint() };
     return cached2;
   }
-  const a = spawnSync5("gh", ["auth", "status"], { encoding: "utf8", windowsHide: true, timeout: 15e3 });
+  const a = spawnSync6("gh", ["auth", "status"], { encoding: "utf8", windowsHide: true, timeout: 15e3 });
   if (a.status === 0) cached2 = { ok: true, installed: true, reason: "", fix: "" };
   else cached2 = { ok: false, installed: true, reason: "gh is installed but not authenticated", fix: "gh auth login" };
   return cached2;
@@ -7298,13 +7456,42 @@ var init_gh = __esm({
 // src/judge/writeback.ts
 function receiptComment(j) {
   const L = [];
+  const st = (c) => c.override?.status ?? c.status;
   L.push(`**Tally receipt** \u2014 ${j.verdict.verdict}${j.followup ? ` \u2192 after follow-up: ${j.followup.final_verdict} (${j.followup.final_status})` : ""}`);
   L.push("");
-  L.push(`${j.completion_pct}% of acceptance criteria met \xB7 quality ${j.quality.score}/10 \xB7 ${fmtUsd(j.cost.total_usd)} API-equivalent (${j.cost.budget_used_pct}% of budget) \xB7 ROI ${j.value.roi_multiple === null ? "n/a" : j.value.roi_multiple + "\xD7"}`);
+  L.push(`${j.completion_pct}% of the ${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? `${j.completion_basis.verifiable} verifiable ` : ""}acceptance criteria met \xB7 quality ${j.quality.score}/10 \xB7 ${fmtUsd(j.cost.total_usd)} API-equivalent (${j.cost.budget_used_pct}% of budget) \xB7 ROI ${j.value.roi_multiple === null ? "n/a" : j.value.roi_multiple + "\xD7"}`);
   L.push("");
-  for (const c of j.criteria) L.push(`- ${ICON[c.status]} ${c.text}`);
-  L.push("");
-  L.push(`Independent check: ${j.verification.ran ? `\`${j.verification.command}\` ${j.verification.passed ? "passed" : "failed"}` : "not run"} \xB7 waste ${fmtUsd(j.waste.total_usd)}`);
+  const verified = j.criteria.filter((c) => c.resolved_by === "tier0" && st(c) !== "unverifiable");
+  const judged = j.criteria.filter((c) => c.resolved_by !== "tier0" && st(c) !== "unverifiable");
+  const manual = j.criteria.filter((c) => st(c) === "unverifiable");
+  if (verified.length) {
+    L.push("**Verified independently** (mechanical checks, no model)");
+    for (const c of verified) L.push(`- ${ICON[st(c)]} ${c.text}${c.override ? ` _(disputed by ${c.override.by}: ${c.override.reason})_` : ""}`);
+    L.push("");
+  }
+  if (judged.length) {
+    L.push("**Rated by the model from the evidence** (read the cited line before trusting it)");
+    for (const c of judged) L.push(`- ${ICON[st(c)]} ${c.text}${c.override ? ` _(disputed by ${c.override.by}: ${c.override.reason})_` : ""}`);
+    L.push("");
+  }
+  if (manual.length) {
+    L.push("**Needs a manual look** (Tally could not verify these)");
+    for (const c of manual) L.push(`- ${ICON.unverifiable} ${c.text} \u2014 ${c.evidence.slice(0, 120)}`);
+    L.push("");
+  }
+  const struggled = [];
+  for (const l of j.waste.failed_loops) struggled.push(`\`${l.command.slice(0, 60)}\` failed ${l.repeats}\xD7 (${fmtUsd(l.usd)})`);
+  for (const r of j.waste.repeated_reads) struggled.push(`${r.file.split(/[\\/]/).pop()} read ${r.reads}\xD7 (${fmtUsd(r.usd)})`);
+  if (struggled.length) {
+    L.push("**Where the agent struggled**");
+    for (const s of struggled.slice(0, 6)) L.push(`- ${s}`);
+    L.push("");
+  }
+  if (j.evidence.reconstructed_files?.length) {
+    L.push(`**Not verified against disk:** ${j.evidence.reconstructed_files.length} file(s) were reconstructed from the transcript (no commit inside the session).`);
+    L.push("");
+  }
+  L.push(`Independent check: ${j.verification.ran ? `\`${j.verification.command}\` ${j.verification.passed ? "passed" : "failed"}` : `not run (${j.verification.reason ?? "unknown"})`} \xB7 waste ${fmtUsd(j.waste.total_usd)}${j.followup?.hours_to_approval !== void 0 ? ` \xB7 review: ${j.followup.review_rounds} round(s), ${j.followup.hours_to_approval} h to merge` : ""}`);
   L.push("");
   L.push("<sub>Generated locally by Tally. Contains no code or prompts.</sub>");
   return redact(L.join("\n"));
@@ -7374,8 +7561,8 @@ var judge_exports = {};
 __export(judge_exports, {
   run: () => run3
 });
-import fs16 from "node:fs";
-import path15 from "node:path";
+import fs18 from "node:fs";
+import path17 from "node:path";
 import readline from "node:readline";
 function askYesNo(question) {
   return new Promise((resolve) => {
@@ -7397,6 +7584,11 @@ async function run3(args) {
   const reasonFlag = flag(args, "reason");
   const reason = ["push", "pr", "merge", "publish", "session_end", "manual"].includes(reasonFlag ?? "") ? reasonFlag : auto ? "session_end" : "manual";
   const cwd = sessionCwd(session) ?? process.cwd();
+  const explain = flag(args, "explain");
+  if (explain) {
+    process.stdout.write((explain === "all" ? explainAll(session) : explainCriterion(session, explain)) + "\n");
+    return;
+  }
   if (has(args, "recompute")) {
     const j = recomputeReceipt(session);
     if (!j) {
@@ -7418,17 +7610,17 @@ async function run3(args) {
     return;
   }
   const transcriptPath = flag(args, "transcript") ?? transcriptPathFor(session);
-  if (!transcriptPath || !fs16.existsSync(transcriptPath)) {
+  if (!transcriptPath || !fs18.existsSync(transcriptPath)) {
     if (!auto) process.stderr.write(`No transcript found for session ${session}.
 `);
     return 1;
   }
-  const lock = path15.join(sessionDir(session), "judge.lock");
-  if (fs16.existsSync(lock) && Date.now() - fs16.statSync(lock).mtimeMs < 10 * 60 * 1e3) {
+  const lock = path17.join(sessionDir(session), "judge.lock");
+  if (fs18.existsSync(lock) && Date.now() - fs18.statSync(lock).mtimeMs < 10 * 60 * 1e3) {
     if (!auto) process.stderr.write("A judge run is already in progress for this session.\n");
     return 1;
   }
-  fs16.writeFileSync(lock, String(process.pid));
+  fs18.writeFileSync(lock, String(process.pid));
   try {
     const llm = makeLlm({ session });
     if (!auto) process.stdout.write(`Judging session ${session} (${reason})\u2026
@@ -7445,7 +7637,7 @@ async function run3(args) {
     const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason, consent, deep: has(args, "deep") });
     const plain = has(args, "plain");
     process.stdout.write(renderSummary(judge, !plain) + "\n");
-    process.stdout.write(`Receipt: ${path15.join(sessionDir(session), "report.md")}
+    process.stdout.write(`Receipt: ${path17.join(sessionDir(session), "report.md")}
 `);
     if (has(args, "post") || cfg.writeback) {
       const r = await writeBack(judge, cfg);
@@ -7454,7 +7646,7 @@ async function run3(args) {
       if (!r.posted.length) process.stdout.write("Nothing to post to: no issue or PR URL is linked to this session.\n");
     }
   } finally {
-    if (fs16.existsSync(lock)) fs16.unlinkSync(lock);
+    if (fs18.existsSync(lock)) fs18.unlinkSync(lock);
   }
 }
 var init_judge2 = __esm({
@@ -7464,6 +7656,7 @@ var init_judge2 = __esm({
     init_config();
     init_client();
     init_judge();
+    init_explain();
     init_writeback();
     init_session();
     init_paths();
@@ -7477,8 +7670,8 @@ var finalize_exports = {};
 __export(finalize_exports, {
   run: () => run4
 });
-import fs17 from "node:fs";
-import path16 from "node:path";
+import fs19 from "node:fs";
+import path18 from "node:path";
 async function run4(args) {
   const session = args._[0] ?? flag(args, "session");
   if (!session) return;
@@ -7493,7 +7686,7 @@ async function run4(args) {
   let firstTurn = 0;
   let cost = 0;
   let costConfidence = "full";
-  if (transcriptPath && fs17.existsSync(transcriptPath)) {
+  if (transcriptPath && fs19.existsSync(transcriptPath)) {
     const t = parseTranscriptFile(transcriptPath);
     if (t.internal || isInternalCwd(cwd)) {
       log(`finalize: ${session} is an internal Tally run; not recorded`);
@@ -7509,7 +7702,7 @@ async function run4(args) {
   }
   const summary = { ts: (/* @__PURE__ */ new Date()).toISOString(), kind: "session", session, repo: repoKey(cwd), loaded, used: { skills: usedSkills, mcp: usedMcp }, first_turn_tokens: firstTurn, cost_usd: cost, cost_confidence: costConfidence, linked: !!loadTask(session), internal: false };
   appendLine(historyFile(), JSON.stringify(summary));
-  writeJson(path16.join(sessionDir(session), "summary.json"), summary);
+  writeJson(path18.join(sessionDir(session), "summary.json"), summary);
   try {
     restoreExperimentConfig(cwd, session);
     prepareNextArm(cwd);
@@ -7520,7 +7713,7 @@ async function run4(args) {
   const headNow = currentHead(cwd);
   const alreadyJudged = !!existing && (!headNow || !existing.head || existing.head === headNow);
   if (existing && !alreadyJudged) log(`finalize: ${session} HEAD moved since the last receipt (${existing.head?.slice(0, 8)} \u2192 ${headNow?.slice(0, 8)}); re-judging`);
-  if (!alreadyJudged && transcriptPath && fs17.existsSync(transcriptPath) && events.some((e) => e.type === "prompt")) {
+  if (!alreadyJudged && transcriptPath && fs19.existsSync(transcriptPath) && events.some((e) => e.type === "prompt")) {
     try {
       await judgeSession({ session, cwd, transcriptPath, cfg, llm: makeLlm({ session }), reason: "session_end" });
     } catch (err) {
@@ -7545,7 +7738,7 @@ var init_finalize = __esm({
 });
 
 // src/followup/followup.ts
-import path17 from "node:path";
+import path19 from "node:path";
 function parseJson(s) {
   try {
     return JSON.parse(s);
@@ -7555,6 +7748,7 @@ function parseJson(s) {
 }
 function adjustVerdict(original, status) {
   if (status === "reverted") return "not worth it";
+  if (original === "insufficient evidence") return status === "held up" ? "borderline" : original;
   if (status === "needed rework") return original === "worth it" ? "borderline" : "not worth it";
   return original;
 }
@@ -7592,7 +7786,7 @@ function followupSession(session, deps = realFollowupDeps) {
     fu.gh_skipped = true;
   }
   if (prUrl && gh.ok) {
-    const r = deps.exec("gh", ["pr", "view", prUrl, "--json", "state,mergedAt,mergeCommit,reviews,comments,number,headRefName,closed"], cwd);
+    const r = deps.exec("gh", ["pr", "view", prUrl, "--json", "state,mergedAt,createdAt,mergeCommit,reviews,comments,number,headRefName,closed"], cwd);
     const pr = r.ok ? parseJson(r.stdout) : null;
     if (pr) {
       prNumber = pr.number;
@@ -7603,6 +7797,9 @@ function followupSession(session, deps = realFollowupDeps) {
       const reviews = pr.reviews ?? [];
       fu.review_comments = (pr.comments?.length ?? 0) + reviews.length;
       fu.change_requests = reviews.filter((x) => x.state === "CHANGES_REQUESTED").length;
+      fu.review_rounds = reviews.length;
+      if (pr.createdAt && pr.mergedAt) fu.hours_to_approval = Math.round((Date.parse(pr.mergedAt) - Date.parse(pr.createdAt)) / 36e5 * 10) / 10;
+      if (fu.hours_to_approval !== void 0) notes.push(`Review burden: ${fu.review_rounds} review round(s), ${fu.hours_to_approval} h from open to merge.`);
       notes.push(`PR ${prUrl} is ${pr.state}${fu.merged ? " (merged)" : ""}; ${fu.review_comments} review comments, ${fu.change_requests} change requests.`);
       if (fu.merged && mergeSha) {
         const runs = deps.exec("gh", ["run", "list", "--commit", mergeSha, "--json", "conclusion,status,name", "--limit", "20"], cwd);
@@ -7646,7 +7843,7 @@ function followupSession(session, deps = realFollowupDeps) {
   return updated;
 }
 function followupStateFile() {
-  return path17.join(tallyHome(), "followup-state.json");
+  return path19.join(tallyHome(), "followup-state.json");
 }
 function dueSessions(days, now = /* @__PURE__ */ new Date()) {
   const out = [];
@@ -7878,7 +8075,7 @@ var init_reread = __esm({
 });
 
 // src/coach/rules/context-pressure.ts
-import path18 from "node:path";
+import path20 from "node:path";
 function buildHandoff(ctx) {
   const task = ctx.task;
   const edits = [...new Set(postTools(ctx).filter((e) => ["Edit", "Write", "MultiEdit"].includes(toolName(e))).map((e) => shortPath(String(toolInput(e).file_path ?? ""), ctx.cwd)))];
@@ -7933,7 +8130,7 @@ var init_context_pressure = __esm({
           title: `Context at ${pct.toFixed(0)}%`,
           message: `Context is ${ctx.contextTokensNow.toLocaleString("en-US")} of ${ctx.contextWindow.toLocaleString("en-US")} tokens (${pct.toFixed(0)}%). Auto-compact will lose working state. Write HANDOFF.md now, then run /compact on your terms. Re-caching after compaction costs about $${recacheUsd.toFixed(2)}.`,
           usd_saved: recacheUsd + ctx.avgTurnCostUsd * 2,
-          action: { kind: "write_md", label: "Write HANDOFF.md, then suggest /compact", file: path18.join(ctx.cwd, "HANDOFF.md"), content: buildHandoff(ctx), mode: "replace" },
+          action: { kind: "write_md", label: "Write HANDOFF.md, then suggest /compact", file: path20.join(ctx.cwd, "HANDOFF.md"), content: buildHandoff(ctx), mode: "replace" },
           inject_note: `Tally observed the context at ${pct.toFixed(0)}% of the window; HANDOFF.md in the repo root now holds the goal, current state, and next steps as of ${ctx.now.toISOString().slice(11, 16)} UTC.`
         };
         return [s];
@@ -7943,8 +8140,8 @@ var init_context_pressure = __esm({
 });
 
 // src/coach/rules/claude-md.ts
-import fs18 from "node:fs";
-import path19 from "node:path";
+import fs20 from "node:fs";
+import path21 from "node:path";
 function instructionSentences(text) {
   const out = [];
   for (const raw of text.split(/(?<=[.!\n])\s+|;\s+/)) {
@@ -7974,11 +8171,11 @@ function repeatedInstructions(prompts, historyPrompts = []) {
   return [...seen.values()].filter((x) => x.count >= 2).sort((a, b) => b.count - a.count);
 }
 function detectStack(cwd) {
-  const has2 = (f) => fs18.existsSync(path19.join(cwd, f));
+  const has2 = (f) => fs20.existsSync(path21.join(cwd, f));
   const lines = [];
   if (has2("package.json")) {
     try {
-      const pkg = JSON.parse(fs18.readFileSync(path19.join(cwd, "package.json"), "utf8"));
+      const pkg = JSON.parse(fs20.readFileSync(path21.join(cwd, "package.json"), "utf8"));
       const s = pkg.scripts ?? {};
       if (s.test) lines.push(`- Test: \`npm test\` (${s.test})`);
       if (s.build) lines.push(`- Build: \`npm run build\``);
@@ -8009,7 +8206,7 @@ var init_claude_md = __esm({
         const prompts = ctx.events.filter((e) => e.type === "prompt").map((e) => String(e.data.prompt ?? ""));
         const historyPrompts = ctx.history.filter((h) => h.repo === repoKeyOf(ctx.cwd) && Array.isArray(h.prompts)).flatMap((h) => h.prompts ?? []);
         const repeated = repeatedInstructions(prompts, historyPrompts);
-        const claudeMdPath = path19.join(ctx.cwd, "CLAUDE.md");
+        const claudeMdPath = path21.join(ctx.cwd, "CLAUDE.md");
         const existing = ctx.claudeMd ?? "";
         for (const r of repeated.slice(0, 2)) {
           if (existing.toLowerCase().includes(r.text.toLowerCase().slice(0, 40))) continue;
@@ -8039,7 +8236,7 @@ var init_claude_md = __esm({
               label: "Create a starter CLAUDE.md",
               file: claudeMdPath,
               mode: "create",
-              content: `# ${path19.basename(ctx.cwd)}
+              content: `# ${path21.basename(ctx.cwd)}
 
 ## Commands
 ${stack.length ? stack.join("\n") : "- (fill in test/build/lint commands)"}
@@ -8266,7 +8463,7 @@ var init_mcp_errors = __esm({
 });
 
 // src/coach/rules/permission-friction.ts
-import path20 from "node:path";
+import path22 from "node:path";
 function commandPrefix(message) {
   const m = /Bash\(([^)]+)\)/.exec(message) ?? /`([^`]+)`/.exec(message) ?? /(?:run|execute|use)\s+(?:the\s+)?(?:command\s+)?[`"']?([^`"'\n]+)/i.exec(message);
   const cmd = (m?.[1] ?? "").trim();
@@ -8302,7 +8499,7 @@ var init_permission_friction = __esm({
             action: {
               kind: "settings",
               label: `Add ${rule} to .claude/settings.local.json`,
-              file: path20.join(ctx.cwd, ".claude", "settings.local.json"),
+              file: path22.join(ctx.cwd, ".claude", "settings.local.json"),
               patch: { permissions: { allow: [rule] } },
               snippet: JSON.stringify({ permissions: { allow: [rule] } }, null, 2)
             }
@@ -8548,10 +8745,10 @@ var init_rules = __esm({
 });
 
 // src/coach/engine.ts
-import fs19 from "node:fs";
-import path21 from "node:path";
+import fs21 from "node:fs";
+import path23 from "node:path";
 function stateFile(session) {
-  return path21.join(sessionDir(session), "coach-state.json");
+  return path23.join(sessionDir(session), "coach-state.json");
 }
 function loadState(session) {
   return readJson(stateFile(session), { shown: 0, shown_keys: [], skips: {}, llm_events_seen: 0 });
@@ -8583,8 +8780,8 @@ function rank(suggestions) {
   return [...suggestions].sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity] || b.usd_saved - a.usd_saved);
 }
 function readClaudeMd(cwd) {
-  const p = path21.join(cwd, "CLAUDE.md");
-  return fs19.existsSync(p) ? fs19.readFileSync(p, "utf8") : null;
+  const p = path23.join(cwd, "CLAUDE.md");
+  return fs21.existsSync(p) ? fs21.readFileSync(p, "utf8") : null;
 }
 var SEV_RANK, CoachEngine;
 var init_engine = __esm({
@@ -8668,12 +8865,12 @@ var init_engine = __esm({
 });
 
 // src/coach/context.ts
-import fs20 from "node:fs";
+import fs22 from "node:fs";
 function loadHistory() {
   const f = historyFile();
-  if (!fs20.existsSync(f)) return [];
+  if (!fs22.existsSync(f)) return [];
   const out = [];
-  for (const line of fs20.readFileSync(f, "utf8").split("\n")) {
+  for (const line of fs22.readFileSync(f, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
@@ -8687,7 +8884,7 @@ function loadHistory() {
 function buildContext(opts) {
   const events = opts.events ?? readEvents(opts.session);
   let transcript = opts.transcript;
-  if (!transcript && opts.transcriptPath && fs20.existsSync(opts.transcriptPath)) {
+  if (!transcript && opts.transcriptPath && fs22.existsSync(opts.transcriptPath)) {
     try {
       transcript = parseTranscriptFile(opts.transcriptPath);
     } catch {
@@ -8731,10 +8928,10 @@ var init_context = __esm({
 });
 
 // src/coach/inject.ts
-import fs21 from "node:fs";
-import path22 from "node:path";
+import fs23 from "node:fs";
+import path24 from "node:path";
 function injectFile(session) {
-  return path22.join(sessionDir(session), "inject.jsonl");
+  return path24.join(sessionDir(session), "inject.jsonl");
 }
 function enqueueInject(session, note, source, cwd) {
   ensureDir(sessionDir(session));
@@ -8745,8 +8942,8 @@ function enqueueInject(session, note, source, cwd) {
 }
 function readInjects(session) {
   const f = injectFile(session);
-  if (!fs21.existsSync(f)) return [];
-  return fs21.readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
+  if (!fs23.existsSync(f)) return [];
+  return fs23.readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
     try {
       return JSON.parse(l);
     } catch {
@@ -8766,8 +8963,8 @@ var init_inject = __esm({
 });
 
 // src/coach/undo.ts
-import fs22 from "node:fs";
-import path23 from "node:path";
+import fs24 from "node:fs";
+import path25 from "node:path";
 function recordChange(entry) {
   const e = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, ts: (/* @__PURE__ */ new Date()).toISOString(), ...entry };
   appendLine(undoLog(), JSON.stringify(e));
@@ -8775,9 +8972,9 @@ function recordChange(entry) {
 }
 function readUndoLog() {
   const f = undoLog();
-  if (!fs22.existsSync(f)) return [];
+  if (!fs24.existsSync(f)) return [];
   const byId = /* @__PURE__ */ new Map();
-  for (const line of fs22.readFileSync(f, "utf8").split("\n")) {
+  for (const line of fs24.readFileSync(f, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
@@ -8794,15 +8991,15 @@ function undoLast(n = 1) {
   const entries = readUndoLog().filter((e) => !e.undone).reverse().slice(0, n);
   const done = [];
   for (const e of entries) {
-    const current = fs22.existsSync(e.file) ? fs22.readFileSync(e.file, "utf8") : null;
+    const current = fs24.existsSync(e.file) ? fs24.readFileSync(e.file, "utf8") : null;
     if (current !== e.after) {
-      if (current !== null) fs22.writeFileSync(e.file + `.tally-undo-${e.id}.bak`, current);
+      if (current !== null) fs24.writeFileSync(e.file + `.tally-undo-${e.id}.bak`, current);
     }
     if (e.before === null) {
-      if (fs22.existsSync(e.file)) fs22.unlinkSync(e.file);
+      if (fs24.existsSync(e.file)) fs24.unlinkSync(e.file);
     } else {
-      ensureDir(path23.dirname(e.file));
-      fs22.writeFileSync(e.file, e.before);
+      ensureDir(path25.dirname(e.file));
+      fs24.writeFileSync(e.file, e.before);
     }
     appendLine(undoLog(), JSON.stringify({ undone_marker: e.id, ts: (/* @__PURE__ */ new Date()).toISOString() }));
     done.push({ ...e, undone: true });
@@ -8817,8 +9014,8 @@ var init_undo = __esm({
 });
 
 // src/coach/actions.ts
-import fs23 from "node:fs";
-import path24 from "node:path";
+import fs25 from "node:fs";
+import path26 from "node:path";
 function isAutoApplicable(s) {
   if (s.action.kind === "inject") return true;
   if (s.action.kind === "confirm") return false;
@@ -8832,13 +9029,13 @@ function applySuggestion(s, opts) {
   switch (a.kind) {
     case "write_md": {
       if (!/\.md$/i.test(a.file)) return { ok: false, detail: "only .md files can be written by Coach" };
-      const before = fs23.existsSync(a.file) ? fs23.readFileSync(a.file, "utf8") : null;
-      if (a.mode === "create" && before !== null) return { ok: false, detail: `${path24.basename(a.file)} already exists` };
+      const before = fs25.existsSync(a.file) ? fs25.readFileSync(a.file, "utf8") : null;
+      if (a.mode === "create" && before !== null) return { ok: false, detail: `${path26.basename(a.file)} already exists` };
       const after = a.mode === "append" ? (before ?? "") + (before && !before.endsWith("\n") ? "\n" : "") + a.content : a.content;
-      ensureDir(path24.dirname(a.file));
-      fs23.writeFileSync(a.file, after);
+      ensureDir(path26.dirname(a.file));
+      fs25.writeFileSync(a.file, after);
       recordChange({ session: opts.session, rule: s.rule, label: a.label, file: a.file, before, after });
-      result = { ok: true, detail: `${a.mode === "append" ? "appended to" : before === null ? "created" : "rewrote"} ${path24.relative(opts.cwd, a.file) || a.file}`, file: a.file };
+      result = { ok: true, detail: `${a.mode === "append" ? "appended to" : before === null ? "created" : "rewrote"} ${path26.relative(opts.cwd, a.file) || a.file}`, file: a.file };
       break;
     }
     case "inject": {
@@ -8847,10 +9044,10 @@ function applySuggestion(s, opts) {
       break;
     }
     case "snippet": {
-      const dir = path24.join(tallyHome(), "snippets");
+      const dir = path26.join(tallyHome(), "snippets");
       ensureDir(dir);
-      const f = path24.join(dir, `${s.key.replace(/[^a-z0-9]+/gi, "-")}.txt`);
-      fs23.writeFileSync(f, `${a.snippet}
+      const f = path26.join(dir, `${s.key.replace(/[^a-z0-9]+/gi, "-")}.txt`);
+      fs25.writeFileSync(f, `${a.snippet}
 # ${a.where}
 `);
       result = { ok: true, detail: `snippet saved to ${f}
@@ -8859,7 +9056,7 @@ function applySuggestion(s, opts) {
       break;
     }
     case "settings": {
-      const before = fs23.existsSync(a.file) ? fs23.readFileSync(a.file, "utf8") : null;
+      const before = fs25.existsSync(a.file) ? fs25.readFileSync(a.file, "utf8") : null;
       let current = {};
       if (before) {
         try {
@@ -8870,10 +9067,10 @@ function applySuggestion(s, opts) {
       }
       const merged = mergePatch(current, a.patch);
       const after = JSON.stringify(merged, null, 2) + "\n";
-      ensureDir(path24.dirname(a.file));
-      fs23.writeFileSync(a.file, after);
+      ensureDir(path26.dirname(a.file));
+      fs25.writeFileSync(a.file, after);
       recordChange({ session: opts.session, rule: s.rule, label: a.label, file: a.file, before, after });
-      result = { ok: true, detail: `updated ${path24.relative(opts.cwd, a.file) || a.file} (undo with \`tally undo\`)`, file: a.file };
+      result = { ok: true, detail: `updated ${path26.relative(opts.cwd, a.file) || a.file} (undo with \`tally undo\`)`, file: a.file };
       break;
     }
     case "confirm": {
@@ -8997,7 +9194,7 @@ usd_saved is your honest estimate in dollars. Keep message under 40 words. injec
 });
 
 // src/coach/ui.ts
-import fs24 from "node:fs";
+import fs26 from "node:fs";
 import readline2 from "node:readline";
 function paint(color, code, s) {
   return color ? `${code}${s}${C.reset}` : s;
@@ -9042,8 +9239,8 @@ async function watch(opts) {
   const mode = opts.cfg.auto_apply;
   const refreshTranscript = () => {
     transcriptPath ??= transcriptPathFor(opts.session);
-    if (!transcriptPath || !fs24.existsSync(transcriptPath)) return;
-    const size = fs24.statSync(transcriptPath).size;
+    if (!transcriptPath || !fs26.existsSync(transcriptPath)) return;
+    const size = fs26.statSync(transcriptPath).size;
     if (size === transcriptSize) return;
     transcriptSize = size;
     try {
@@ -9237,9 +9434,9 @@ __export(start_exports, {
   run: () => run7,
   startPlan: () => startPlan
 });
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 function binExists(bin) {
-  const r = spawnSync6(process.platform === "win32" ? "where.exe" : "which", [bin], { stdio: "ignore", windowsHide: true });
+  const r = spawnSync7(process.platform === "win32" ? "where.exe" : "which", [bin], { stdio: "ignore", windowsHide: true });
   return r.status === 0;
 }
 function startPlan(env = process.env, platform = process.platform, plain = false, exists = binExists) {
@@ -9257,7 +9454,7 @@ async function run7(args) {
   const plan = startPlan(process.env, process.platform, has(args, "plain"));
   if (plan.argv) {
     const [bin, ...rest] = plan.argv;
-    const r = spawnSync6(bin, rest, { stdio: "inherit", windowsHide: false });
+    const r = spawnSync7(bin, rest, { stdio: "inherit", windowsHide: false });
     if (r.status === 0) {
       process.stdout.write(plan.message + "\n");
       return;
@@ -9285,16 +9482,16 @@ __export(statusline_exports, {
   renderStatusLine: () => renderStatusLine,
   run: () => run8
 });
-import fs25 from "node:fs";
-import path25 from "node:path";
+import fs27 from "node:fs";
+import path27 from "node:path";
 function flagsFile(session) {
-  return path25.join(sessionDir(session), "coach-flags.json");
+  return path27.join(sessionDir(session), "coach-flags.json");
 }
 function readFlags(session) {
   const f = flagsFile(session);
-  if (!fs25.existsSync(f)) return { pending: [] };
+  if (!fs27.existsSync(f)) return { pending: [] };
   try {
-    return JSON.parse(fs25.readFileSync(f, "utf8"));
+    return JSON.parse(fs27.readFileSync(f, "utf8"));
   } catch {
     return { pending: [] };
   }
@@ -9319,6 +9516,7 @@ function renderStatusLine(input, color = true) {
   const ctx = input.context_window?.used_percentage;
   if (typeof ctx === "number") parts.push(ctx >= 85 ? paint2(C2.red, `ctx ${Math.round(ctx)}%`) : ctx >= 70 ? paint2(C2.yellow, `ctx ${Math.round(ctx)}%`) : `ctx ${Math.round(ctx)}%`);
   if (flags) parts.push(paint2(C2.cyan, `${flags} coach flag${flags === 1 ? "" : "s"} (${enabledPluginIds().length ? "/tally:coach" : "tally coach"})`));
+  if (session && fs27.existsSync(path27.join(sessionDir(session), "hard-stop.json"))) parts.push(paint2(C2.red, "HARD STOP: over the repo budget \xB7 tally budget approve"));
   if (judge) parts.push(paint2(judge.verdict.verdict === "worth it" ? C2.green : judge.verdict.verdict === "not worth it" ? C2.red : C2.yellow, `receipt: ${judge.completion_pct}% \xB7 ${judge.verdict.verdict}`));
   return parts.join(paint2(C2.dim, " \xB7 "));
 }
@@ -9339,7 +9537,7 @@ Restart Claude Code (or start a new session) to see it.
   }
   let raw = "";
   try {
-    raw = fs25.readFileSync(0, "utf8");
+    raw = fs27.readFileSync(0, "utf8");
   } catch {
     raw = "";
   }
@@ -9371,12 +9569,76 @@ var init_statusline = __esm({
   }
 });
 
+// src/commands/budget.ts
+var budget_exports = {};
+__export(budget_exports, {
+  approvalFile: () => approvalFile,
+  approveBudget: () => approveBudget,
+  hardStopFile: () => hardStopFile,
+  isApproved: () => isApproved,
+  readHardStop: () => readHardStop,
+  run: () => run9
+});
+import fs28 from "node:fs";
+import path28 from "node:path";
+import os3 from "node:os";
+function hardStopFile(session) {
+  return path28.join(sessionDir(session), "hard-stop.json");
+}
+function approvalFile(session) {
+  return path28.join(sessionDir(session), "budget-approved.json");
+}
+function readHardStop(session) {
+  return readJson(hardStopFile(session), null);
+}
+function isApproved(session) {
+  return fs28.existsSync(approvalFile(session));
+}
+function approveBudget(session, by, note, cwd) {
+  const lifted = fs28.existsSync(hardStopFile(session));
+  writeJson(approvalFile(session), { ts: (/* @__PURE__ */ new Date()).toISOString(), by, note: note ?? "" });
+  if (lifted) fs28.unlinkSync(hardStopFile(session));
+  appendEvent({ ts: (/* @__PURE__ */ new Date()).toISOString(), type: "budget_approved", session, cwd, data: { by, note: note ?? "", lifted } });
+  return { lifted };
+}
+async function run9(args) {
+  const sub = args._[0] ?? "status";
+  const session = resolveSession(flag(args, "session"), process.cwd());
+  if (!session) {
+    process.stderr.write("No session found.\n");
+    return 1;
+  }
+  if (sub === "approve") {
+    const r = approveBudget(session, flag(args, "by") ?? os3.userInfo().username, flag(args, "note"), process.cwd());
+    process.stdout.write(r.lifted ? `Hard stop lifted for session ${session.slice(0, 8)}; tool calls are allowed again and the approval is recorded on the receipt.
+` : `Approval recorded for session ${session.slice(0, 8)} (no hard stop was active).
+`);
+    return;
+  }
+  const stop = readHardStop(session);
+  if (stop) process.stdout.write(`HARD STOP \xB7 session ${session.slice(0, 8)} spent ${fmtUsd(stop.spend_usd)} against a ${fmtUsd(stop.budget_usd)} budget${stop.policy_file ? ` (${stop.policy_file})` : ""}. Tool calls are denied until: tally budget approve --note "<why>"
+`);
+  else process.stdout.write(`No hard stop active for session ${session.slice(0, 8)}${isApproved(session) ? " (budget overrun approved)" : ""}.
+`);
+}
+var init_budget = __esm({
+  "src/commands/budget.ts"() {
+    "use strict";
+    init_cli();
+    init_session();
+    init_paths();
+    init_events();
+    init_pricing();
+  }
+});
+
 // src/commands/coach.ts
 var coach_exports = {};
 __export(coach_exports, {
-  run: () => run9
+  run: () => run10
 });
-async function run9(args) {
+import fs29 from "node:fs";
+async function run10(args) {
   const cfg = loadConfig();
   const session = resolveSession(flag(args, "session"), process.cwd());
   if (!session) {
@@ -9397,6 +9659,12 @@ async function run9(args) {
         if (s) shown = engine.tick(ctx, [s]).show;
       } catch {
       }
+    }
+    const pol = loadPolicy(cwd);
+    if (ctx.task && pol.policy.budget.hard_stop && ctx.task.budget_usd > 0) {
+      const over = ctx.spendUsd >= ctx.task.budget_usd;
+      if (over && !isApproved(session) && !fs29.existsSync(hardStopFile(session))) writeJson(hardStopFile(session), { ts: (/* @__PURE__ */ new Date()).toISOString(), spend_usd: ctx.spendUsd, budget_usd: ctx.task.budget_usd, policy_file: pol.file });
+      else if (!over && fs29.existsSync(hardStopFile(session))) fs29.unlinkSync(hardStopFile(session));
     }
     const flags = readFlags(session);
     const live = new Set(engine.evaluate(ctx).map((s) => s.key));
@@ -9478,15 +9746,17 @@ var init_coach = __esm({
     init_statusline();
     init_paths();
     init_inject();
+    init_policy();
+    init_budget();
   }
 });
 
 // src/commands/undo.ts
 var undo_exports = {};
 __export(undo_exports, {
-  run: () => run10
+  run: () => run11
 });
-async function run10(args) {
+async function run11(args) {
   if (has(args, "list")) {
     const entries = readUndoLog().reverse().slice(0, 20);
     if (!entries.length) {
@@ -9577,9 +9847,9 @@ var init_report2 = __esm({
 // src/commands/experiment.ts
 var experiment_exports = {};
 __export(experiment_exports, {
-  run: () => run11
+  run: () => run12
 });
-async function run11(args) {
+async function run12(args) {
   const sub = args._[0];
   const cwd = process.cwd();
   if (sub === "start") {
@@ -9687,6 +9957,7 @@ function computeTrend(opts = {}) {
     recent_vs_prior: half > 0 ? { recent_cost: mean3(recent.map((r) => r.cost_usd ?? 0)), prior_cost: mean3(prior.map((r) => r.cost_usd ?? 0)), recent_completion: mean3(recent.map((r) => r.completion_pct ?? 0)), prior_completion: mean3(prior.map((r) => r.completion_pct ?? 0)) } : null,
     payoff,
     top_recommendations: [...recCount.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+    abstained: receipts.filter((r) => (r.final_verdict ?? r.verdict) === "insufficient evidence").length,
     by_task_source: ["linked", "confirmed", "inferred"].map((source) => {
       const rs = receipts.filter((r) => (r.task_source ?? (r.linked ? "linked" : "inferred")) === source);
       const fu = rs.filter((r) => r.final_status && r.final_status !== "unknown");
@@ -9711,6 +9982,7 @@ function renderTrend(t, opts = {}) {
   L.push(`rework rate          ${t.rework_rate === null ? `n/a (${t.followed_up} followed up)` : `${(t.rework_rate * 100).toFixed(0)}% of ${t.followed_up} followed up`}`);
   L.push(`tasks linked         ${f(t.linked_rate, (n) => (n * 100).toFixed(0) + "%")}`);
   L.push(`verdicts             ${Object.entries(t.verdicts).map(([k, v]) => `${k} ${v}`).join(" \xB7 ")}`);
+  if (t.abstained) L.push(`abstained            ${t.abstained} of ${t.tasks} (insufficient evidence: fewer than half the criteria could be checked)`);
   if (t.recent_vs_prior) {
     const r = t.recent_vs_prior;
     L.push(`trend                cost ${f(r.prior_cost, fmtUsd)} \u2192 ${f(r.recent_cost, fmtUsd)}, completion ${f(r.prior_completion, (n) => n.toFixed(0) + "%")} \u2192 ${f(r.recent_completion, (n) => n.toFixed(0) + "%")} (older half \u2192 newer half)`);
@@ -9754,9 +10026,9 @@ var init_report3 = __esm({
 // src/commands/report.ts
 var report_exports = {};
 __export(report_exports, {
-  run: () => run12
+  run: () => run13
 });
-async function run12(args) {
+async function run13(args) {
   const repo = has(args, "all") ? void 0 : flag(args, "repo") ?? (has(args, "here") ? repoKey(process.cwd()) : void 0);
   const days = flag(args, "days") ? Number(flag(args, "days")) : void 0;
   const t = computeTrend({ repo, days });
@@ -9778,15 +10050,15 @@ var init_report4 = __esm({
 // src/commands/doctor.ts
 var doctor_exports = {};
 __export(doctor_exports, {
-  run: () => run13,
+  run: () => run14,
   runChecks: () => runChecks,
   transcriptFormatCheck: () => transcriptFormatCheck
 });
-import fs26 from "node:fs";
-import path26 from "node:path";
-import { spawnSync as spawnSync7 } from "node:child_process";
+import fs30 from "node:fs";
+import path29 from "node:path";
+import { spawnSync as spawnSync8 } from "node:child_process";
 function sh(bin, args) {
-  const r = process.platform === "win32" ? spawnSync7(`${bin} ${args.join(" ")}`, { encoding: "utf8", shell: true, windowsHide: true, timeout: 15e3 }) : spawnSync7(bin, args, { encoding: "utf8", windowsHide: true, timeout: 15e3 });
+  const r = process.platform === "win32" ? spawnSync8(`${bin} ${args.join(" ")}`, { encoding: "utf8", shell: true, windowsHide: true, timeout: 15e3 }) : spawnSync8(bin, args, { encoding: "utf8", windowsHide: true, timeout: 15e3 });
   return { ok: r.status === 0, out: ((r.stdout ?? "") + (r.stderr ?? "")).trim() };
 }
 function runChecks() {
@@ -9803,7 +10075,7 @@ function runChecks() {
   checks.push({ name: "gh", ok: gh.ok ? true : "warn", detail: gh.ok ? "authenticated" : `${gh.reason}. Fix: ${gh.fix}. Until then GitHub intake falls back to the prompt text, write-back and follow-up are skipped and say so.` });
   const user = isInstalled("user");
   const project = isInstalled("project", process.cwd());
-  const settings = readJson(path26.join(claudeHome(), "settings.json"), {});
+  const settings = readJson(path29.join(claudeHome(), "settings.json"), {});
   const plugin = Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith("tally"));
   const ways = [user && "user settings", project && "project settings", plugin && "plugin"].filter(Boolean);
   checks.push({ name: "hooks", ok: ways.length === 1 ? true : ways.length === 0 ? false : "warn", detail: ways.length === 0 ? `not installed; run \`tally install\` or /plugin install tally@tally (${settingsPath("user")})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(", ")}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice. Keep one: \`tally uninstall\` removes the settings hooks, /plugin uninstall tally removes the plugin` });
@@ -9812,22 +10084,22 @@ function runChecks() {
     const st = readJson(f, {});
     for (const groups of Object.values(st.hooks ?? {})) for (const g of groups) for (const h of g.hooks ?? []) if (isTallyHook(h)) referenced.push((h.args?.[0] ?? /"([^"]+hook\.js)"/.exec(h.command ?? "")?.[1] ?? "").replace(/^\$\{CLAUDE_PLUGIN_ROOT\}.*/, ""));
   }
-  const missing = [...new Set(referenced.filter((p) => p && !fs26.existsSync(p)))];
+  const missing = [...new Set(referenced.filter((p) => p && !fs30.existsSync(p)))];
   if (referenced.length) checks.push({ name: "hook script", ok: missing.length ? false : true, detail: missing.length ? `${missing.join(", ")} does not exist; every hook event is failing (non-blocking). Run \`tally install\` to repoint the hooks at ${builtHookPath()}` : `${[...new Set(referenced)].join(", ")} exists` });
   const hook = builtHookPath();
-  fs26.mkdirSync(tallyHome(), { recursive: true });
-  if (fs26.existsSync(hook)) {
+  fs30.mkdirSync(tallyHome(), { recursive: true });
+  if (fs30.existsSync(hook)) {
     const t0 = Date.now();
-    const r = spawnSync7(process.execPath, [hook, "Stop"], { input: "{}", encoding: "utf8", env: { ...process.env, TALLY_HOME: fs26.mkdtempSync(path26.join(tallyHome(), "doctor-")) } });
+    const r = spawnSync8(process.execPath, [hook, "Stop"], { input: "{}", encoding: "utf8", env: { ...process.env, TALLY_HOME: fs30.mkdtempSync(path29.join(tallyHome(), "doctor-")) } });
     const ms = Date.now() - t0;
     checks.push({ name: "hook runtime", ok: r.status === 0 && ms < 150 ? true : r.status === 0 ? "warn" : false, detail: `exit ${r.status}, ${ms} ms (limit 150)` });
-    for (const d of fs26.readdirSync(tallyHome()).filter((x) => x.startsWith("doctor-"))) fs26.rmSync(path26.join(tallyHome(), d), { recursive: true, force: true });
+    for (const d of fs30.readdirSync(tallyHome()).filter((x) => x.startsWith("doctor-"))) fs30.rmSync(path29.join(tallyHome(), d), { recursive: true, force: true });
   } else {
     checks.push({ name: "hook runtime", ok: false, detail: "dist/hook.js missing; run npm run build" });
   }
   try {
-    fs26.mkdirSync(tallyHome(), { recursive: true });
-    fs26.accessSync(tallyHome(), fs26.constants.W_OK);
+    fs30.mkdirSync(tallyHome(), { recursive: true });
+    fs30.accessSync(tallyHome(), fs30.constants.W_OK);
     checks.push({ name: "data dir", ok: true, detail: tallyHome() });
   } catch {
     checks.push({ name: "data dir", ok: false, detail: `${tallyHome()} not writable` });
@@ -9838,14 +10110,14 @@ function runChecks() {
   checks.push({ name: "config", ok: cfgOk, detail: cfgOk ? `hourly_rate $${cfg.hourly_rate}, judge ${cfg.models.judge}, coach ${cfg.models.coach}, auto_apply ${cfg.auto_apply}, writeback ${cfg.writeback}` : `${configFile()} is invalid; defaults in use` });
   const pricing = loadPricing();
   const age = (Date.now() - Date.parse(pricing.last_verified)) / 864e5;
-  checks.push({ name: "pricing", ok: age < 60 ? true : "warn", detail: `${fs26.existsSync(pricingFile()) ? pricingFile() : bundledPricingPath()} verified ${pricing.last_verified} (${Math.round(age)} days ago${age >= 60 ? "; re-check against the pricing page" : ""})` });
+  checks.push({ name: "pricing", ok: age < 60 ? true : "warn", detail: `${fs30.existsSync(pricingFile()) ? pricingFile() : bundledPricingPath()} verified ${pricing.last_verified} (${Math.round(age)} days ago${age >= 60 ? "; re-check against the pricing page" : ""})` });
   const jira = !!(cfg.jira.base_url && cfg.jira.email && cfg.jira.api_token);
   checks.push({ name: "jira", ok: jira ? true : "warn", detail: jira ? cfg.jira.base_url : "JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN not set (optional)" });
   checks.push({ name: "linear", ok: cfg.linear.api_key ? true : "warn", detail: cfg.linear.api_key ? "LINEAR_API_KEY set" : "LINEAR_API_KEY not set (optional)" });
   const tmux = sh(process.platform === "win32" ? "where" : "which", ["tmux"]);
   checks.push({ name: "tmux", ok: tmux.ok ? true : "warn", detail: tmux.ok ? "available; `tally start` opens a split" : "not found; `tally start` prints the command to run in a second terminal" });
-  const transcripts = path26.join(claudeHome(), "projects");
-  checks.push({ name: "transcripts", ok: fs26.existsSync(transcripts) ? true : "warn", detail: fs26.existsSync(transcripts) ? transcripts : `${transcripts} not found yet (created by Claude Code on first session)` });
+  const transcripts = path29.join(claudeHome(), "projects");
+  checks.push({ name: "transcripts", ok: fs30.existsSync(transcripts) ? true : "warn", detail: fs30.existsSync(transcripts) ? transcripts : `${transcripts} not found yet (created by Claude Code on first session)` });
   const active = activeSessions();
   checks.push({ name: "sessions", ok: true, detail: `${active.length} active` });
   const receipts = loadHistory().filter((h) => typeof h.tally_share_pct === "number");
@@ -9856,25 +10128,25 @@ function runChecks() {
     checks.push({ name: "tally overhead", ok: true, detail: "no receipts yet; the share of session spend is reported on each receipt" });
   }
   checks.push(transcriptFormatCheck(process.cwd()));
-  const internalDirs = fs26.existsSync(transcripts) ? fs26.readdirSync(transcripts).filter((d) => isInternalCwd(d)).length : 0;
+  const internalDirs = fs30.existsSync(transcripts) ? fs30.readdirSync(transcripts).filter((d) => isInternalCwd(d)).length : 0;
   if (internalDirs) checks.push({ name: "internal runs", ok: true, detail: `${internalDirs} empty project dir(s) from Tally's own headless runs under ~/.claude/projects (no transcripts; safe to delete)` });
   return checks;
 }
 function transcriptFormatCheck(cwd) {
-  const dirs = [projectTranscriptsDir(cwd), path26.join(claudeHome(), "projects")];
+  const dirs = [projectTranscriptsDir(cwd), path29.join(claudeHome(), "projects")];
   const files = [];
   for (const d of dirs) {
-    if (!fs26.existsSync(d)) continue;
-    const entries = fs26.readdirSync(d).map((f) => path26.join(d, f));
+    if (!fs30.existsSync(d)) continue;
+    const entries = fs30.readdirSync(d).map((f) => path29.join(d, f));
     for (const e of entries) {
       if (e.endsWith(".jsonl")) files.push(e);
-      else if (fs26.statSync(e).isDirectory() && !isInternalCwd(e)) {
-        for (const f of fs26.readdirSync(e)) if (f.endsWith(".jsonl")) files.push(path26.join(e, f));
+      else if (fs30.statSync(e).isDirectory() && !isInternalCwd(e)) {
+        for (const f of fs30.readdirSync(e)) if (f.endsWith(".jsonl")) files.push(path29.join(e, f));
       }
     }
     if (files.length) break;
   }
-  const recent = files.map((f) => ({ f, m: fs26.statSync(f).mtimeMs })).sort((a, b) => b.m - a.m).slice(0, 5);
+  const recent = files.map((f) => ({ f, m: fs30.statSync(f).mtimeMs })).sort((a, b) => b.m - a.m).slice(0, 5);
   if (!recent.length) return { name: "transcript format", ok: "warn", detail: "no transcripts found to check" };
   let unparseable = 0;
   let total = 0;
@@ -9900,7 +10172,7 @@ function transcriptFormatCheck(cwd) {
     detail: `${recent.length} recent transcript(s), Claude Code ${[...versions].join(", ") || "unknown"}${unknownVersion ? " (not a verified layout; costs will be marked partial)" : ""}, ${unparseable}/${total} unparseable lines${unknownTypes.size ? `, unknown line types: ${[...unknownTypes].join(", ")}` : ""}`
   };
 }
-async function run13(args) {
+async function run14(args) {
   const checks = runChecks();
   const color = !has(args, "plain");
   const mark = (ok) => ok === true ? color ? "\x1B[32m\u2714\x1B[0m" : "ok  " : ok === "warn" ? color ? "\x1B[33m!\x1B[0m" : "warn" : color ? "\x1B[31m\u2718\x1B[0m" : "FAIL";
@@ -9930,44 +10202,44 @@ var init_doctor = __esm({
 });
 
 // src/demo/demo.ts
-import fs27 from "node:fs";
-import os3 from "node:os";
-import path27 from "node:path";
-import { spawnSync as spawnSync8 } from "node:child_process";
+import fs31 from "node:fs";
+import os4 from "node:os";
+import path30 from "node:path";
+import { spawnSync as spawnSync9 } from "node:child_process";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 function fixturesDir() {
-  for (const c of [path27.join(here2, "fixtures", "session-basic"), path27.join(here2, "..", "..", "test", "fixtures", "session-basic"), path27.join(here2, "..", "fixtures", "session-basic")]) if (fs27.existsSync(c)) return c;
+  for (const c of [path30.join(here2, "fixtures", "session-basic"), path30.join(here2, "..", "..", "test", "fixtures", "session-basic"), path30.join(here2, "..", "fixtures", "session-basic")]) if (fs31.existsSync(c)) return c;
   throw new Error("fixtures not found; run from a source checkout");
 }
 function git(cwd, ...args) {
-  const r = spawnSync8("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync9("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
   return r.stdout.trim();
 }
 function makeRepo(root) {
-  const cwd = path27.join(root, "acme-app");
-  fs27.mkdirSync(path27.join(cwd, "src"), { recursive: true });
+  const cwd = path30.join(root, "acme-app");
+  fs31.mkdirSync(path30.join(cwd, "src"), { recursive: true });
   git(cwd, "init", "-q", "-b", "main");
   git(cwd, "config", "user.email", "demo@tally.local");
   git(cwd, "config", "user.name", "tally demo");
-  fs27.writeFileSync(path27.join(cwd, "package.json"), JSON.stringify({ name: "acme-app", version: "1.0.0", scripts: { test: "node test.js" } }, null, 2));
-  fs27.writeFileSync(path27.join(cwd, "test.js"), `const login = require('./src/login');
+  fs31.writeFileSync(path30.join(cwd, "package.json"), JSON.stringify({ name: "acme-app", version: "1.0.0", scripts: { test: "node test.js" } }, null, 2));
+  fs31.writeFileSync(path30.join(cwd, "test.js"), `const login = require('./src/login');
 if (login(6) !== 429) { console.error('expected 429 after 5 attempts'); process.exit(1); }
 console.log('ok: 429 after 5 attempts');
 `);
-  fs27.writeFileSync(path27.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
+  fs31.writeFileSync(path30.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
 `);
-  fs27.writeFileSync(path27.join(cwd, "README.md"), "# acme-app\n\nExpress API.\n");
+  fs31.writeFileSync(path30.join(cwd, "README.md"), "# acme-app\n\nExpress API.\n");
   git(cwd, "add", "-A");
   git(cwd, "commit", "-q", "-m", "base");
   const base = git(cwd, "rev-parse", "HEAD");
   return { cwd, base };
 }
 function applyWork(cwd) {
-  fs27.writeFileSync(path27.join(cwd, "src", "rateLimit.js"), `const MAX = 5;
+  fs31.writeFileSync(path30.join(cwd, "src", "rateLimit.js"), `const MAX = 5;
 module.exports = function rateLimit(attempts) { return attempts > MAX; };
 `);
-  fs27.writeFileSync(path27.join(cwd, "src", "login.js"), `const rateLimit = require('./rateLimit');
+  fs31.writeFileSync(path30.join(cwd, "src", "login.js"), `const rateLimit = require('./rateLimit');
 module.exports = function login(attempts) { return rateLimit(attempts) ? 429 : 200; };
 `);
   git(cwd, "add", "-A");
@@ -10007,14 +10279,14 @@ async function runDemo(opts = {}) {
   const cyan = (s) => paint(color, "\x1B[36m", s);
   const step = (n, s) => out(`
 ${bold(cyan(`[${n}] ${s}`))}`);
-  const home = opts.home ?? fs27.mkdtempSync(path27.join(os3.tmpdir(), "tally-demo-"));
+  const home = opts.home ?? fs31.mkdtempSync(path30.join(os4.tmpdir(), "tally-demo-"));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
-  process.env.TALLY_HOME = path27.join(home, "tally");
-  process.env.CLAUDE_CONFIG_DIR = path27.join(home, "claude");
+  process.env.TALLY_HOME = path30.join(home, "tally");
+  process.env.CLAUDE_CONFIG_DIR = path30.join(home, "claude");
   process.env.TALLY_NO_SPAWN = "1";
   process.env.TALLY_LLM = "stub";
-  fs27.mkdirSync(process.env.TALLY_HOME, { recursive: true });
-  fs27.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
+  fs31.mkdirSync(process.env.TALLY_HOME, { recursive: true });
+  fs31.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
   try {
     const fx = fixturesDir();
     const session = "demo-" + Date.now().toString(36);
@@ -10023,8 +10295,8 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     cfg.coach.min_interval_s = 180;
     const hook = builtHookPath();
     ensureDir(sessionDir(session));
-    const transcriptPath = path27.join(sessionDir(session), "transcript.jsonl");
-    fs27.copyFileSync(path27.join(fx, "transcript.jsonl"), transcriptPath);
+    const transcriptPath = path30.join(sessionDir(session), "transcript.jsonl");
+    fs31.copyFileSync(path30.join(fx, "transcript.jsonl"), transcriptPath);
     out(bold("Tally demo") + dim(`  isolated data dir: ${process.env.TALLY_HOME}`));
     out(dim(`  fake repo: ${cwd}  \xB7  real ~/.claude and ~/.tally are not touched  \xB7  LLM calls are stubbed`));
     const repo = repoKey(cwd);
@@ -10064,12 +10336,12 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       },
       session
     );
-    const { task } = await intake({ session, cwd, ref: path27.join(fx, "task.md"), cfg, llm });
+    const { task } = await intake({ session, cwd, ref: path30.join(fx, "task.md"), cfg, llm });
     out(renderTask(task));
     if (task.needs_clarification) out(yellow('  \u26A0 Spec quality below 5: Coach will say "Clarify the ticket first" and list the questions.'));
     step(2, "Replaying the session through the real hooks, with the Coach watching");
     out(dim("  each fixture event is fed to dist/hook.js on stdin; the Coach ticks on simulated time"));
-    const events = readEventsFile(path27.join(fx, "events.jsonl")).filter((e) => e.type !== "ship");
+    const events = readEventsFile(path30.join(fx, "events.jsonl")).filter((e) => e.type !== "ship");
     const engine = new CoachEngine(loadState(session), cfg, void 0, {});
     let shown = 0;
     const applied = [];
@@ -10078,7 +10350,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     let lastPromptDelivery = "";
     let llmCalls = 0;
     let transcriptCut = 0;
-    const transcriptLines = fs27.readFileSync(path27.join(fx, "transcript.jsonl"), "utf8").split("\n").filter(Boolean);
+    const transcriptLines = fs31.readFileSync(path30.join(fx, "transcript.jsonl"), "utf8").split("\n").filter(Boolean);
     const permissionEvents = [];
     const handle = (s, now) => {
       shown += 1;
@@ -10102,10 +10374,10 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       const payload = hookPayload(e, session, cwd, transcriptPath);
       if (!payload) continue;
       if (e.type === "session_start") {
-        const fakeSettings = path27.join(process.env.CLAUDE_CONFIG_DIR, "settings.json");
-        fs27.writeFileSync(fakeSettings, JSON.stringify({ enabledPlugins: { "superpowers@official": true } }));
+        const fakeSettings = path30.join(process.env.CLAUDE_CONFIG_DIR, "settings.json");
+        fs31.writeFileSync(fakeSettings, JSON.stringify({ enabledPlugins: { "superpowers@official": true } }));
       }
-      const r = spawnSync8(process.execPath, [hook, payload.event], { input: JSON.stringify(payload.input), encoding: "utf8", env: { ...process.env }, windowsHide: true });
+      const r = spawnSync9(process.execPath, [hook, payload.event], { input: JSON.stringify(payload.input), encoding: "utf8", env: { ...process.env }, windowsHide: true });
       if (r.status !== 0) out(yellow(`  hook ${payload.event} exited ${r.status}`));
       if (e.type === "prompt") {
         out(`  ${dim(now.toISOString().slice(11, 19))} ${bold("user>")} ${String(e.data.prompt).slice(0, 90)}`);
@@ -10125,7 +10397,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
         }
         if (/npm test/.test(String(inp.command)) && e.data.is_error && permissionEvents.length < 2) {
           const pe = { ts: e.ts, type: "permission", session, cwd, data: { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash(npm test)" } };
-          spawnSync8(process.execPath, [hook, "Notification"], { input: JSON.stringify({ session_id: session, cwd, hook_event_name: "Notification", notification_type: "permission_prompt", message: pe.data.message }), encoding: "utf8", env: { ...process.env }, windowsHide: true });
+          spawnSync9(process.execPath, [hook, "Notification"], { input: JSON.stringify({ session_id: session, cwd, hook_event_name: "Notification", notification_type: "permission_prompt", message: pe.data.message }), encoding: "utf8", env: { ...process.env }, windowsHide: true });
           permissionEvents.push(pe);
         }
       }
@@ -10134,7 +10406,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
         if (ts && ts > e.ts) break;
         transcriptCut += 1;
       }
-      fs27.writeFileSync(transcriptPath, transcriptLines.slice(0, Math.max(transcriptCut, 1)).join("\n") + "\n");
+      fs31.writeFileSync(transcriptPath, transcriptLines.slice(0, Math.max(transcriptCut, 1)).join("\n") + "\n");
       const ctx = buildContext({ session, cwd, cfg, now, transcriptPath });
       const tick = engine.tick(ctx);
       for (const s of tick.show) handle(s, now);
@@ -10148,7 +10420,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       saveState(session, engine.state);
       if (!opts.fast) await new Promise((res) => setTimeout(res, 15));
     }
-    fs27.copyFileSync(path27.join(fx, "transcript.jsonl"), transcriptPath);
+    fs31.copyFileSync(path30.join(fx, "transcript.jsonl"), transcriptPath);
     out(dim(`  ${shown} suggestions shown (noise limits: 1 non-critical per ${cfg.coach.min_interval_s}s, ${cfg.coach.max_per_session} per session; critical always)`));
     step(3, "Judge (stubbed judge model, real git diff, real independent test run)");
     applyWork(cwd);
@@ -10159,19 +10431,19 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     out(renderSummary(judge, color));
     const t = parseTranscriptFile(transcriptPath);
     out(dim(`  models in session: ${t.models.join(", ")} \xB7 subagent spend: ${Object.entries(judge.cost.by_subagent).filter(([k]) => k !== "main").map(([k, v]) => `${k} $${v.usd.toFixed(3)}`).join(", ") || "none"}`));
-    out(dim(`  full receipt: ${path27.join(sessionDir(session), "report.md")}`));
+    out(dim(`  full receipt: ${path30.join(sessionDir(session), "report.md")}`));
     step(4, "Follow-up 8 days later: the PR was merged, then reverted");
     const mergeSha = git(cwd, "rev-parse", "HEAD");
-    fs27.writeFileSync(path27.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
+    fs31.writeFileSync(path30.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
 `);
-    fs27.unlinkSync(path27.join(cwd, "src", "rateLimit.js"));
+    fs31.unlinkSync(path30.join(cwd, "src", "rateLimit.js"));
     git(cwd, "add", "-A");
     git(cwd, "commit", "-q", "-m", `Revert "add rate limiting to login (#57)"
 
 This reverts commit ${mergeSha}. Locked out the QA team.`);
     const fakeGh = (bin, args, c) => {
       if (bin === "git") {
-        const r = spawnSync8("git", args, { cwd: c, encoding: "utf8", windowsHide: true });
+        const r = spawnSync9("git", args, { cwd: c, encoding: "utf8", windowsHide: true });
         return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
       }
       if (args[0] === "pr") return { ok: true, stdout: JSON.stringify({ state: "MERGED", mergedAt: "2026-09-11T09:00:00Z", mergeCommit: { oid: mergeSha }, reviews: [{ state: "APPROVED" }], comments: [{}, {}], number: 57, headRefName: "feature/rate-limit" }), stderr: "" };
@@ -10186,7 +10458,7 @@ This reverts commit ${mergeSha}. Locked out the QA team.`);
     out("");
     out(bold("Done.") + ` ${shown} coach suggestions, ${applied.length} applied (${applied.join(", ")}), ${injected.length} injected (${injected.join(", ")}), ship detected: ${shipDetected ? "yes" : "no"}, verdict ${judge.verdict.verdict} \u2192 ${after.followup.final_verdict}.`);
     out(dim(`Demo data: ${home}${opts.keep ? " (kept)" : " (delete it whenever you like)"}`));
-    return { home, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup.final_verdict, reportPath: path27.join(sessionDir(session), "report.md") };
+    return { home, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup.final_verdict, reportPath: path30.join(sessionDir(session), "report.md") };
   } finally {
     for (const [k, v] of Object.entries(prev)) {
       if (v === void 0) delete process.env[k];
@@ -10210,16 +10482,16 @@ var init_demo = __esm({
     init_followup();
     init_paths();
     init_parse();
-    here2 = path27.dirname(fileURLToPath3(import.meta.url));
+    here2 = path30.dirname(fileURLToPath3(import.meta.url));
   }
 });
 
 // src/commands/demo.ts
 var demo_exports = {};
 __export(demo_exports, {
-  run: () => run14
+  run: () => run15
 });
-async function run14(args) {
+async function run15(args) {
   await runDemo({ color: !has(args, "plain"), keep: has(args, "keep"), fast: has(args, "fast") });
 }
 var init_demo2 = __esm({
@@ -10233,11 +10505,11 @@ var init_demo2 = __esm({
 // src/commands/status.ts
 var status_exports = {};
 __export(status_exports, {
-  run: () => run15
+  run: () => run16
 });
-import fs28 from "node:fs";
-import path28 from "node:path";
-async function run15(args) {
+import fs32 from "node:fs";
+import path31 from "node:path";
+async function run16(args) {
   const cfg = loadConfig();
   const session = resolveSession(flag(args, "session"), process.cwd());
   const color = !has(args, "plain");
@@ -10253,7 +10525,7 @@ async function run15(args) {
 `);
   const task = loadTask(session);
   if (task) process.stdout.write(renderTask(task) + "\n\n");
-  if (fs28.existsSync(path28.join(sessionDir(session), "task.pending")) && !task) process.stdout.write("task intake is running in the background\u2026\n\n");
+  if (fs32.existsSync(path31.join(sessionDir(session), "task.pending")) && !task) process.stdout.write("task intake is running in the background\u2026\n\n");
   const judge = loadJudge(session);
   if (judge) process.stdout.write(renderSummary(judge, color) + "\n\n");
   const inj = pendingInjects(session);
@@ -10277,9 +10549,9 @@ var init_status = __esm({
 // src/commands/config.ts
 var config_exports = {};
 __export(config_exports, {
-  run: () => run16
+  run: () => run17
 });
-async function run16(args) {
+async function run17(args) {
   const [key, value] = args._;
   if (key === "unmute" && value) {
     unmuteRule(process.cwd(), value);
@@ -10344,9 +10616,9 @@ var init_config2 = __esm({
 // src/commands/sessions.ts
 var sessions_exports = {};
 __export(sessions_exports, {
-  run: () => run17
+  run: () => run18
 });
-async function run17(_args) {
+async function run18(_args) {
   const active = new Set(activeSessions().map((s) => s.id));
   const ids = listSessions();
   if (!ids.length) {
@@ -10378,9 +10650,9 @@ var init_sessions = __esm({
 // src/commands/otel.ts
 var otel_exports = {};
 __export(otel_exports, {
-  run: () => run18
+  run: () => run19
 });
-async function run18(args) {
+async function run19(args) {
   if (has(args, "status") || args._[0] === "status") {
     const points = readOtelPoints();
     const sessions = new Set(points.map((p) => p.attrs["session.id"]).filter((s) => !!s));
@@ -10419,10 +10691,10 @@ var init_otel2 = __esm({
 });
 
 // src/calibrate/calibrate.ts
-import fs29 from "node:fs";
-import path29 from "node:path";
+import fs33 from "node:fs";
+import path32 from "node:path";
 function calibrationFile() {
-  return path29.join(tallyHome(), "calibration.jsonl");
+  return path32.join(tallyHome(), "calibration.jsonl");
 }
 function parseStatuses(s) {
   return s.split(/[,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).map((x) => {
@@ -10487,9 +10759,9 @@ function addCalibration(session, human, humanVerdict) {
   return entry;
 }
 function readCalibration(file = calibrationFile()) {
-  if (!fs29.existsSync(file)) return [];
+  if (!fs33.existsSync(file)) return [];
   const bySession = /* @__PURE__ */ new Map();
-  for (const line of fs29.readFileSync(file, "utf8").split("\n")) {
+  for (const line of fs33.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
@@ -10509,6 +10781,7 @@ function buildCalibrationReport(entries) {
   let vTotal = 0;
   let vAgree = 0;
   let vNear = 0;
+  let vAbstained = 0;
   const V_ORDER = { "not worth it": 0, borderline: 1, "worth it": 2 };
   for (const e of entries) {
     for (const c of e.criteria) {
@@ -10523,6 +10796,10 @@ function buildCalibrationReport(entries) {
       }
     }
     if (e.human_verdict) {
+      if (e.judge_verdict === "insufficient evidence") {
+        vAbstained += 1;
+        continue;
+      }
       vTotal += 1;
       if (e.human_verdict === e.judge_verdict) vAgree += 1;
       if (Math.abs((V_ORDER[e.human_verdict] ?? 1) - (V_ORDER[e.judge_verdict] ?? 1)) <= 1) vNear += 1;
@@ -10584,6 +10861,7 @@ function buildCalibrationReport(entries) {
     verdict_total: vTotal,
     verdict_agreement: vTotal ? vAgree / vTotal : null,
     verdict_lenient_agreement: vTotal ? vNear / vTotal : null,
+    verdict_abstained: vAbstained,
     confusion,
     disagreements,
     verdict_disagreements: vd,
@@ -10599,7 +10877,7 @@ function renderCalibrationReport(r, title = "Judge calibration") {
     return L.join("\n");
   }
   L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact \xB7 ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) \xB7 n=${r.criteria}`);
-  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact \xB7 ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : "n/a (no human verdicts)"} \xB7 n=${r.verdict_total}`);
+  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact \xB7 ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : "n/a (no human verdicts)"} \xB7 n=${r.verdict_total}${r.verdict_abstained ? ` \xB7 ${r.verdict_abstained} abstained (insufficient evidence)` : ""}`);
   L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
   if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(" and ")}`);
   else L.push("inter-grader          n/a (no session graded by two people; use --grader <name>)");
@@ -10639,8 +10917,8 @@ var init_calibrate = __esm({
 });
 
 // src/calibrate/grade.ts
-import fs30 from "node:fs";
-import path30 from "node:path";
+import fs34 from "node:fs";
+import path33 from "node:path";
 function evidenceSummary(session) {
   const j = loadJudge(session);
   const task = loadTask(session);
@@ -10717,8 +10995,8 @@ These criteria were inferred from the prompts${task.context?.branch ? `, branch 
   }
   let verdict = null;
   while (!verdict) verdict = verdictFrom(await opts.ask("Your verdict: [w]orth it  [b]orderline  [n]ot worth it > "));
-  const replayPath = path30.join(sessionDir(session), "coach_replay.json");
-  const replay = fs30.existsSync(replayPath) ? JSON.parse(fs30.readFileSync(replayPath, "utf8")) : null;
+  const replayPath = path33.join(sessionDir(session), "coach_replay.json");
+  const replay = fs34.existsSync(replayPath) ? JSON.parse(fs34.readFileSync(replayPath, "utf8")) : null;
   const coach = [];
   if (replay?.shown.length) {
     opts.out(`
@@ -10759,24 +11037,24 @@ var init_grade = __esm({
 });
 
 // src/calibrate/eval.ts
-import fs31 from "node:fs";
-import os4 from "node:os";
-import path31 from "node:path";
-import { spawnSync as spawnSync9 } from "node:child_process";
+import fs35 from "node:fs";
+import os5 from "node:os";
+import path34 from "node:path";
+import { spawnSync as spawnSync10 } from "node:child_process";
 function fixturesRoot() {
-  return path31.join(packageRoot(), "test", "fixtures", "calibration");
+  return path34.join(packageRoot(), "test", "fixtures", "calibration");
 }
 function baselineFile() {
-  return path31.join(fixturesRoot(), "baseline.json");
+  return path34.join(fixturesRoot(), "baseline.json");
 }
 function loadFixtures(root = fixturesRoot()) {
-  if (!fs31.existsSync(root)) return [];
-  return fs31.readdirSync(root).filter((d) => fs31.existsSync(path31.join(root, d, "expected.json"))).sort().map((name) => {
-    const dir = path31.join(root, name);
-    const read = (f) => JSON.parse(fs31.readFileSync(path31.join(dir, f), "utf8"));
-    const recordedPath = path31.join(dir, "model-output.json");
+  if (!fs35.existsSync(root)) return [];
+  return fs35.readdirSync(root).filter((d) => fs35.existsSync(path34.join(root, d, "expected.json"))).sort().map((name) => {
+    const dir = path34.join(root, name);
+    const read = (f) => JSON.parse(fs35.readFileSync(path34.join(dir, f), "utf8"));
+    const recordedPath = path34.join(dir, "model-output.json");
     let recorded;
-    if (fs31.existsSync(recordedPath)) {
+    if (fs35.existsSync(recordedPath)) {
       const raw = read("model-output.json");
       recorded = Array.isArray(raw.calls) ? { calls: raw.calls } : void 0;
     }
@@ -10784,39 +11062,39 @@ function loadFixtures(root = fixturesRoot()) {
   });
 }
 function git2(cwd, ...args) {
-  const r = spawnSync9("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync10("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
   return r.stdout.trim();
 }
 function materializeRepo(c, root) {
-  const cwd = path31.join(root, c.name);
-  fs31.mkdirSync(cwd, { recursive: true });
+  const cwd = path34.join(root, c.name);
+  fs35.mkdirSync(cwd, { recursive: true });
   git2(cwd, "init", "-q", "-b", "main");
   git2(cwd, "config", "user.email", "fixture@tally.local");
   git2(cwd, "config", "user.name", "tally fixture");
   for (const [f, content] of Object.entries(c.repo.base)) {
-    fs31.mkdirSync(path31.dirname(path31.join(cwd, f)), { recursive: true });
-    fs31.writeFileSync(path31.join(cwd, f), content);
+    fs35.mkdirSync(path34.dirname(path34.join(cwd, f)), { recursive: true });
+    fs35.writeFileSync(path34.join(cwd, f), content);
   }
   git2(cwd, "add", "-A");
   git2(cwd, "commit", "-q", "-m", "base");
   const base = git2(cwd, "rev-parse", "HEAD");
   for (const [f, content] of Object.entries(c.repo.after)) {
-    fs31.mkdirSync(path31.dirname(path31.join(cwd, f)), { recursive: true });
-    fs31.writeFileSync(path31.join(cwd, f), content);
+    fs35.mkdirSync(path34.dirname(path34.join(cwd, f)), { recursive: true });
+    fs35.writeFileSync(path34.join(cwd, f), content);
   }
-  for (const f of c.repo.delete ?? []) if (fs31.existsSync(path31.join(cwd, f))) fs31.unlinkSync(path31.join(cwd, f));
+  for (const f of c.repo.delete ?? []) if (fs35.existsSync(path34.join(cwd, f))) fs35.unlinkSync(path34.join(cwd, f));
   return { cwd, base };
 }
 async function runFixture(c, opts) {
   const cfg = opts.cfg ?? loadConfig();
-  const workRoot = opts.workRoot ?? fs31.mkdtempSync(path31.join(os4.tmpdir(), "tally-cal-"));
+  const workRoot = opts.workRoot ?? fs35.mkdtempSync(path34.join(os5.tmpdir(), "tally-cal-"));
   const { cwd, base } = materializeRepo(c, workRoot);
   const session = c.task.session;
   ensureDir(sessionDir(session));
-  const transcriptPath = path31.join(sessionDir(session), "transcript.jsonl");
-  fs31.copyFileSync(path31.join(c.dir, "transcript.jsonl"), transcriptPath);
-  const events = readEventsFile(path31.join(c.dir, "events.jsonl")).map((e) => e.type === "session_start" ? { ...e, session, cwd, data: { ...e.data, git_head: base } } : { ...e, session, cwd });
+  const transcriptPath = path34.join(sessionDir(session), "transcript.jsonl");
+  fs35.copyFileSync(path34.join(c.dir, "transcript.jsonl"), transcriptPath);
+  const events = readEventsFile(path34.join(c.dir, "events.jsonl")).map((e) => e.type === "session_start" ? { ...e, session, cwd, data: { ...e.data, git_head: base } } : { ...e, session, cwd });
   const calls = [];
   let llm;
   if (opts.llm) llm = opts.llm;
@@ -10843,13 +11121,13 @@ async function runFixture(c, opts) {
 async function runEval(opts) {
   const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
   if (!cases.length) throw new Error("no calibration fixtures found");
-  const workRoot = fs31.mkdtempSync(path31.join(os4.tmpdir(), "tally-cal-"));
+  const workRoot = fs35.mkdtempSync(path34.join(os5.tmpdir(), "tally-cal-"));
   const results = [];
   for (const c of cases) {
     const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
     results.push(r);
   }
-  fs31.rmSync(workRoot, { recursive: true, force: true });
+  fs35.rmSync(workRoot, { recursive: true, force: true });
   const report = buildCalibrationReport(results.map((r) => r.entry));
   const fixtures = results.map((r) => ({
     name: r.name,
@@ -10881,8 +11159,8 @@ async function runEval(opts) {
   if (opts.record) {
     const old = loadBaseline();
     if (!old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
-      for (const r of results) fs31.writeFileSync(path31.join(cases.find((c) => c.name === r.name).dir, "model-output.json"), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), calls: r.calls }, null, 2) + "\n");
-      fs31.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + "\n");
+      for (const r of results) fs35.writeFileSync(path34.join(cases.find((c) => c.name === r.name).dir, "model-output.json"), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), calls: r.calls }, null, 2) + "\n");
+      fs35.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + "\n");
       summary.baseline_updated = true;
     } else summary.baseline_updated = false;
   }
@@ -10890,8 +11168,8 @@ async function runEval(opts) {
 }
 function loadBaseline() {
   const f = baselineFile();
-  if (!fs31.existsSync(f)) return null;
-  return JSON.parse(fs31.readFileSync(f, "utf8"));
+  if (!fs35.existsSync(f)) return null;
+  return JSON.parse(fs35.readFileSync(f, "utf8"));
 }
 function renderOverheadTable(s) {
   const L = [];
@@ -10933,13 +11211,13 @@ var init_eval = __esm({
 // src/commands/calibrate.ts
 var calibrate_exports = {};
 __export(calibrate_exports, {
-  run: () => run19
+  run: () => run20
 });
-import fs32 from "node:fs";
-import os5 from "node:os";
-import path32 from "node:path";
+import fs36 from "node:fs";
+import os6 from "node:os";
+import path35 from "node:path";
 import readline3 from "node:readline";
-async function run19(args) {
+async function run20(args) {
   const sub = args._[0];
   if (sub === "add") {
     const session = resolveSession(args._[1] ?? flag(args, "session"), process.cwd());
@@ -10975,7 +11253,7 @@ async function run19(args) {
       process.stderr.write("Usage: tally calibrate grade <session> [--grader name]   (the session needs a receipt: tally backfill add or tally judge)\n");
       return 1;
     }
-    const grader = flag(args, "grader") ?? os5.userInfo().username;
+    const grader = flag(args, "grader") ?? os6.userInfo().username;
     const rl = readline3.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q) => new Promise((res) => rl.question(q, res));
     try {
@@ -11017,7 +11295,7 @@ async function run19(args) {
     }
     const prevHome = process.env.TALLY_HOME;
     const keep = has(args, "keep");
-    if (!keep) process.env.TALLY_HOME = fs32.mkdtempSync(path32.join(os5.tmpdir(), "tally-cal-home-"));
+    if (!keep) process.env.TALLY_HOME = fs36.mkdtempSync(path35.join(os6.tmpdir(), "tally-cal-home-"));
     try {
       const only = flag(args, "only")?.split(",").filter(Boolean);
       const s = await runEval({ live, record, only, deep: has(args, "deep") });
@@ -11052,7 +11330,7 @@ PASS: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% \u2265 ${
 `);
     } finally {
       if (!keep) {
-        fs32.rmSync(process.env.TALLY_HOME, { recursive: true, force: true });
+        fs36.rmSync(process.env.TALLY_HOME, { recursive: true, force: true });
         if (prevHome === void 0) delete process.env.TALLY_HOME;
         else process.env.TALLY_HOME = prevHome;
       }
@@ -11077,10 +11355,10 @@ var init_calibrate2 = __esm({
 });
 
 // src/backfill/scan.ts
-import fs33 from "node:fs";
-import path33 from "node:path";
+import fs37 from "node:fs";
+import path36 from "node:path";
 function indexFile() {
-  return path33.join(tallyHome(), "backfill", "index.json");
+  return path36.join(tallyHome(), "backfill", "index.json");
 }
 function parseSince(s, now = Date.now()) {
   if (!s) return now - 60 * 864e5;
@@ -11100,7 +11378,7 @@ function summarize(transcript) {
   const edited = /* @__PURE__ */ new Set();
   for (const c of t.toolCalls) if (["Edit", "Write", "MultiEdit"].includes(c.name) && typeof c.input.file_path === "string") edited.add(String(c.input.file_path).replace(/\\/g, "/"));
   return {
-    session: t.sessionId || path33.basename(transcript, ".jsonl"),
+    session: t.sessionId || path36.basename(transcript, ".jsonl"),
     transcript,
     cwd: t.cwd,
     repo: t.cwd ? repoKey(t.cwd) : void 0,
@@ -11114,16 +11392,16 @@ function summarize(transcript) {
     files_edited: [...edited].slice(0, 50),
     models: t.models,
     version: t.version,
-    mtime: fs33.statSync(transcript).mtimeMs
+    mtime: fs37.statSync(transcript).mtimeMs
   };
 }
-function listTranscripts(projectsDir = path33.join(claudeHome(), "projects")) {
-  if (!fs33.existsSync(projectsDir)) return [];
+function listTranscripts(projectsDir = path36.join(claudeHome(), "projects")) {
+  if (!fs37.existsSync(projectsDir)) return [];
   const out = [];
-  for (const d of fs33.readdirSync(projectsDir)) {
-    const dir = path33.join(projectsDir, d);
-    if (isInternalCwd(d) || !fs33.statSync(dir).isDirectory()) continue;
-    for (const f of fs33.readdirSync(dir)) if (f.endsWith(".jsonl")) out.push(path33.join(dir, f));
+  for (const d of fs37.readdirSync(projectsDir)) {
+    const dir = path36.join(projectsDir, d);
+    if (isInternalCwd(d) || !fs37.statSync(dir).isDirectory()) continue;
+    for (const f of fs37.readdirSync(dir)) if (f.endsWith(".jsonl")) out.push(path36.join(dir, f));
   }
   return out;
 }
@@ -11134,7 +11412,7 @@ function scanSessions(opts = {}) {
   const out = [];
   let dirty = false;
   for (const file of listTranscripts(opts.projectsDir)) {
-    const st = fs33.statSync(file);
+    const st = fs37.statSync(file);
     if (st.mtimeMs < since - 7 * 864e5) continue;
     const key = file.replace(/\\/g, "/");
     let c = idx.entries[key];
@@ -11168,7 +11446,7 @@ var init_scan = __esm({
 });
 
 // src/backfill/link.ts
-import { spawnSync as spawnSync10 } from "node:child_process";
+import { spawnSync as spawnSync11 } from "node:child_process";
 function githubRemote(cwd, deps = realLinkDeps) {
   const r = deps.exec("git", ["remote", "get-url", "origin"], cwd);
   if (!r.ok) return null;
@@ -11240,7 +11518,7 @@ var init_link = __esm({
     init_gh();
     realLinkDeps = {
       exec: (bin, args, cwd) => {
-        const r = spawnSync10(bin, args, { cwd, encoding: "utf8", windowsHide: true, timeout: 3e4 });
+        const r = spawnSync11(bin, args, { cwd, encoding: "utf8", windowsHide: true, timeout: 3e4 });
         return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
       },
       ghOk: () => ghStatus().ok
@@ -11252,10 +11530,10 @@ var init_link = __esm({
 });
 
 // src/backfill/history.ts
-import fs34 from "node:fs";
-import os6 from "node:os";
-import path34 from "node:path";
-import { spawnSync as spawnSync11 } from "node:child_process";
+import fs38 from "node:fs";
+import os7 from "node:os";
+import path37 from "node:path";
+import { spawnSync as spawnSync12 } from "node:child_process";
 function revBefore(cwd, ref, ts, exec) {
   const r = exec("git", ["rev-list", "-1", `--before=${ts}`, ref], cwd);
   return r.ok ? r.stdout.trim() || void 0 : void 0;
@@ -11299,24 +11577,24 @@ function reconstructWindow(cwd, opts) {
   return { start_head, end_head, branch, commits_in_window, extended_to_pr, notes };
 }
 function addWorktree(cwd, sha, exec = gitExecRaw) {
-  const dir = fs34.mkdtempSync(path34.join(os6.tmpdir(), "tally-wt-"));
-  fs34.rmdirSync(dir);
+  const dir = fs38.mkdtempSync(path37.join(os7.tmpdir(), "tally-wt-"));
+  fs38.rmdirSync(dir);
   const r = exec("git", ["worktree", "add", "--detach", dir, sha], cwd);
   if (!r.ok) throw new Error(`git worktree add failed: ${r.stderr.trim().slice(0, 200)}`);
   return {
     path: dir,
     remove: () => {
       exec("git", ["worktree", "remove", "--force", dir], cwd);
-      if (fs34.existsSync(dir)) fs34.rmSync(dir, { recursive: true, force: true });
+      if (fs38.existsSync(dir)) fs38.rmSync(dir, { recursive: true, force: true });
       exec("git", ["worktree", "prune"], cwd);
     }
   };
 }
 async function prepareDeps(wt, timeoutMs) {
-  const has2 = (f) => fs34.existsSync(path34.join(wt, f));
+  const has2 = (f) => fs38.existsSync(path37.join(wt, f));
   if (has2("package.json")) {
     if (has2("node_modules")) return { ok: true, note: "node_modules present" };
-    const pkg = JSON.parse(fs34.readFileSync(path34.join(wt, "package.json"), "utf8"));
+    const pkg = JSON.parse(fs38.readFileSync(path37.join(wt, "package.json"), "utf8"));
     if (!Object.keys(pkg.dependencies ?? {}).length && !Object.keys(pkg.devDependencies ?? {}).length) return { ok: true, note: "no dependencies" };
     if (!has2("package-lock.json") && !has2("npm-shrinkwrap.json")) return { ok: false, note: "no lockfile; offline install not attempted" };
     const isWin = process.platform === "win32";
@@ -11324,7 +11602,7 @@ async function prepareDeps(wt, timeoutMs) {
     const r = await runProcess(isWin ? "cmd.exe" : "sh", isWin ? ["/d", "/s", "/c", `"${cmd}"`] : ["-c", cmd], { cwd: wt, timeoutMs, env: scrubEnv(), replaceEnv: true });
     return r.code === 0 ? { ok: true, note: "npm ci --offline succeeded" } : { ok: false, note: `npm ci --offline failed (${r.timedOut ? "timeout" : "exit " + r.code}); dependencies unavailable offline` };
   }
-  if (has2("requirements.txt") || has2("pyproject.toml")) return { ok: fs34.existsSync(path34.join(wt, ".venv")) || fs34.existsSync(path34.join(wt, "venv")), note: "python: runs only when a checked-in venv exists" };
+  if (has2("requirements.txt") || has2("pyproject.toml")) return { ok: fs38.existsSync(path37.join(wt, ".venv")) || fs38.existsSync(path37.join(wt, "venv")), note: "python: runs only when a checked-in venv exists" };
   return { ok: true, note: "no dependency step needed" };
 }
 async function runHistoricalTests(wt, opts) {
@@ -11347,7 +11625,7 @@ var init_history = __esm({
     init_verify();
     init_gh();
     gitExecRaw = (bin, args, cwd) => {
-      const r = spawnSync11(bin, args, { cwd, encoding: "utf8", windowsHide: true, timeout: 6e4, maxBuffer: 20 * 1024 * 1024 });
+      const r = spawnSync12(bin, args, { cwd, encoding: "utf8", windowsHide: true, timeout: 6e4, maxBuffer: 20 * 1024 * 1024 });
       return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     };
     HISTORICAL_UNRUNNABLE = "historical tests not runnable";
@@ -11501,21 +11779,21 @@ var init_ticket = __esm({
 });
 
 // src/backfill/run.ts
-import fs35 from "node:fs";
-import path35 from "node:path";
+import fs39 from "node:fs";
+import path38 from "node:path";
 function tier2Estimate(sessionCostUsd) {
   return Math.min(3, 0.15 + 4e-3 * sessionCostUsd);
 }
 function backfillSpendSince(hours = 24) {
   const f = tallySpendFile();
-  if (!fs35.existsSync(f)) return 0;
+  if (!fs39.existsSync(f)) return 0;
   const since = Date.now() - hours * 36e5;
   let sum = 0;
-  for (const line of fs35.readFileSync(f, "utf8").split("\n")) {
+  for (const line of fs39.readFileSync(f, "utf8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line);
-      if (Date.parse(e.ts ?? "") >= since && e.session && fs35.existsSync(path35.join(sessionDir(e.session), "backfill.json"))) sum += e.cost_usd ?? 0;
+      if (Date.parse(e.ts ?? "") >= since && e.session && fs39.existsSync(path38.join(sessionDir(e.session), "backfill.json"))) sum += e.cost_usd ?? 0;
     } catch {
     }
   }
@@ -11539,7 +11817,7 @@ async function backfillSession(c, opts) {
   const cwd = c.cwd;
   const t = parseTranscriptFile(c.transcript);
   if (t.internal) return { session, link: { kind: "none", ref: "", confidence: 0, evidence: "internal run" }, window: { commits_in_window: 0, notes: [] }, skipped: "internal Tally run", tally_spend_usd: 0 };
-  if (!cwd || !fs35.existsSync(cwd)) return { session, link: { kind: "none", ref: "", confidence: 0, evidence: "cwd missing" }, window: { commits_in_window: 0, notes: [] }, skipped: `repo directory no longer exists: ${cwd ?? "?"}`, tally_spend_usd: 0 };
+  if (!cwd || !fs39.existsSync(cwd)) return { session, link: { kind: "none", ref: "", confidence: 0, evidence: "cwd missing" }, window: { commits_in_window: 0, notes: [] }, skipped: `repo directory no longer exists: ${cwd ?? "?"}`, tally_spend_usd: 0 };
   const start = c.started ?? t.startedAt ?? (/* @__PURE__ */ new Date()).toISOString();
   const end = c.ended ?? t.endedAt ?? start;
   const link = opts.taskRef ? { kind: /^https?:\/\//.test(opts.taskRef) ? "url" : "key", ref: opts.taskRef, url: /^https?:\/\//.test(opts.taskRef) ? opts.taskRef : void 0, confidence: 1, evidence: "given with --task" } : detectTaskLink({ cwd, branch: c.branch, prompts: c.prompts, start, end }, deps.link ?? realLinkDeps);
@@ -11549,8 +11827,8 @@ async function backfillSession(c, opts) {
   if (noTree) window.notes.push("no commits inside the session window: evidence reconstructed from the transcript, tests not run");
   const dir = ensureDir(sessionDir(session)) ?? sessionDir(session);
   const events = eventsFromTranscript(t, session, cwd, c.transcript, window.start_head);
-  fs35.writeFileSync(eventsFile(session), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-  writeJson(path35.join(dir, "backfill.json"), { session, link, window, started: start, ended: end, repo: cwd, transcript: c.transcript, backfilled_at: (/* @__PURE__ */ new Date()).toISOString() });
+  fs39.writeFileSync(eventsFile(session), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeJson(path38.join(dir, "backfill.json"), { session, link, window, started: start, ended: end, repo: cwd, transcript: c.transcript, backfilled_at: (/* @__PURE__ */ new Date()).toISOString() });
   let task = loadTask(session);
   if (!task) {
     const ref = link.url ?? (link.kind === "key" ? link.ref : void 0);
@@ -11581,13 +11859,13 @@ async function backfillSession(c, opts) {
   if (fu) judge = fu;
   log2(`  judged: ${judge.verdict.verdict} (${judge.completion_pct}%), tiers ${judge.tiers.ran.join("\u2192")}${judge.followup ? ` \xB7 follow-up: ${judge.followup.final_status} \u2192 ${judge.followup.final_verdict}` : ""}`);
   const replay = replayCoach({ session, cwd, cfg, events, transcript: t, history: loadHistory() });
-  writeJson(path35.join(dir, "coach_replay.json"), replay);
+  writeJson(path38.join(dir, "coach_replay.json"), replay);
   log2(`  coach replay: ${replay.shown.length} suggestion(s) would have shown (${replay.held} held by noise limits)`);
-  appendLine(path35.join(sessionDir(session), "backfill.log"), `${(/* @__PURE__ */ new Date()).toISOString()} backfilled`);
+  appendLine(path38.join(sessionDir(session), "backfill.log"), `${(/* @__PURE__ */ new Date()).toISOString()} backfilled`);
   return { session, link, window, task, judge, replay, tally_spend_usd: tallyOwnSpend(session) };
 }
 function isBackfilled(session) {
-  return fs35.existsSync(path35.join(sessionDir(session), "backfill.json")) && !!loadJudge(session);
+  return fs39.existsSync(path38.join(sessionDir(session), "backfill.json")) && !!loadJudge(session);
 }
 var init_run = __esm({
   "src/backfill/run.ts"() {
@@ -11612,16 +11890,16 @@ var init_run = __esm({
 // src/commands/backfill.ts
 var backfill_exports = {};
 __export(backfill_exports, {
-  run: () => run20
+  run: () => run21
 });
-import fs36 from "node:fs";
-import path36 from "node:path";
+import fs40 from "node:fs";
+import path39 from "node:path";
 function shortRepo(repo) {
   if (!repo) return "?";
   const parts = repo.split("/");
   return parts.slice(-2).join("/");
 }
-async function run20(args) {
+async function run21(args) {
   const cfg = loadConfig();
   const sub = args._[0] ?? "list";
   const since = flag(args, "since") ?? "60d";
@@ -11629,7 +11907,7 @@ async function run20(args) {
   const plain = has(args, "plain");
   if (sub === "list" && flag(args, "suggest")) {
     const n = Math.max(1, Number(flag(args, "suggest")) || 20);
-    const cands = scanSessions({ since, repo }).filter((c) => c.cwd && fs36.existsSync(c.cwd) && c.cost >= 0.2);
+    const cands = scanSessions({ since, repo }).filter((c) => c.cwd && fs40.existsSync(c.cwd) && c.cost >= 0.2);
     const scored = cands.map((c) => {
       const link = detectTaskLink({ cwd: c.cwd, branch: c.branch, prompts: c.prompts, start: c.started, end: c.ended });
       const why = [];
@@ -11740,7 +12018,7 @@ ${linked}/${cands.length} with a detected task link. Projected cost to backfill 
         continue;
       }
       if (has(args, "force")) {
-        for (const f of ["judge.json", "task.json", "coach_replay.json"]) if (fs36.existsSync(path36.join(sessionDir(c.session), f))) fs36.unlinkSync(path36.join(sessionDir(c.session), f));
+        for (const f of ["judge.json", "task.json", "coach_replay.json"]) if (fs40.existsSync(path39.join(sessionDir(c.session), f))) fs40.unlinkSync(path39.join(sessionDir(c.session), f));
       }
       process.stdout.write(`${c.session.slice(0, 8)} ${(c.started ?? "").slice(0, 10)} ${shortRepo(c.repo)} ${fmtUsd(c.cost)}
 `);
@@ -11774,6 +12052,236 @@ var init_backfill = __esm({
     init_run();
     init_pricing();
     init_paths();
+  }
+});
+
+// src/commands/dispute.ts
+var dispute_exports = {};
+__export(dispute_exports, {
+  disputeCriterion: () => disputeCriterion,
+  parseDisputeArgs: () => parseDisputeArgs,
+  resolveSessionPrefix: () => resolveSessionPrefix,
+  run: () => run22
+});
+import os8 from "node:os";
+import fs41 from "node:fs";
+import path40 from "node:path";
+function disputeCriterion(session, id, status, reason, by) {
+  const j = loadJudge(session);
+  if (!j) throw new Error(`no receipt for session ${session}`);
+  const c = j.criteria.find((x) => x.id === id);
+  if (!c) throw new Error(`no criterion ${id} on this receipt (${j.criteria.map((x) => x.id).join(", ")})`);
+  if (!reason.trim()) throw new Error("a reason is required");
+  const original = c.override?.original ?? c.status;
+  c.override = { status, reason: reason.trim(), by, ts: (/* @__PURE__ */ new Date()).toISOString(), original };
+  const next = rescoreJudge(j, `disputed ${id}: ${original} \u2192 ${status} by ${by}`);
+  persistJudge(next, loadTask(session));
+  appendLine(path40.join(sessionDir(session), "disputes.jsonl"), JSON.stringify({ ts: c.override.ts, id, original, status, reason: c.override.reason, by }));
+  appendEvent({ ts: c.override.ts, type: "dispute", session, cwd: j.cwd, data: { id, original, status, by } });
+  const entry = {
+    ts: c.override.ts,
+    session,
+    source: "dispute",
+    grader: by,
+    task_title: j.task.title,
+    criteria: [{ id, text: c.text, judge: original, human: status, evidence: `${c.evidence} \xB7 dispute: ${c.override.reason}` }],
+    judge_verdict: j.verdict.verdict,
+    task_source: j.task.task_source
+  };
+  ensureDir(tallyHome());
+  appendLine(calibrationFile(), JSON.stringify(entry));
+  return { judge: next, entry };
+}
+function resolveSessionPrefix(p) {
+  if (fs41.existsSync(sessionDir(p))) return p;
+  const root = path40.join(tallyHome(), "sessions");
+  const hits = fs41.existsSync(root) ? fs41.readdirSync(root).filter((d) => d.startsWith(p)) : [];
+  if (hits.length === 1) return hits[0];
+  throw new Error(hits.length ? `"${p}" matches ${hits.length} sessions; give more characters` : `no session starting with "${p}"`);
+}
+function parseDisputeArgs(text) {
+  const m = /^\s*(c\d+)\s+(met|partial|unmet|unverifiable)\s+(.+)$/i.exec(text);
+  if (!m) return null;
+  return { id: m[1].toLowerCase(), status: m[2].toLowerCase(), reason: m[3].trim() };
+}
+async function run22(args) {
+  let session;
+  let id;
+  let status;
+  let reason;
+  const fromArgs = flag(args, "from-args");
+  if (fromArgs !== void 0) {
+    const parsed = parseDisputeArgs(fromArgs);
+    if (!parsed) {
+      process.stderr.write("Usage: /tally:dispute <c2> <met|partial|unmet|unverifiable> <reason>\n");
+      return 1;
+    }
+    ({ id, status, reason } = parsed);
+    session = resolveSession(flag(args, "session"), process.cwd());
+  } else {
+    [session, id] = args._;
+    status = flag(args, "status");
+    reason = flag(args, "reason");
+  }
+  if (!session || !id || !status || !STATUSES2.includes(status) || !reason) {
+    process.stderr.write('Usage: tally dispute <session> <criterion> --status met|partial|unmet|unverifiable --reason "<why>" [--by name]\n');
+    return 1;
+  }
+  const full = resolveSessionPrefix(session);
+  const r = disputeCriterion(full, id, status, reason, flag(args, "by") ?? os8.userInfo().username);
+  process.stdout.write(`Recorded: ${id} ${r.entry.criteria[0].judge} \u2192 ${status} (${reason}). The receipt is re-scored; the dispute is in the calibration log.
+
+`);
+  process.stdout.write(renderSummary(r.judge, false) + "\n");
+}
+var STATUSES2;
+var init_dispute = __esm({
+  "src/commands/dispute.ts"() {
+    "use strict";
+    init_cli();
+    init_judge();
+    init_intake();
+    init_paths();
+    init_session();
+    init_calibrate();
+    init_events();
+    STATUSES2 = ["met", "partial", "unmet", "unverifiable"];
+  }
+});
+
+// src/commands/playbook.ts
+var playbook_exports = {};
+__export(playbook_exports, {
+  clusterLessons: () => clusterLessons,
+  lessonKey: () => lessonKey,
+  playbookSnippet: () => playbookSnippet,
+  run: () => run23
+});
+import fs42 from "node:fs";
+import path41 from "node:path";
+function lessonKey(text) {
+  return text.toLowerCase().replace(/`[^`]*`/g, (m) => m.replace(/[^a-z0-9]/g, "")).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w && !STOP.has(w)).slice(0, 5).join(" ");
+}
+function clusterLessons(entries, repo) {
+  const receipts = entries.filter((e) => e.verdict && !e.internal && (!repo || e.repo === repo));
+  const by = /* @__PURE__ */ new Map();
+  for (const r of receipts) {
+    for (const rec of r.recommendations ?? []) {
+      const k = lessonKey(rec);
+      if (!k) continue;
+      const cur = by.get(k) ?? { text: rec, count: 0, sessions: [], repos: [] };
+      cur.count += 1;
+      if (r.session && !cur.sessions.includes(r.session)) cur.sessions.push(r.session);
+      if (r.repo && !cur.repos.includes(r.repo)) cur.repos.push(r.repo);
+      if (rec.length < cur.text.length) cur.text = rec;
+      by.set(k, cur);
+    }
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.text.localeCompare(b.text));
+}
+function playbookSnippet(lessons, n) {
+  const top = lessons.filter((l) => l.count >= 2).slice(0, 5);
+  const pick = top.length ? top : lessons.slice(0, 3);
+  return ["## Lessons from Tally receipts", `<!-- tally playbook: ${n} receipt(s); regenerate with \`tally playbook\` -->`, ...pick.map((l) => `- ${l.text}${l.count > 1 ? ` (seen ${l.count}\xD7)` : ""}`), ""].join("\n");
+}
+async function run23(args) {
+  const repo = has(args, "all") ? void 0 : repoKey(process.cwd());
+  const history = loadHistory();
+  const lessons = clusterLessons(history, repo);
+  const n = history.filter((e) => e.verdict && !e.internal && (!repo || e.repo === repo)).length;
+  if (!lessons.length) {
+    process.stdout.write(`No receipts with recommendations ${repo ? "for this repo" : "yet"}. Judge a few tasks first${repo ? ", or pass --all" : ""}.
+`);
+    return;
+  }
+  process.stdout.write(`Recurring lessons across ${n} receipt(s)${repo ? " in this repo" : ""}:
+`);
+  for (const l of lessons.slice(0, 10)) process.stdout.write(`  ${String(l.count).padStart(3)}\xD7  ${l.text}${!repo && l.repos.length > 1 ? `  (${l.repos.length} repos)` : ""}
+`);
+  const snippet = playbookSnippet(lessons, n);
+  process.stdout.write(`
+CLAUDE.md snippet:
+${snippet.split("\n").map((x) => "  " + x).join("\n")}
+`);
+  if (has(args, "write")) {
+    const file = path41.join(process.cwd(), "CLAUDE.md");
+    const existing = fs42.existsSync(file) ? fs42.readFileSync(file, "utf8") : "";
+    const cleaned = existing.replace(/\n?## Lessons from Tally receipts[\s\S]*?(?=\n## |$)/, "").trimEnd();
+    fs42.writeFileSync(file, (cleaned ? cleaned + "\n\n" : "") + snippet);
+    process.stdout.write(`Written to ${file}${existing ? " (previous Tally section replaced, the rest untouched)" : ""}.
+`);
+  } else process.stdout.write("Add it with: tally playbook --write\n");
+}
+var STOP;
+var init_playbook = __esm({
+  "src/commands/playbook.ts"() {
+    "use strict";
+    init_cli();
+    init_context();
+    init_paths();
+    STOP = /* @__PURE__ */ new Set(["the", "a", "an", "to", "of", "and", "or", "in", "on", "for", "before", "after", "with", "is", "was", "be", "it", "this", "that", "once", "instead", "again", "each", "every", "not", "rather", "than"]);
+  }
+});
+
+// src/commands/export.ts
+var export_exports = {};
+__export(export_exports, {
+  exportRow: () => exportRow,
+  run: () => run24
+});
+import fs43 from "node:fs";
+function exportRow(h, titles) {
+  const j = h.session ? loadJudge(h.session) : null;
+  const row = {
+    schema: "tally.receipt.v1",
+    session: h.session ?? "",
+    ts: h.ts,
+    repo: h.repo,
+    task_source: h.task_source,
+    cost_usd: h.cost_usd,
+    tally_own_usd: h.tally_own_usd,
+    waste_usd: h.waste_usd,
+    completion_pct: h.completion_pct,
+    quality: j?.quality.score,
+    roi: h.roi ?? null,
+    verdict: h.verdict,
+    final_status: h.final_status,
+    final_verdict: h.final_verdict,
+    spec_quality: h.spec_quality
+  };
+  if (titles) row.task_title = h.task_title;
+  if (j) {
+    row.completion_basis = j.completion_basis;
+    row.counts = j.counts;
+    row.criteria = j.criteria.map((c) => ({ id: c.id, status: c.override?.status ?? c.status, resolved_by: c.resolved_by, ...c.override ? { overridden: true } : {} }));
+    row.tiers = j.tiers.ran;
+    row.models = Object.keys(j.cost.by_model ?? {});
+    row.review_rounds = j.followup?.review_rounds;
+    row.hours_to_approval = j.followup?.hours_to_approval;
+    row.disputes = j.criteria.filter((c) => c.override).length;
+  }
+  return row;
+}
+async function run24(args) {
+  const since = flag(args, "since");
+  const cutoff = since ? parseSince(since) : 0;
+  const repo = flag(args, "repo");
+  const rows = loadHistory().filter((e) => e.verdict && !e.internal && (!repo || e.repo === repo) && (!cutoff || Date.parse(e.ts ?? "") >= cutoff)).map((e) => exportRow(e, has(args, "titles")));
+  const text = rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : "");
+  const out = flag(args, "out");
+  if (out) {
+    fs43.writeFileSync(out, text);
+    process.stdout.write(`${rows.length} receipt(s) \u2192 ${out} (numbers, statuses and outcomes only${has(args, "titles") ? ", with task titles" : ""}).
+`);
+  } else process.stdout.write(text);
+}
+var init_export = __esm({
+  "src/commands/export.ts"() {
+    "use strict";
+    init_cli();
+    init_context();
+    init_judge();
+    init_scan();
   }
 });
 
@@ -11869,7 +12377,11 @@ var init_cli = __esm({
       sessions: () => Promise.resolve().then(() => (init_sessions(), sessions_exports)),
       otel: () => Promise.resolve().then(() => (init_otel2(), otel_exports)),
       calibrate: () => Promise.resolve().then(() => (init_calibrate2(), calibrate_exports)),
-      backfill: () => Promise.resolve().then(() => (init_backfill(), backfill_exports))
+      backfill: () => Promise.resolve().then(() => (init_backfill(), backfill_exports)),
+      dispute: () => Promise.resolve().then(() => (init_dispute(), dispute_exports)),
+      budget: () => Promise.resolve().then(() => (init_budget(), budget_exports)),
+      playbook: () => Promise.resolve().then(() => (init_playbook(), playbook_exports)),
+      export: () => Promise.resolve().then(() => (init_export(), export_exports))
     };
     HELP = `tally \u2014 per-task receipts and live coaching for Claude Code
 
@@ -11884,6 +12396,11 @@ Setup
 Judge
   task <url|path|text>        Link a task to the current session; freeze acceptance criteria
   judge [session] [--post]    Produce the receipt (judge.json + report.md); --post comments on issue/PR
+  judge <session> --explain <c1|all>   The evidence behind a status: diff hunks, test output, transcript moments
+  dispute <session> <c#> --status s --reason ".."   Contest a criterion; the receipt keeps both and is re-scored
+  budget status|approve       Repo-policy hard stop over budget (tally.json), and the approval that lifts it
+  playbook [--all] [--write]  Recurring lessons across receipts, as a CLAUDE.md snippet
+  export [--since 30d] [--out f.jsonl] [--titles]   Numbers-only receipts for a team store
   followup [session]          Post-merge truth: merged, reverted, reopened, review churn, CI
   report                      Trends: cost per task, completion, rework, skill/MCP payoff
   sessions                    List tracked sessions

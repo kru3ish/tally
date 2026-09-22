@@ -19,6 +19,8 @@ export interface Trend {
   payoff: Array<{ kind: 'skill' | 'mcp'; name: string; used_in: number; completion_with: number | null; completion_without: number | null; cpc_with: number | null; cpc_without: number | null }>;
   top_recommendations: Array<{ text: string; count: number }>;
   by_task_source: Array<{ source: string; tasks: number; completion_pct: number | null; cost_per_task_usd: number | null; rework_rate: number | null }>;
+  /* receipts where the Judge abstained (insufficient evidence) */
+  abstained: number;
 }
 
 function mean(xs: number[]): number | null {
@@ -85,6 +87,7 @@ export function computeTrend(opts: { repo?: string; days?: number; history?: His
     recent_vs_prior: half > 0 ? { recent_cost: mean(recent.map((r) => r.cost_usd ?? 0)), prior_cost: mean(prior.map((r) => r.cost_usd ?? 0)), recent_completion: mean(recent.map((r) => r.completion_pct ?? 0)), prior_completion: mean(prior.map((r) => r.completion_pct ?? 0)) } : null,
     payoff,
     top_recommendations: [...recCount.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 5),
+    abstained: receipts.filter((r) => (r.final_verdict ?? r.verdict) === 'insufficient evidence').length,
     by_task_source: ['linked', 'confirmed', 'inferred'].map((source) => {
       const rs = receipts.filter((r) => (r.task_source ?? (r.linked ? 'linked' : 'inferred')) === source);
       const fu = rs.filter((r) => r.final_status && r.final_status !== 'unknown');
@@ -110,6 +113,7 @@ export function renderTrend(t: Trend, opts: { repo?: string; days?: number } = {
   L.push(`rework rate          ${t.rework_rate === null ? `n/a (${t.followed_up} followed up)` : `${(t.rework_rate * 100).toFixed(0)}% of ${t.followed_up} followed up`}`);
   L.push(`tasks linked         ${f(t.linked_rate, (n) => (n * 100).toFixed(0) + '%')}`);
   L.push(`verdicts             ${Object.entries(t.verdicts).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+  if (t.abstained) L.push(`abstained            ${t.abstained} of ${t.tasks} (insufficient evidence: fewer than half the criteria could be checked)`);
   if (t.recent_vs_prior) {
     const r = t.recent_vs_prior;
     L.push(`trend                cost ${f(r.prior_cost, fmtUsd)} → ${f(r.recent_cost, fmtUsd)}, completion ${f(r.prior_completion, (n) => n.toFixed(0) + '%')} → ${f(r.recent_completion, (n) => n.toFixed(0) + '%')} (older half → newer half)`);

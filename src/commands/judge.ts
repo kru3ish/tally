@@ -4,6 +4,7 @@ import { type Args, flag, has } from '../cli.js';
 import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
 import { judgeSession, existingReceiptFor, renderSummary, recomputeReceipt } from '../judge/judge.js';
+import { explainCriterion, explainAll } from '../judge/explain.js';
 import { writeBack } from '../judge/writeback.js';
 import { resolveSession, sessionCwd, transcriptPathFor } from '../session.js';
 import { sessionDir, log } from '../paths.js';
@@ -33,6 +34,11 @@ export async function run(args: Args): Promise<number | void> {
   const reasonFlag = flag(args, 'reason');
   const reason = (['push', 'pr', 'merge', 'publish', 'session_end', 'manual'].includes(reasonFlag ?? '') ? reasonFlag : auto ? 'session_end' : 'manual') as Judge['reason'];
   const cwd = sessionCwd(session) ?? process.cwd();
+  const explain = flag(args, 'explain');
+  if (explain) {
+    process.stdout.write((explain === 'all' ? explainAll(session) : explainCriterion(session, explain)) + '\n');
+    return;
+  }
   if (has(args, 'recompute')) {
     /* re-derive completion and verdict from the stored criteria (no model call); used after a scoring-rule change */
     const j = recomputeReceipt(session);

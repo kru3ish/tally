@@ -28,11 +28,11 @@ describe('0.1.1 scoring: completion over verifiable criteria', () => {
     expect(scoreCounts({ met: 1, partial: 1, unmet: 2, unverifiable: 0 }, 100, 10).completion_pct).toBe(37.5);
   });
 
-  it('the verdict stays borderline when nothing or most things could not be checked', () => {
-    expect(computeVerdict({ completion_pct: 0, roi: null, quality: 7, testsFailed: false, verifiable: 0, unverifiable: 3 })).toBe('borderline');
+  it('the verdict abstains (insufficient evidence) when nothing or most things could not be checked', () => {
+    expect(computeVerdict({ completion_pct: 0, roi: null, quality: 7, testsFailed: false, verifiable: 0, unverifiable: 3 })).toBe('insufficient evidence');
     /* 100% of the 1 checkable criterion, 6 unverifiable: not "worth it" and not "not worth it" */
-    expect(computeVerdict({ completion_pct: 100, roi: 3, quality: 7, testsFailed: false, verifiable: 1, unverifiable: 6 })).toBe('borderline');
-    expect(computeVerdict({ completion_pct: 25, roi: 6, quality: 5, testsFailed: false, verifiable: 2, unverifiable: 4 })).toBe('borderline');
+    expect(computeVerdict({ completion_pct: 100, roi: 3, quality: 7, testsFailed: false, verifiable: 1, unverifiable: 6 })).toBe('insufficient evidence');
+    expect(computeVerdict({ completion_pct: 25, roi: 6, quality: 5, testsFailed: false, verifiable: 2, unverifiable: 4 })).toBe('insufficient evidence');
     /* a checkable majority keeps the old thresholds */
     expect(computeVerdict({ completion_pct: 100, roi: 3, quality: 7, testsFailed: false, verifiable: 3, unverifiable: 1 })).toBe('worth it');
     expect(computeVerdict({ completion_pct: 20, roi: 3, quality: 7, testsFailed: false, verifiable: 3, unverifiable: 1 })).toBe('not worth it');

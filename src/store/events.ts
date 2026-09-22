@@ -19,7 +19,7 @@ export type EventType =
   | 'mute'
   | 'judge'
   | 'permission'
-  | 'note';
+  | 'note' | 'budget_approved' | 'hard_stop_denied' | 'dispute';
 
 export interface TallyEvent {
   ts: string;

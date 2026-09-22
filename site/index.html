@@ -142,7 +142,7 @@ footer a:hover{color:var(--text)}
 <body>
 <div class="wrap">
 <nav>
-  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.1.0</span></a>
+  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.2.0</span></a>
   <div class="links"><a href="#how">How it judges</a><a href="#accuracy">Accuracy</a><a href="#install">Install</a><a href="#privacy">Privacy</a><a href="https://github.com/kru3ish/tally">GitHub</a></div>
 </nav>
 
@@ -211,9 +211,9 @@ footer a:hover{color:var(--text)}
       <p>No pane to open. After each of Claude's turns the hooks run thirteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Decisions only you can make show as flags in the status line.</p>
     </div>
     <div>
-      <div class="k">03 · THE FOLLOW-UP</div>
-      <h3>Did it hold up?</h3>
-      <p>Seven days later Tally checks the PR: merged, reverted, reopened, review churn, CI on the merge commit. The verdict is adjusted and both are kept. Every new session in the repo opens with one line about how the last one went.</p>
+      <div class="k">03 · THE FOLLOW-UP, AND THE RECORD</div>
+      <h3>Did it hold up? Audit it. Dispute it.</h3>
+      <p>Seven days later Tally checks the PR: merged, reverted, reopened, review rounds, CI on the merge commit. Every criterion can be opened to its evidence (<code>--explain</code>), contested on the record (<code>tally dispute</code>), and a repo <code>tally.json</code> adds standing criteria and a budget with a real hard stop. When Tally cannot check enough, it says <em>insufficient evidence</em> instead of guessing.</p>
     </div>
   </div>
 </section>
@@ -247,7 +247,7 @@ footer a:hover{color:var(--text)}
     <div class="stat"><div class="v">4.1<small>%</small></div><div class="l">Tally's own spend, share of session spend</div></div>
     <div class="stat"><div class="v">51%</div><div class="l">criterion agreement on 11 real sessions, 51 criteria (early, n=11)</div></div>
   </div>
-  <p class="callout">Real sessions, blind-graded (n=11, 2026-09-22): 51% exact criterion agreement (63% within one step), 9% exact verdict agreement (82% within one step) on 11 verdicts, Tally stricter on 14 of 51. Coach: 54 of 83 replayed suggestions marked useful (65%). Grade your own with <code>tally calibrate grade</code>; that is the data this needs next.</p>
+  <p class="callout">Real sessions, blind-graded (n=11, 2026-09-22): 51% exact criterion agreement (63% within one step), 3 abstentions; on the other 8 verdicts, 1 exact and 6 within one step, Tally stricter on 14 of 51. Coach: 54 of 83 replayed suggestions marked useful (65%). Grade your own with <code>tally calibrate grade</code>; that is the data this needs next.</p>
 </section>
 
 <section id="install">

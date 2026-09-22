@@ -61,6 +61,10 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   otel: () => import('./commands/otel.js'),
   calibrate: () => import('./commands/calibrate.js'),
   backfill: () => import('./commands/backfill.js'),
+  dispute: () => import('./commands/dispute.js'),
+  budget: () => import('./commands/budget.js'),
+  playbook: () => import('./commands/playbook.js'),
+  export: () => import('./commands/export.js'),
 };
 
 const HELP = `tally — per-task receipts and live coaching for Claude Code
@@ -76,6 +80,11 @@ Setup
 Judge
   task <url|path|text>        Link a task to the current session; freeze acceptance criteria
   judge [session] [--post]    Produce the receipt (judge.json + report.md); --post comments on issue/PR
+  judge <session> --explain <c1|all>   The evidence behind a status: diff hunks, test output, transcript moments
+  dispute <session> <c#> --status s --reason ".."   Contest a criterion; the receipt keeps both and is re-scored
+  budget status|approve       Repo-policy hard stop over budget (tally.json), and the approval that lifts it
+  playbook [--all] [--write]  Recurring lessons across receipts, as a CLAUDE.md snippet
+  export [--since 30d] [--out f.jsonl] [--titles]   Numbers-only receipts for a team store
   followup [session]          Post-merge truth: merged, reverted, reopened, review churn, CI
   report                      Trends: cost per task, completion, rework, skill/MCP payoff
   sessions                    List tracked sessions

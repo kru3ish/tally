@@ -2,6 +2,26 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.2.0] - 2026-09-23
+
+Trust and control for teams, all local, no server.
+
+### Added
+
+- **Abstention.** A fourth verdict, `insufficient evidence`, when nothing could be checked or most criteria were unverifiable. The Judge says it does not know instead of guessing; `tally report` shows the abstention rate and `calibrate report` excludes abstentions from agreement.
+- **Evidence explorer.** `tally judge <session> --explain <c1|all>` (plugin: `/tally:explain`) shows the cited evidence, the diff hunks for the files involved from the session's base commit, the independent test output, and the transcript moments that touched those files, with a dispute hint.
+- **Dispute and override.** `tally dispute <session> <c2> --status met --reason "..."` (plugin: `/tally:dispute c2 met <reason>`) keeps the original status next to the override, re-scores the receipt, marks the change on the report and the PR brief, and logs a labelled disagreement to the calibration file (`--source dispute`).
+- **Repo policy (`tally.json`).** Standing criteria appended to every task (checked mechanically where a check is given), a budget block (`hourly_rate`, `fraction`, fixed `usd`), and `hard_stop`: when spend passes the budget the PreToolUse hook denies every tool call with the reason until `tally budget approve --note "..."` (plugin: `/tally:budget`) records who lifted it and why. The status line shows the stop.
+- **Reviewer brief.** The receipt posted on an issue or PR is now a brief for the human reviewer: verified independently, rated by the model, needs a manual look, where the agent struggled (loops and repeated reads), and what was not verified against disk.
+- **Playbook.** `tally playbook [--all] [--write]` clusters the recurring "Next time" lessons across receipts and writes them as a CLAUDE.md section.
+- **Review burden.** Follow-up records review rounds and hours from PR open to merge next to review comments and change requests.
+- **Export.** `tally export [--since 30d] [--out f.jsonl] [--titles]` writes one JSON line per receipt with numbers, statuses and outcomes only (no prompts, code or criterion text; titles only on request): the record a team can collect centrally.
+
+### Changed
+
+- `judge --recompute` and `calibrate rescore` use the effective status (override over judge) and the current rule.
+- Measured on the author's 11 blind-graded sessions: 3 abstentions; on the other 8, verdicts exact 1 of 8 and within one step 6 of 8; criteria 51% exact, 61% within one step.
+
 ## [0.1.1] - 2026-09-22
 
 ### Changed
@@ -42,5 +62,6 @@ First public preview. Installable as a Claude Code plugin (`/plugin marketplace 
 
 See the README's "Known limitations" section, including what was cut from this release (plugin evals, a data-dir migration to `${CLAUDE_PLUGIN_DATA}`).
 
+[0.2.0]: https://github.com/kru3ish/tally/releases/tag/v0.2.0
 [0.1.1]: https://github.com/kru3ish/tally/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kru3ish/tally/releases/tag/v0.1.0

@@ -12,11 +12,11 @@ export type VerdictText = (typeof VERDICTS)[number];
 export interface CalibrationEntry {
   ts: string;
   session: string;
-  source: 'human' | 'fixture' | 'backfill';
+  source: 'human' | 'fixture' | 'backfill' | 'dispute';
   grader?: string;
   task_title: string;
   criteria: Array<{ id: string; text: string; judge: Status; human: Status; evidence: string }>;
-  judge_verdict: VerdictText;
+  judge_verdict: VerdictText | 'insufficient evidence';
   human_verdict?: VerdictText;
   judge_model?: string;
   coach?: Array<{ rule: string; key: string; title: string; mark: 'useful' | 'noise' }>;
@@ -129,6 +129,8 @@ export interface CalibrationReport {
   verdict_agreement: number | null;
   /* borderline next to either extreme counts as one step; worth it vs not worth it is two */
   verdict_lenient_agreement: number | null;
+  /* receipts where the judge abstained (insufficient evidence): not counted as agreement or disagreement */
+  verdict_abstained: number;
   confusion: Record<Status, Record<Status, number>>;
   disagreements: Array<{ session: string; task: string; id: string; text: string; human: Status; judge: Status; evidence: string }>;
   verdict_disagreements: Array<{ session: string; task: string; human: VerdictText; judge: VerdictText }>;
@@ -151,6 +153,7 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
   let vTotal = 0;
   let vAgree = 0;
   let vNear = 0;
+  let vAbstained = 0;
   const V_ORDER: Record<string, number> = { 'not worth it': 0, borderline: 1, 'worth it': 2 };
   for (const e of entries) {
     for (const c of e.criteria) {
@@ -165,6 +168,10 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
       }
     }
     if (e.human_verdict) {
+      if (e.judge_verdict === 'insufficient evidence') {
+        vAbstained += 1;
+        continue;
+      }
       vTotal += 1;
       if (e.human_verdict === e.judge_verdict) vAgree += 1;
       if (Math.abs((V_ORDER[e.human_verdict] ?? 1) - (V_ORDER[e.judge_verdict] ?? 1)) <= 1) vNear += 1;
@@ -226,6 +233,7 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     verdict_total: vTotal,
     verdict_agreement: vTotal ? vAgree / vTotal : null,
     verdict_lenient_agreement: vTotal ? vNear / vTotal : null,
+    verdict_abstained: vAbstained,
     confusion,
     disagreements,
     verdict_disagreements: vd,
@@ -242,7 +250,7 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
     return L.join('\n');
   }
   L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact · ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) · n=${r.criteria}`);
-  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact · ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : 'n/a (no human verdicts)'} · n=${r.verdict_total}`);
+  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact · ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : 'n/a (no human verdicts)'} · n=${r.verdict_total}${r.verdict_abstained ? ` · ${r.verdict_abstained} abstained (insufficient evidence)` : ''}`);
   L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
   if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(' and ')}`);
   else L.push('inter-grader          n/a (no session graded by two people; use --grader <name>)');

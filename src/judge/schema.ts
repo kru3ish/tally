@@ -22,7 +22,7 @@ export const JudgeSchema = z.object({
   }),
   head: z.string().optional(),
   historical: z.object({ start_head: z.string().optional(), end_head: z.string().optional(), notes: z.array(z.string()) }).optional(),
-  criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()), resolved_by: z.enum(['tier0', 'tier1', 'tier2', 'rule']).default('tier2'), confidence: z.number().min(0).max(1).optional() })),
+  criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()), resolved_by: z.enum(['tier0', 'tier1', 'tier2', 'rule']).default('tier2'), confidence: z.number().min(0).max(1).optional(), override: z.object({ status: CriterionStatus, reason: z.string(), by: z.string(), ts: z.string(), original: CriterionStatus }).optional() })),
   tiers: z
     .object({
       ran: z.array(z.enum(['tier0', 'tier1', 'tier2'])),
@@ -107,15 +107,15 @@ export const JudgeSchema = z.object({
     note: z.string(),
     rows: z.array(z.object({ kind: z.enum(['skill', 'mcp']), name: z.string(), invocations: z.number(), errors: z.number(), tokens: z.number(), usd: z.number(), touched_met_criteria: z.boolean().nullable() })),
   }),
-  verdict: z.object({ verdict: z.enum(['worth it', 'borderline', 'not worth it']), reason: z.string() }),
+  verdict: z.object({ verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']), reason: z.string() }),
   recommendations: z.array(z.string()).max(3),
   judge_model: z.string(),
   followup: z
     .object({
       checked_at: z.string(),
       final_status: z.enum(['held up', 'needed rework', 'reverted', 'unknown']),
-      final_verdict: z.enum(['worth it', 'borderline', 'not worth it']),
-      original_verdict: z.enum(['worth it', 'borderline', 'not worth it']),
+      final_verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']),
+      original_verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']),
       pr_state: z.string().optional(),
       merged: z.boolean().optional(),
       reverted: z.boolean().optional(),
@@ -124,6 +124,9 @@ export const JudgeSchema = z.object({
       review_comments: z.number().optional(),
       change_requests: z.number().optional(),
       ci_failed_after_merge: z.boolean().optional(),
+      /* review burden the PR put on humans: distinct review submissions, and hours from PR open to merge */
+      review_rounds: z.number().int().nonnegative().optional(),
+      hours_to_approval: z.number().nonnegative().optional(),
       gh_skipped: z.boolean().optional(),
       notes: z.array(z.string()),
     })

@@ -113,35 +113,48 @@ export function computeVerdict(input: { completion_pct: number; roi: number | nu
   const { completion_pct, roi, quality, testsFailed } = input;
   const verifiable = input.verifiable ?? 1;
   const unverifiable = input.unverifiable ?? 0;
-  /* nothing could be checked: there is no basis for a call either way */
-  if (verifiable === 0) return 'borderline';
+  /* nothing could be checked, or most could not: say so instead of guessing (0.2: abstention) */
+  if (verifiable === 0) return 'insufficient evidence';
+  if (unverifiable > verifiable) return 'insufficient evidence';
   const roiOk = roi === null ? true : roi >= 2;
   const roiBad = roi !== null && roi < 1;
   let verdict: Verdict = 'borderline';
   if (completion_pct < 40 || roiBad || quality < 4) verdict = 'not worth it';
   else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = 'worth it';
-  /* when most criteria could not be checked, neither extreme is earned */
-  if (unverifiable > verifiable) return 'borderline';
   return verdict;
 }
 
 /* Re-derives completion, credited value, ROI and the verdict of a stored receipt from its criteria, with no model call.
    Used after a scoring-rule change so graded receipts can be rescored against the unchanged human grades. */
-export function recomputeReceipt(session: string): Judge | null {
-  const j = loadJudge(session);
-  if (!j) return null;
-  const scored = scoreCounts(j.counts, j.value.human_value_usd, j.cost.total_usd);
+/* Effective status: a dispute override wins over the judge's call. */
+export function effectiveStatus(c: { status: Status; override?: { status: Status } }): Status {
+  return c.override?.status ?? c.status;
+}
+
+/* Re-scores a receipt from its criteria (effective statuses), with no model call. `why` is appended to the verdict
+   reason once, so a reader sees that the numbers were re-derived and from what. */
+export function rescoreJudge(j: Judge, why: string): Judge {
+  const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
+  for (const c of j.criteria) counts[effectiveStatus(c)] += 1;
+  const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
   const testsFailed = j.verification.ran && j.verification.passed === false;
-  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: j.counts.unverifiable });
-  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct;
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
+  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
   const next: Judge = {
     ...j,
+    counts,
     completion_pct: scored.completion_pct,
     completion_basis: { verifiable: scored.verifiable, total: scored.total },
     value: { ...j.value, credited_value_usd: scored.credited, roi_multiple: scored.roi },
-    verdict: { verdict, reason: changed && !/\[recomputed/.test(j.verdict.reason) ? `${j.verdict.reason} [recomputed with the 0.1.1 completion rule: ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${j.counts.unverifiable} unverifiable]` : j.verdict.reason },
+    verdict: { verdict, reason: changed ? `${j.verdict.reason} [re-scored: ${why}; ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${counts.unverifiable} unverifiable]` : j.verdict.reason },
   };
-  const validated = JudgeSchema.parse(next);
+  return JudgeSchema.parse(next);
+}
+
+export function recomputeReceipt(session: string): Judge | null {
+  const j = loadJudge(session);
+  if (!j) return null;
+  const validated = rescoreJudge(j, 'current scoring rule');
   persistJudge(validated, loadTask(session));
   return validated;
 }

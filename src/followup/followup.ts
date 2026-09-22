@@ -22,6 +22,7 @@ export const realFollowupDeps: FollowupDeps = { exec: gitExec };
 interface PrView {
   state?: string;
   mergedAt?: string | null;
+  createdAt?: string | null;
   mergeCommit?: { oid?: string } | null;
   reviews?: Array<{ state?: string }>;
   comments?: Array<unknown>;
@@ -40,6 +41,7 @@ function parseJson<T>(s: string): T | null {
 
 export function adjustVerdict(original: Verdict, status: FinalStatus): Verdict {
   if (status === 'reverted') return 'not worth it';
+  if (original === 'insufficient evidence') return status === 'held up' ? 'borderline' : original;
   if (status === 'needed rework') return original === 'worth it' ? 'borderline' : 'not worth it';
   return original;
 }
@@ -82,7 +84,7 @@ export function followupSession(session: string, deps: FollowupDeps = realFollow
   }
 
   if (prUrl && gh.ok) {
-    const r = deps.exec('gh', ['pr', 'view', prUrl, '--json', 'state,mergedAt,mergeCommit,reviews,comments,number,headRefName,closed'], cwd);
+    const r = deps.exec('gh', ['pr', 'view', prUrl, '--json', 'state,mergedAt,createdAt,mergeCommit,reviews,comments,number,headRefName,closed'], cwd);
     const pr = r.ok ? parseJson<PrView>(r.stdout) : null;
     if (pr) {
       prNumber = pr.number;
@@ -93,6 +95,10 @@ export function followupSession(session: string, deps: FollowupDeps = realFollow
       const reviews = pr.reviews ?? [];
       fu.review_comments = (pr.comments?.length ?? 0) + reviews.length;
       fu.change_requests = reviews.filter((x) => x.state === 'CHANGES_REQUESTED').length;
+      /* review burden: every review submission is a round; approval time runs from PR open to merge */
+      fu.review_rounds = reviews.length;
+      if (pr.createdAt && pr.mergedAt) fu.hours_to_approval = Math.round(((Date.parse(pr.mergedAt) - Date.parse(pr.createdAt)) / 3600e3) * 10) / 10;
+      if (fu.hours_to_approval !== undefined) notes.push(`Review burden: ${fu.review_rounds} review round(s), ${fu.hours_to_approval} h from open to merge.`);
       notes.push(`PR ${prUrl} is ${pr.state}${fu.merged ? ' (merged)' : ''}; ${fu.review_comments} review comments, ${fu.change_requests} change requests.`);
       if (fu.merged && mergeSha) {
         const runs = deps.exec('gh', ['run', 'list', '--commit', mergeSha, '--json', 'conclusion,status,name', '--limit', '20'], cwd);

@@ -1,7 +1,7 @@
 {
   "name": "tally",
   "displayName": "Tally",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Per-task receipts and live coaching for Claude Code: ties a ticket's acceptance criteria to what shipped, what it cost, what was wasted, and whether it held up.",
   "author": {
     "name": "Krish Mehta",

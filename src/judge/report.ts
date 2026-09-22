@@ -24,7 +24,7 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push('| # | Status | Criterion | Evidence |');
   L.push('|---|---|---|---|');
-  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.status]} ${c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.files.length ? ` (${c.files.join(', ')})` : ''} _${c.resolved_by}${c.confidence !== undefined && c.resolved_by !== 'tier0' ? `, conf ${c.confidence.toFixed(2)}` : ''}_ |`);
+  for (const c of j.criteria) L.push(`| ${c.id} | ${STATUS_ICON[c.override?.status ?? c.status]} ${c.override ? `${c.override.status} (disputed, was ${c.override.original})` : c.status} | ${esc(c.text)} | ${esc(c.evidence)}${c.override ? ` · dispute by ${esc(c.override.by)}: ${esc(c.override.reason)}` : ''}${c.files.length ? ` (${c.files.join(', ')})` : ''} _${c.resolved_by}${c.confidence !== undefined && c.resolved_by !== 'tier0' ? `, conf ${c.confidence.toFixed(2)}` : ''}_ |`);
   L.push('');
   L.push(`## How it was judged`);
   L.push('');
@@ -108,13 +108,13 @@ function esc(s: string): string {
 
 export function renderSummary(j: Judge, color = true): string {
   const c = (code: string, s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
-  const verdictColor = j.verdict.verdict === 'worth it' ? '32' : j.verdict.verdict === 'borderline' ? '33' : '31';
+  const verdictColor = j.verdict.verdict === 'worth it' ? '32' : j.verdict.verdict === 'borderline' ? '33' : j.verdict.verdict === 'insufficient evidence' ? '90' : '31';
   const L: string[] = [];
   L.push(c('1', `Tally receipt · ${j.task.title}`));
   L.push(`${c(verdictColor, c('1', j.verdict.verdict.toUpperCase()))}${j.followup ? `  → after follow-up: ${c('1', j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ''}  ·  ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` (${j.counts.unverifiable} unverifiable)` : ''}  ·  quality ${j.quality.score}/10  ·  ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`);
   for (const cr of j.criteria) {
     const col = cr.status === 'met' ? '32' : cr.status === 'partial' ? '33' : cr.status === 'unmet' ? '31' : '90';
-    L.push(`  ${c(col, STATUS_ICON[cr.status]!)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}`);
+    L.push(`  ${c(col, STATUS_ICON[cr.override?.status ?? cr.status]!)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}${cr.override ? c('36', `  disputed: ${cr.override.original} → ${cr.override.status} by ${cr.override.by} (${cr.override.reason})`) : ''}`);
   }
   L.push(`Judged by: ${j.tiers.ran.map((t) => t.replace('tier', 'tier ')).join(' → ')} · ${j.tiers.reason}${j.tiers.calls.length ? ` · model spend ${fmtUsd(j.tiers.llm_cost_usd)}` : ' · $0 in model calls'}`);
   L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')}` : c('90', `not run (${j.verification.reason})`)}`);

@@ -210,6 +210,6 @@ describe('plugin manifest', () => {
     }
     const market = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')) as { plugins: Array<{ name: string }> };
     expect(market.plugins[0]!.name).toBe('tally');
-    for (const c of ['tally.md', 'task.md', 'judge.md', 'report.md', 'coach.md', 'statusline.md']) expect(fs.existsSync(path.join(root, 'commands', c))).toBe(true);
+    for (const c of ['tally.md', 'task.md', 'judge.md', 'report.md', 'coach.md', 'statusline.md', 'explain.md', 'dispute.md', 'budget.md']) expect(fs.existsSync(path.join(root, 'commands', c))).toBe(true);
   });
 });

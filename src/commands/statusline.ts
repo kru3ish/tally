@@ -62,6 +62,7 @@ export function renderStatusLine(input: StatusInput, color = true): string {
   if (typeof ctx === 'number') parts.push(ctx >= 85 ? paint(C.red, `ctx ${Math.round(ctx)}%`) : ctx >= 70 ? paint(C.yellow, `ctx ${Math.round(ctx)}%`) : `ctx ${Math.round(ctx)}%`);
   /* the slash command only exists with the plugin; CLI installs get the CLI command */
   if (flags) parts.push(paint(C.cyan, `${flags} coach flag${flags === 1 ? '' : 's'} (${enabledPluginIds().length ? '/tally:coach' : 'tally coach'})`));
+  if (session && fs.existsSync(path.join(sessionDir(session), 'hard-stop.json'))) parts.push(paint(C.red, 'HARD STOP: over the repo budget · tally budget approve'));
   if (judge) parts.push(paint(judge.verdict.verdict === 'worth it' ? C.green : judge.verdict.verdict === 'not worth it' ? C.red : C.yellow, `receipt: ${judge.completion_pct}% · ${judge.verdict.verdict}`));
   return parts.join(paint(C.dim, ' · '));
 }

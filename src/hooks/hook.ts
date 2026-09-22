@@ -296,6 +296,16 @@ function main(): void {
     }
     case 'PreToolUse': {
       if (alreadySeen(session, event, input.tool_use_id)) break;
+      /* repo policy hard stop: the Coach wrote hard-stop.json when spend passed the budget; every tool call is denied
+         until `tally budget approve` lifts it. The approve command itself is always allowed. */
+      const stopFile = path.join(sessionDir(session), 'hard-stop.json');
+      const cmd0 = typeof input.tool_input?.command === 'string' ? input.tool_input.command : '';
+      if (fs.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
+        const stop = readJson<{ spend_usd?: number; budget_usd?: number }>(stopFile, {});
+        out = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` } } as unknown as typeof out;
+        record(session, 'hard_stop_denied', cwd, { tool_name: input.tool_name, tool_use_id: input.tool_use_id });
+        break;
+      }
       record(session, 'pre_tool', cwd, {
         tool_name: input.tool_name,
         tool_input: shrinkInput(input.tool_input),
