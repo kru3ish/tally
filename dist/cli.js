@@ -7365,12 +7365,13 @@ function moments(session, files, max = 12) {
   } catch {
     return [];
   }
-  const names = files.map((f) => path16.basename(f).toLowerCase());
+  const base = (f) => f.split(/[\/]/).pop() ?? f;
+  const names = files.map((f) => base(f).toLowerCase());
   const out = [];
   for (const c of t.toolCalls) {
     const target = String(c.input.file_path ?? c.input.command ?? c.input.pattern ?? "").toLowerCase();
     if (!names.some((n) => target.includes(n))) continue;
-    const what = c.name === "Bash" ? String(c.input.command).slice(0, 80) : `${c.name} ${path16.basename(String(c.input.file_path ?? ""))}`;
+    const what = c.name === "Bash" ? String(c.input.command).slice(0, 80) : `${c.name} ${base(String(c.input.file_path ?? ""))}`;
     out.push(`${c.ts.slice(11, 19)}  ${what}${c.result?.isError ? "  \u2718" : ""}`);
     if (out.length >= max) break;
   }

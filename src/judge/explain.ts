@@ -34,12 +34,14 @@ function moments(session: string, files: string[], max = 12): string[] {
   } catch {
     return [];
   }
-  const names = files.map((f) => path.basename(f).toLowerCase());
+  /* transcripts from Windows carry backslash paths; split on either separator so basenames match on every OS */
+  const base = (f: string) => f.split(/[\/]/).pop() ?? f;
+  const names = files.map((f) => base(f).toLowerCase());
   const out: string[] = [];
   for (const c of t.toolCalls) {
     const target = String(c.input.file_path ?? c.input.command ?? c.input.pattern ?? '').toLowerCase();
     if (!names.some((n) => target.includes(n))) continue;
-    const what = c.name === 'Bash' ? String(c.input.command).slice(0, 80) : `${c.name} ${path.basename(String(c.input.file_path ?? ''))}`;
+    const what = c.name === 'Bash' ? String(c.input.command).slice(0, 80) : `${c.name} ${base(String(c.input.file_path ?? ''))}`;
     out.push(`${c.ts.slice(11, 19)}  ${what}${c.result?.isError ? '  ✘' : ''}`);
     if (out.length >= max) break;
   }
