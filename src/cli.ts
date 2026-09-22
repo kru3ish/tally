@@ -55,6 +55,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   doctor: () => import('./commands/doctor.js'),
   demo: () => import('./commands/demo.js'),
   status: () => import('./commands/status.js'),
+  statusline: () => import('./commands/statusline.js'),
   config: () => import('./commands/config.js'),
   sessions: () => import('./commands/sessions.js'),
   otel: () => import('./commands/otel.js'),
@@ -67,7 +68,7 @@ const HELP = `tally — per-task receipts and live coaching for Claude Code
 Usage: tally <command> [options]
 
 Setup
-  install [--project]         Add Tally hooks to Claude Code settings (backs up first)
+  install [--project]         Add Tally hooks + status line to Claude Code settings (backs up first)
   uninstall [--project]       Remove hooks; settings return byte-identical
   doctor                      Check claude, gh, hooks, pricing, config
   config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
@@ -84,6 +85,8 @@ Coach
   start                       Open the Coach pane (tmux split if available)
   watch [session]             Attach the Coach to the latest active session
   coach --once                Print pending suggestions and exit
+  coach --tick                One autopilot pass (the Stop hook runs this after every turn)
+  statusline [--install]      Claude Code status line: task, spend vs budget, context, Coach flags
   undo [n]                    Reverse the last Coach change(s)
 
 Experiments
@@ -99,6 +102,7 @@ Calibration
   calibrate grade <session> [--grader name]     blind grading of a backfilled receipt
   calibrate add <session> --human met,partial,... [--verdict "worth it"]
   calibrate report [--source backfill|human|fixture]   agreement, confusion, lean, inter-grader, Coach precision
+  calibrate rescore [--grader name]             refresh the judge side of graded sessions from their current receipts
   calibrate eval [--live] [--record] [--fail-below N]   Regression eval on the fixture sessions
 
 Other

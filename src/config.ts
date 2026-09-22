@@ -25,6 +25,8 @@ export const ConfigSchema = z.object({
       auto_mute_after_skips: z.number().int().positive().default(3),
       context_warn_pct: z.number().default(70),
       context_critical_pct: z.number().default(85),
+      /* the hooks run the Coach after every assistant turn and hand observations to Claude without a pane */
+      autopilot: z.boolean().default(true),
     })
     .default({}),
   judge: z

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { activeFile, appendLine, ensureDir, historyFile, readJson, repoKey, sessionDir, tallyHome, writeJson, claudeHome } from '../paths.js';
+import { activeFile, appendLine, ensureDir, historyFile, readJson, repoKey, sessionDir, tallyHome, writeJson, claudeHome, configFile } from '../paths.js';
 import { redact, redactDeep } from '../redact.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -161,6 +161,32 @@ function updateActive(session: string, patch: Record<string, unknown>, remove = 
   writeJson(file, active);
 }
 
+/* autopilot is on unless ~/.tally/config.json says coach.autopilot: false */
+function autopilotEnabled(): boolean {
+  const cfg = readJson<{ coach?: { autopilot?: boolean } }>(configFile(), {});
+  return cfg.coach?.autopilot !== false;
+}
+
+/* the newest receipt for this repo, one line, so every session opens knowing how the last one went */
+function lastReceipt(cwd: string | undefined): string {
+  if (!cwd) return '';
+  const key = repoKey(cwd);
+  const file = historyFile();
+  if (!fs.existsSync(file)) return '';
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n').slice(-300);
+  for (const line of lines.reverse()) {
+    try {
+      const h = JSON.parse(line) as { repo?: string; verdict?: string; task_title?: string; completion_pct?: number; cost_usd?: number; waste_usd?: number; final_status?: string; final_verdict?: string; internal?: boolean };
+      if (h.repo !== key || !h.verdict || h.internal) continue;
+      const money = (n: number | undefined) => `$${(n ?? 0).toFixed(2)}`;
+      return `Tally: last receipt in this repo: "${h.task_title ?? 'task'}" ${h.completion_pct ?? 0}% complete, ${money(h.cost_usd)} spent, ${money(h.waste_usd)} waste, verdict ${h.final_verdict ?? h.verdict}${h.final_status && h.final_status !== 'unknown' ? ` (${h.final_status})` : ''}.`;
+    } catch {
+      /* skip */
+    }
+  }
+  return '';
+}
+
 function historyLessons(cwd: string | undefined): string {
   if (!cwd) return '';
   const key = repoKey(cwd);
@@ -242,7 +268,7 @@ function main(): void {
         loaded,
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
-      const ctx = [historyLessons(cwd), deliverInjects(session)].filter(Boolean).join('\n');
+      const ctx = [lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join('\n');
       if (ctx) out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } };
       if (followupDue()) spawnDetached(['followup', '--auto']);
       break;
@@ -308,6 +334,8 @@ function main(): void {
     case 'Stop': {
       record(session, 'stop', cwd, { last_assistant_message: truncate(input.last_assistant_message, 800) });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
+      /* autopilot: the Coach runs in a detached process and queues its observations for the next prompt */
+      if (autopilotEnabled()) spawnDetached(['coach', '--tick', '--session', session, '--cwd', cwd ?? '', '--auto']);
       break;
     }
     case 'PreCompact': {

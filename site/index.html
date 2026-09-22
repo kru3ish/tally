@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tally</title>
+<meta name="description" content="A receipt for every Claude Code task, and a coach that runs on its own. Criteria frozen at the start, what shipped, what it cost, whether it held up.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1117'/%3E%3Cpath d='M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8' stroke='%23f3efe6' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ink:#0d1117;--ink-2:#151b24;--ink-3:#1e2631;--line:#2a3442;
+  --paper:#f3efe6;--paper-2:#e9e3d6;--paper-ink:#1a1917;--paper-mute:#6b665c;
+  --text:#e8ecf2;--mute:#8b95a7;--faint:#5c6675;
+  --green:#2e9e6c;--red:#d9534f;--amber:#e0a326;--cyan:#5cc2d8;
+  --display:"Bricolage Grotesque","Public Sans",system-ui,sans-serif;
+  --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --w:1120px;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;background:var(--ink);color:var(--text);font-family:var(--body);font-size:16px;line-height:1.55;padding-block:0;padding-inline:20px;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.05;letter-spacing:-.01em}
+h1{font-size:clamp(38px,5.4vw,66px);font-weight:800}
+h2{font-size:clamp(26px,3.2vw,38px);font-weight:700}
+h3{font-size:20px;font-weight:700}
+p{margin:0}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.92em;background:var(--ink-3);padding:.1em .4em;border-radius:4px}
+pre{margin:0;background:var(--ink-2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;font-size:13.5px;line-height:1.6}
+pre code{background:none;padding:0;font-size:inherit}
+.wrap{max-width:var(--w);margin-inline:auto}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mute{color:var(--mute)}
+.measure{max-width:62ch}
+
+/* nav */
+nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;font-size:20px;text-decoration:none}
+.brand svg{width:26px;height:26px}
+.brand .pre{font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.12em;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:3px 8px}
+nav .links{display:flex;gap:22px;font-size:14px;color:var(--mute)}
+nav .links a{text-decoration:none}
+nav .links a:hover{color:var(--text)}
+
+/* hero */
+.hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:48px;align-items:start;padding-block:64px 56px}
+.hero .lede{font-size:19px;color:var(--mute);margin-top:22px;max-width:52ch}
+.hero .lede b{color:var(--text);font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 16px;border-radius:8px;border:1px solid var(--line);text-decoration:none;font-weight:600;font-size:14.5px;background:var(--ink-2)}
+.btn.primary{background:var(--paper);color:var(--paper-ink);border-color:var(--paper)}
+.btn:focus-visible,a:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+.install-mini{margin-top:26px;display:grid;gap:8px}
+.install-mini pre{font-size:13px}
+.install-mini .k{color:var(--mute);font-size:12px;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase}
+
+/* receipt */
+.receipt{position:relative;background:var(--paper);color:var(--paper-ink);font-family:var(--mono);font-size:12.6px;line-height:1.5;padding:26px 24px 30px;box-shadow:0 30px 60px -20px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04);max-width:100%;
+  --tooth:9px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - var(--tooth)),
+   98% 100%,96% calc(100% - var(--tooth)),94% 100%,92% calc(100% - var(--tooth)),90% 100%,88% calc(100% - var(--tooth)),86% 100%,84% calc(100% - var(--tooth)),82% 100%,80% calc(100% - var(--tooth)),78% 100%,76% calc(100% - var(--tooth)),74% 100%,72% calc(100% - var(--tooth)),70% 100%,68% calc(100% - var(--tooth)),66% 100%,64% calc(100% - var(--tooth)),62% 100%,60% calc(100% - var(--tooth)),58% 100%,56% calc(100% - var(--tooth)),54% 100%,52% calc(100% - var(--tooth)),50% 100%,48% calc(100% - var(--tooth)),46% 100%,44% calc(100% - var(--tooth)),42% 100%,40% calc(100% - var(--tooth)),38% 100%,36% calc(100% - var(--tooth)),34% 100%,32% calc(100% - var(--tooth)),30% 100%,28% calc(100% - var(--tooth)),26% 100%,24% calc(100% - var(--tooth)),22% 100%,20% calc(100% - var(--tooth)),18% 100%,16% calc(100% - var(--tooth)),14% 100%,12% calc(100% - var(--tooth)),10% 100%,8% calc(100% - var(--tooth)),6% 100%,4% calc(100% - var(--tooth)),2% 100%,0 calc(100% - var(--tooth)))}
+.receipt .r-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px dashed #b9b2a4;padding-bottom:8px;margin-bottom:10px}
+.receipt .r-head b{font-weight:600;font-size:13px}
+.receipt .r-head span{color:var(--paper-mute);font-size:11px}
+.receipt .verdict{display:flex;flex-wrap:wrap;gap:6px 14px;font-weight:600;font-size:13px;margin:6px 0 10px}
+.receipt .verdict .b{color:#9a6b00}
+.receipt .crit{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.receipt .crit li{display:grid;grid-template-columns:16px 1fr auto;gap:8px;align-items:baseline}
+.receipt .crit .ok{color:var(--green);font-weight:600}
+.receipt .crit .no{color:var(--red);font-weight:600}
+.receipt .crit .un{color:var(--paper-mute);font-weight:600}
+.receipt .crit .tier{color:var(--paper-mute);font-size:11px}
+.receipt .row{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
+.receipt .row + .row{border-top:1px dotted #d8d2c4}
+.receipt .sec{border-top:1px dashed #b9b2a4;margin-top:10px;padding-top:8px}
+.receipt .why{color:#3d3a34;margin-top:6px}
+.receipt .next{margin:6px 0 0;padding-left:16px}
+.receipt .next li{margin:2px 0}
+.receipt .fu{background:#efe7d6;margin:12px -24px -30px;padding:10px 24px 22px;border-top:1px dashed #b9b2a4}
+.receipt .fu b{color:#a13c38}
+.receipt .stamp{position:absolute;right:18px;top:78px;transform:rotate(-8deg);border:2px solid rgba(154,107,0,.55);color:rgba(154,107,0,.8);padding:3px 8px;font-weight:700;letter-spacing:.14em;font-size:11px;border-radius:3px}
+@media (prefers-reduced-motion:no-preference){
+  .receipt{animation:print 1.6s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes print{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
+  .receipt.printed{animation:none}
+}
+
+/* status line */
+.statusbar{margin-top:18px;background:#05070a;border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:12.5px;color:#c7ceda;overflow-x:auto;white-space:nowrap}
+.statusbar .d{color:var(--faint)}
+.statusbar .y{color:var(--amber)}
+.statusbar .c{color:var(--cyan)}
+.statusbar .g{color:var(--green)}
+.statusbar .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;white-space:normal}
+
+/* sections */
+section{padding-block:56px;border-top:1px solid var(--line)}
+.sec-head{display:grid;gap:10px;margin-bottom:30px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px}
+.three h3{margin-bottom:8px}
+.three p{color:var(--mute);font-size:15px}
+.three .k{font-family:var(--mono);font-size:12px;color:var(--cyan);letter-spacing:.06em;margin-bottom:12px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}
+.two h3{margin-bottom:10px}
+.two p.mute{font-size:14.5px;margin-bottom:12px}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:500}
+td:first-child{white-space:nowrap}
+.tbl{overflow-x:auto}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tiers td:first-child{font-family:var(--mono);color:var(--cyan)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-top:22px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:var(--ink-2)}
+.stat .v{font-family:var(--display);font-size:32px;font-weight:800;letter-spacing:-.02em}
+.stat .v small{font-size:14px;color:var(--mute);font-weight:500;margin-left:6px}
+.stat .l{color:var(--mute);font-size:13px;margin-top:4px}
+.callout{border-left:3px solid var(--amber);padding:6px 16px;color:var(--mute);font-size:15px;margin-top:20px;max-width:70ch}
+.cmp td:first-child{color:var(--mute)}
+.cmp td.y{color:var(--green);font-weight:600}
+.cmp td.n{color:var(--faint)}
+.rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 28px;font-size:14.5px;margin-top:8px}
+.rules div{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.rules code{color:var(--cyan);background:none;padding:0}
+.rules span{color:var(--mute)}
+footer{padding-block:36px 60px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;color:var(--mute);font-size:14px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--text)}
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;gap:34px;padding-block:44px 40px}
+  .three,.two,.rules{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  nav .links{display:none}
+}
+@media (max-width:480px){.stats{grid-template-columns:1fr}.rules div{grid-template-columns:1fr;gap:2px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.1.0</span></a>
+  <div class="links"><a href="#how">How it judges</a><a href="#accuracy">Accuracy</a><a href="#install">Install</a><a href="#privacy">Privacy</a><a href="https://github.com/kru3ish/tally">GitHub</a></div>
+</nav>
+
+<div class="hero">
+  <div>
+    <div class="eyebrow">For Claude Code · local · open source</div>
+    <h1 style="margin-top:14px">A receipt for every Claude Code task.</h1>
+    <p class="lede">Claude Code tells you what a session cost. Tally tells you what the task returned: the ticket's acceptance criteria <b>frozen before any code exists</b>, what actually shipped, what it cost, what was wasted, and whether it held up after merge. A coach runs on its own beside every session.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install in two lines</a>
+      <a class="btn" href="https://github.com/kru3ish/tally">Read the source</a>
+    </div>
+    <div class="install-mini">
+      <span class="k">Claude Code plugin</span>
+      <pre><code>/plugin marketplace add kru3ish/tally
+/plugin install tally@tally</code></pre>
+    </div>
+    <div class="statusbar">
+      <div class="lbl">Claude Code status line, always on</div>
+      <span class="d">Tally</span> <span class="d">·</span> Rate limit the login endpoint <span class="d">·</span> <span class="y">$1.33/$56.25 (2%)</span> <span class="d">·</span> ctx 34% <span class="d">·</span> <span class="c">2 coach flags (/tally:coach)</span> <span class="d">·</span> <span class="g">receipt: 50% · borderline</span>
+    </div>
+  </div>
+
+  <div class="receipt" id="receipt" aria-label="A Tally receipt for the demo session">
+    <div class="r-head"><b>TALLY RECEIPT</b><span>demo session · 2026-09-10</span></div>
+    <div><b>Rate limit the login endpoint</b><br><span style="color:var(--paper-mute)">github.com/acme/app/issues/42 · criteria frozen 14:01</span></div>
+    <div class="stamp">JUDGED</div>
+    <div class="verdict"><span class="b">BORDERLINE</span><span>50% complete</span><span>quality 7/10</span><span>ROI 84×</span></div>
+    <ul class="crit">
+      <li><span class="ok">✔</span><span>c1 POST /api/login returns 429 after 5 failed attempts</span><span class="tier">tier 2 · 1.00</span></li>
+      <li><span class="ok">✔</span><span>c2 A test covers the 429 path</span><span class="tier">tier 2 · 1.00</span></li>
+      <li><span class="no">✘</span><span>c3 README documents the limit</span><span class="tier">tier 1 · 1.00</span></li>
+      <li><span class="un">?</span><span>c4 Existing login behaviour unchanged below the limit</span><span class="tier">tier 1 · 1.00</span></li>
+    </ul>
+    <div class="sec">
+      <div class="row"><span>Verification</span><span>npm test → passed</span></div>
+      <div class="row"><span>Cost (API-equivalent)</span><span>$1.33 of $56.25 budget</span></div>
+      <div class="row"><span>Per met criterion</span><span>$0.660</span></div>
+      <div class="row"><span>Waste</span><span>$0.629 (3 identical failing runs)</span></div>
+      <div class="row"><span>Tally's own spend</span><span>$0.070 · 5.3%</span></div>
+      <div class="row"><span>Value credited</span><span>$113 of $225</span></div>
+    </div>
+    <div class="sec">
+      <div class="why">Two of four criteria are met with an independent green test run, one unmet, one unverifiable. Spend is well inside budget, but the README item was skipped and stated as skipped, and $0.60 went into three identical failing test runs.</div>
+      <div style="margin-top:8px;font-weight:600">Next time</div>
+      <ol class="next">
+        <li>When npm test fails twice with the same assertion, read the test before editing again.</li>
+        <li>Read the ticket checklist before saying done.</li>
+        <li>Stop calling the Jira MCP after the first 401.</li>
+      </ol>
+    </div>
+    <div class="fu">Follow-up, 8 days later: PR #57 merged, then reverted in dba0f121 → <b>NOT WORTH IT</b></div>
+  </div>
+</div>
+
+<section>
+  <div class="three">
+    <div>
+      <div class="k">01 · THE RECEIPT</div>
+      <h3>Criteria in, verdict out.</h3>
+      <p>Intake pulls the ticket from GitHub, Jira, Linear or a file and freezes its acceptance criteria before the first edit. On push, the Judge collects the diff and every test command the session ran, re-runs your tests itself, and rates each criterion met, partial, unmet or unverifiable with the evidence line. Completion, cost by phase, waste in dollars, ROI and the verdict are arithmetic, not opinion.</p>
+    </div>
+    <div>
+      <div class="k">02 · THE COACH, ON ITS OWN</div>
+      <h3>Runs after every turn.</h3>
+      <p>No pane to open. After each of Claude's turns the hooks run thirteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Decisions only you can make show as flags in the status line.</p>
+    </div>
+    <div>
+      <div class="k">03 · THE FOLLOW-UP</div>
+      <h3>Did it hold up?</h3>
+      <p>Seven days later Tally checks the PR: merged, reverted, reopened, review churn, CI on the merge commit. The verdict is adjusted and both are kept. Every new session in the repo opens with one line about how the last one went.</p>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="sec-head">
+    <div class="eyebrow">How it judges</div>
+    <h2>Tiered, so most receipts cost almost nothing.</h2>
+    <p class="mute measure">A model rates criteria. Arithmetic decides the verdict. A transcript saying "all tests pass" is a claim; Tally runs the tests itself, with your consent, in a scrubbed environment, and marks anything it cannot check as unverifiable rather than guessing.</p>
+  </div>
+  <div class="tbl"><table class="tiers">
+    <thead><tr><th>Tier</th><th>What runs</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>Mechanical checks attached to each criterion at intake: tests pass, file exists, file changed, diff contains, command, PR. Cost, waste, ship events.</td><td>Always. No model.</td></tr>
+      <tr><td>1</td><td>A small model on the remaining judgment criteria with an evidence pack trimmed to ~6k tokens; returns a confidence per criterion.</td><td>Whenever judgment criteria remain.</td></tr>
+      <tr><td>2</td><td>A stronger model on only the criteria that need it: small again under $1 of session spend, sonnet up to $3, opus above.</td><td>Session cost ≥ $3, <code>--deep</code>, low confidence, a partial/unmet call on a correctness criterion, or a criterion whose one-step change would flip the verdict.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="callout">Verdict rule: <b>worth it</b> needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run. <b>Not worth it</b> is under 40%, ROI under 1, or quality under 4. Everything between is borderline. Dollar figures are API-equivalent at list price; Tally's own calls are counted separately and printed on every receipt.</p>
+</section>
+
+<section id="accuracy">
+  <div class="sec-head">
+    <div class="eyebrow">Accuracy</div>
+    <h2>Early, and measured two ways.</h2>
+    <p class="mute measure">Neither is a benchmark. The fixture numbers are reproduced in CI on every commit; the real-session numbers come from the author's own sessions, blind-graded before seeing Tally's answer.</p>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="v">19<small>/ 19</small></div><div class="l">criteria agreed, 5 fixture sessions</div></div>
+    <div class="stat"><div class="v">5<small>/ 5</small></div><div class="l">verdicts agreed, fixtures</div></div>
+    <div class="stat"><div class="v">4.1<small>%</small></div><div class="l">Tally's own spend, share of session spend</div></div>
+    <div class="stat"><div class="v">{{CALIBRATION_CRITERION_AGREEMENT}}</div><div class="l">criterion agreement on {{CALIBRATION_SESSIONS}} real sessions, {{CALIBRATION_CRITERIA}} criteria (early, n={{CALIBRATION_SESSIONS}})</div></div>
+  </div>
+  <p class="callout">Real sessions, blind-graded (n={{CALIBRATION_SESSIONS}}, {{CALIBRATION_DATE}}): {{CALIBRATION_CRITERION_AGREEMENT}} exact criterion agreement ({{CALIBRATION_WITHIN_ONE_STEP}} within one step), {{CALIBRATION_VERDICT_AGREEMENT}} verdict agreement on {{CALIBRATION_VERDICTS}} verdicts, Tally {{CALIBRATION_LEAN}}. Coach: {{CALIBRATION_COACH_PRECISION}}. Grade your own with <code>tally calibrate grade</code>; that is the data this needs next.</p>
+</section>
+
+<section id="install">
+  <div class="sec-head">
+    <div class="eyebrow">Install</div>
+    <h2>Two lines, either way.</h2>
+  </div>
+  <div class="two">
+    <div>
+      <h3>As a Claude Code plugin</h3>
+      <p class="mute">Hooks, autopilot Coach and the <code>/tally:*</code> commands. Needs Node 18+ and git, nothing else.</p>
+      <pre><code>/plugin marketplace add kru3ish/tally
+/plugin install tally@tally
+/tally:statusline        # once, for the status bar</code></pre>
+    </div>
+    <div>
+      <h3>As an npm CLI</h3>
+      <p class="mute">Hooks and status line go into <code>~/.claude/settings.json</code>, backed up first and restored byte-identical on uninstall. Adds the one-key Coach pane, backfill and blind grading.</p>
+      <pre><code>npm i -g @kru3ish/tally
+tally install
+tally doctor</code></pre>
+    </div>
+  </div>
+  <p class="callout">Pick one. <code>tally install</code> refuses while the plugin is enabled, and <code>tally doctor</code> says so, so events are never recorded twice. <code>tally demo</code> replays a recorded session end to end in a throwaway directory before you install anything.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">The rules</div>
+    <h2>What the Coach watches for.</h2>
+  </div>
+  <div class="rules">
+    <div><code>loop-detect</code><span>the same failing command or edit repeats 3×</span></div>
+    <div><code>reread</code><span>the same file is read 3× without changing</span></div>
+    <div><code>context-pressure</code><span>context passes 70% / 85%; writes HANDOFF.md</span></div>
+    <div><code>burn-rate</code><span>spend with no file changes, or 80% / 100% of budget</span></div>
+    <div><code>mcp-errors</code><span>an MCP tool errors 3×</span></div>
+    <div><code>mcp-opportunity</code><span>3+ shell or web fetches an MCP server would handle</span></div>
+    <div><code>dead-weight</code><span>a skill or MCP server loaded but unused, with its first-turn cost in dollars</span></div>
+    <div><code>permission-friction</code><span>repeated prompts for the same safe command</span></div>
+    <div><code>claude-md</code><span>no CLAUDE.md, or an instruction repeated across sessions</span></div>
+    <div><code>task-quality</code><span>spec quality under 5: clarify the ticket first, with the questions</span></div>
+    <div><code>task-confirm</code><span>the task was inferred from prompts and not yet confirmed</span></div>
+    <div><code>history-lesson</code><span>lessons from past receipts and follow-ups in this repo</span></div>
+    <div><code>verification-consent</code><span>first test re-run in a repo asks once</span></div>
+  </div>
+  <p class="callout">Noise control: at most one non-critical suggestion per three minutes and eight per session; critical ones always show. What reaches Claude is always an observation ("Tally observed npm test fail 3 times"), never an instruction.</p>
+</section>
+
+<section id="privacy">
+  <div class="two">
+    <div>
+      <div class="eyebrow">Privacy</div>
+      <h2 style="margin-top:10px">Nothing leaves your machine.</h2>
+      <p class="mute" style="margin-top:14px">Hooks make no network calls and finish in under 150 ms. Model calls go through <code>claude -p</code> on your own login, isolated from your MCP servers, hooks and skills. Events are redacted (keys, tokens, bearer headers, passwords in URLs) and truncated before they are written. Write-back to an issue or PR is off by default and never includes prompts or code. Everything lives in <code>~/.tally</code>; delete the folder and it is gone.</p>
+    </div>
+    <div>
+      <div class="eyebrow">Next to the built-ins</div>
+      <div class="tbl" style="margin-top:14px"><table class="cmp">
+        <thead><tr><th></th><th>/cost, ccusage</th><th>/insights</th><th>Tally</th></tr></thead>
+        <tbody>
+          <tr><td>Unit</td><td>session, day</td><td>30 days</td><td class="y">one task</td></tr>
+          <tr><td>Tied to acceptance criteria</td><td class="n">no</td><td class="n">no</td><td class="y">frozen at intake</td></tr>
+          <tr><td>Runs your tests</td><td class="n">no</td><td class="n">no</td><td class="y">yes</td></tr>
+          <tr><td>Post-merge outcome</td><td class="n">no</td><td class="n">no</td><td class="y">merged / reverted</td></tr>
+          <tr><td>Live coaching</td><td class="n">no</td><td class="n">no</td><td class="y">autopilot</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div>Tally · MIT · <a href="https://github.com/kru3ish/tally">github.com/kru3ish/tally</a> · <a href="https://www.npmjs.com/package/@kru3ish/tally">npm</a> · <a href="https://github.com/kru3ish/tally/blob/main/CHANGELOG.md">changelog</a> · <a href="https://github.com/kru3ish/tally/blob/main/SECURITY.md">security</a></div>
+  <div>Preview. Treat verdicts as a second opinion.</div>
+</footer>
+</div>
+<script>
+  (function(){var r=document.getElementById('receipt');if(!r)return;r.addEventListener('animationend',function(){r.classList.add('printed')});})();
+</script>
+</body>
+</html>

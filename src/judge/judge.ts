@@ -182,7 +182,7 @@ export async function judgeSession(opts: {
   /* Tier 0: mechanical checks, no model */
   for (const c of task.criteria) {
     if (c.kind !== 'mechanical' || !c.check) continue;
-    const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms });
+    const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
     resolved.set(c.id, { id: c.id, text: c.text, status: r0.status, evidence: `[${c.check.kind}] ${r0.evidence}`, files: r0.files, resolved_by: 'tier0' });
   }
   const judgmentIds = task.criteria.filter((c) => !resolved.has(c.id)).map((c) => c.id);

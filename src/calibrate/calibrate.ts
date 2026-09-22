@@ -22,6 +22,8 @@ export interface CalibrationEntry {
   coach?: Array<{ rule: string; key: string; title: string; mark: 'useful' | 'noise' }>;
   task_source?: 'linked' | 'inferred' | 'confirmed';
   task_edited?: boolean;
+  /* set when the judge side was refreshed from a newer receipt against the same human grades */
+  rescored_from?: string;
 }
 
 export function calibrationFile(): string {
@@ -61,6 +63,36 @@ export function entryFromJudge(judge: Judge, human: Status[], humanVerdict: Verd
     judge_model: judge.judge_model,
     task_source: judge.task.task_source,
   };
+}
+
+/* Re-reads the current receipt for every graded backfill session and rewrites the judge side of the entry against
+   the unchanged human grades (matched by criterion id). The human grades are never touched; a receipt whose criteria
+   no longer match is skipped. Appends new entries, so the file keeps the history and the report uses the newest. */
+export function rescoreCalibration(opts: { grader?: string; source?: CalibrationEntry['source'] } = {}): { rescored: string[]; skipped: Array<{ session: string; why: string }> } {
+  const all = readCalibration().filter((e) => e.source === (opts.source ?? 'backfill') && (!opts.grader || (e.grader ?? '') === opts.grader));
+  const latest = new Map<string, CalibrationEntry>();
+  for (const e of all) latest.set(`${e.session}|${e.grader ?? ''}`, e);
+  const rescored: string[] = [];
+  const skipped: Array<{ session: string; why: string }> = [];
+  for (const e of latest.values()) {
+    const judge = loadJudge(e.session);
+    if (!judge) {
+      skipped.push({ session: e.session, why: 'no receipt' });
+      continue;
+    }
+    const ids = judge.criteria.map((c) => c.id).join(',');
+    if (ids !== e.criteria.map((c) => c.id).join(',')) {
+      skipped.push({ session: e.session, why: `criteria changed (${ids})` });
+      continue;
+    }
+    const unchanged = judge.criteria.every((c, i) => c.status === e.criteria[i]!.judge) && judge.verdict.verdict === e.judge_verdict;
+    if (unchanged) continue;
+    const fresh = entryFromJudge(judge, e.criteria.map((c) => c.human), e.human_verdict, e.source);
+    const next: CalibrationEntry = { ...fresh, grader: e.grader, coach: e.coach, task_edited: e.task_edited, rescored_from: e.ts, criteria: fresh.criteria.map((c, i) => ({ ...c, text: e.criteria[i]!.text })) };
+    appendLine(calibrationFile(), JSON.stringify(next));
+    rescored.push(e.session);
+  }
+  return { rescored, skipped };
 }
 
 export function addCalibration(session: string, human: Status[], humanVerdict?: VerdictText): CalibrationEntry {

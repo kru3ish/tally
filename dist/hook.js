@@ -33,6 +33,9 @@ function ensureDir(p) {
 function historyFile() {
   return path.join(tallyHome(), "history.jsonl");
 }
+function configFile() {
+  return path.join(tallyHome(), "config.json");
+}
 function activeFile() {
   return path.join(tallyHome(), "active.json");
 }
@@ -203,6 +206,27 @@ function updateActive(session, patch, remove = false) {
   for (const [k, v] of Object.entries(active)) if (Date.parse(String(v.last_seen ?? "")) < cutoff) delete active[k];
   writeJson(file, active);
 }
+function autopilotEnabled() {
+  const cfg = readJson(configFile(), {});
+  return cfg.coach?.autopilot !== false;
+}
+function lastReceipt(cwd) {
+  if (!cwd) return "";
+  const key = repoKey(cwd);
+  const file = historyFile();
+  if (!fs2.existsSync(file)) return "";
+  const lines = fs2.readFileSync(file, "utf8").trim().split("\n").slice(-300);
+  for (const line of lines.reverse()) {
+    try {
+      const h = JSON.parse(line);
+      if (h.repo !== key || !h.verdict || h.internal) continue;
+      const money = (n) => `$${(n ?? 0).toFixed(2)}`;
+      return `Tally: last receipt in this repo: "${h.task_title ?? "task"}" ${h.completion_pct ?? 0}% complete, ${money(h.cost_usd)} spent, ${money(h.waste_usd)} waste, verdict ${h.final_verdict ?? h.verdict}${h.final_status && h.final_status !== "unknown" ? ` (${h.final_status})` : ""}.`;
+    } catch {
+    }
+  }
+  return "";
+}
 function historyLessons(cwd) {
   if (!cwd) return "";
   const key = repoKey(cwd);
@@ -278,7 +302,7 @@ function main() {
         loaded
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
-      const ctx = [historyLessons(cwd), deliverInjects(session)].filter(Boolean).join("\n");
+      const ctx = [lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join("\n");
       if (ctx) out = { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } };
       if (followupDue()) spawnDetached(["followup", "--auto"]);
       break;
@@ -341,6 +365,7 @@ function main() {
     case "Stop": {
       record(session, "stop", cwd, { last_assistant_message: truncate(input.last_assistant_message, 800) });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
+      if (autopilotEnabled()) spawnDetached(["coach", "--tick", "--session", session, "--cwd", cwd ?? "", "--auto"]);
       break;
     }
     case "PreCompact": {

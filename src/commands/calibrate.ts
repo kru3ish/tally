@@ -4,6 +4,7 @@ import path from 'node:path';
 import { type Args, flag, has } from '../cli.js';
 import readline from 'node:readline';
 import { addCalibration, buildCalibrationReport, parseStatuses, parseVerdict, readCalibration, renderCalibrationReport, type CalibrationEntry } from '../calibrate/calibrate.js';
+import { rescoreCalibration } from '../calibrate/calibrate.js';
 import { gradeSession } from '../calibrate/grade.js';
 import { loadBaseline, runEval, renderOverheadTable } from '../calibrate/eval.js';
 import { renderSummary } from '../judge/judge.js';
@@ -50,6 +51,12 @@ export async function run(args: Args): Promise<number | void> {
       rl.close();
     }
     process.stdout.write('\nReport: tally calibrate report --source backfill\n');
+    return;
+  }
+  if (sub === 'rescore') {
+    const r = rescoreCalibration({ grader: flag(args, 'grader'), source: 'backfill' });
+    process.stdout.write(`${r.rescored.length} entr${r.rescored.length === 1 ? 'y' : 'ies'} rescored against the current receipts (human grades unchanged)${r.rescored.length ? ': ' + r.rescored.map((s) => s.slice(0, 8)).join(', ') : ''}\n`);
+    for (const s of r.skipped) process.stdout.write(`  skipped ${s.session.slice(0, 8)}: ${s.why}\n`);
     return;
   }
   if (sub === 'report' || !sub) {
@@ -105,6 +112,6 @@ export async function run(args: Args): Promise<number | void> {
     }
     return;
   }
-  process.stderr.write('Usage: tally calibrate add|grade|report|eval\n');
+  process.stderr.write('Usage: tally calibrate add|grade|rescore|report|eval\n');
   return 1;
 }

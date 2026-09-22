@@ -16,7 +16,7 @@ Tally is a small local tool that answers that per task. It runs as a Claude Code
 
 **It judges the result.** When you push, Tally collects the diff, every test command the session ran, and the final message; then it re-runs your tests itself, because "all tests pass" in a transcript is a claim, not evidence. Each criterion gets met / partial / unmet / unverifiable with a cited line. Completion, cost by phase, waste in dollars, ROI and a verdict are computed, not asked for. Seven days later it checks whether the PR was merged, reverted or reopened, and adjusts the verdict.
 
-**It coaches while you work.** A terminal pane beside Claude Code with thirteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server loaded but unused for ten sessions, spend at 80% of the budget. Each suggestion has one-key actions, and what reaches Claude is an observation, not an instruction.
+**It coaches on its own.** No pane to open: after every turn the hooks run thirteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server loaded but unused for ten sessions, spend at 80% of the budget. What Tally observes reaches Claude on the next prompt as an observation, not an instruction; decisions only you can make show as flags in a Claude Code status line that also tracks spend against the task's budget.
 
 The Judge is tiered so it stays cheap: mechanical checks first, a small model on the rest, a stronger model only where a criterion could flip the verdict. On the calibration fixtures Tally's own spend is 4.1% of the session's.
 

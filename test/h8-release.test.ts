@@ -8,6 +8,9 @@ import { loadConfig } from '../src/config.js';
 import { StubLlm } from '../src/llm/client.js';
 import { parseTranscriptFile, readTranscriptLines, type Transcript } from '../src/transcript/parse.js';
 import { reconstructChanges } from '../src/judge/reconstruct.js';
+import { resolveCheck } from '../src/judge/checks.js';
+import { readCalibration as readCal, rescoreCalibration } from '../src/calibrate/calibrate.js';
+import { judgeSession } from '../src/judge/judge.js';
 import { taskSourceOf } from '../src/judge/judge.js';
 import { scanSessions } from '../src/backfill/scan.js';
 import { backfillSession } from '../src/backfill/run.js';
@@ -253,5 +256,55 @@ describe('inject wording', () => {
     expect(replayCoach({ session: 'inj', cwd: 'C:/repo', cfg, events: ev, transcript: t, history: [] }).shown.length).toBeGreaterThan(0);
     injectSuggestion({ rule: 'x', key: 'k', severity: 'info', title: 'Scope creep', message: 'Stick to the ticket.\nmore', usd_saved: 0, action: { kind: 'none', label: '' } }, { session: 'inj', cwd: 'C:/repo' });
     expect(pendingInjects('inj')[0]!.note).toBe('Tally observed: Scope creep. Stick to the ticket.');
+  });
+});
+
+describe('mechanical checks without a git tree', () => {
+  it('resolve from the transcript reconstruction where they can, and are unverifiable otherwise', async () => {
+    const t = { toolCalls: [{ id: 'w1', name: 'Write', input: { file_path: 'C:\\repo\\src\\a.ts', content: 'export const limit = 429;\n' }, ts: '2026-09-10T14:05:00Z', agent: 'main', messageId: 'm', turn: 1, phase: 'work' as const, result: { isError: false, chars: 1, text: '' } }] } as unknown as Transcript;
+    const rec = reconstructChanges(t, [], 'C:\\repo');
+    const ev = { git: { files_changed: [], diff_excerpt: '' }, ship_events: [], reconstruction: rec } as unknown as Parameters<typeof resolveCheck>[1]['evidence'];
+    const ctx = { cwd: tmpDir('tally-notree-'), evidence: ev, verification: { ran: false, reason: 'no tree' }, timeoutMs: 1000, noTree: true } as unknown as Parameters<typeof resolveCheck>[1];
+    expect((await resolveCheck({ kind: 'file_changed', path: 'src/a.ts' }, ctx)).status).toBe('met');
+    expect((await resolveCheck({ kind: 'file_changed', path: 'src/a.ts' }, ctx)).evidence).toContain('reconstructed');
+    expect((await resolveCheck({ kind: 'file_changed', path: '.' }, ctx)).status).toBe('met');
+    expect((await resolveCheck({ kind: 'file_changed', path: 'src/zzz.ts' }, ctx)).status).toBe('unverifiable');
+    expect((await resolveCheck({ kind: 'diff_contains', pattern: '429' }, ctx)).status).toBe('met');
+    expect((await resolveCheck({ kind: 'diff_contains', pattern: '500' }, ctx)).status).toBe('unverifiable');
+    expect((await resolveCheck({ kind: 'file_exists', path: 'src/a.ts' }, ctx)).status).toBe('unverifiable');
+    expect((await resolveCheck({ kind: 'file_contains', path: 'src/a.ts', pattern: '429' }, ctx)).status).toBe('unverifiable');
+    expect((await resolveCheck({ kind: 'command', command: 'npm test', expect_exit: 0 }, ctx)).status).toBe('unverifiable');
+    expect((await resolveCheck({ kind: 'pr', state: 'pushed' }, ctx)).status).toBe('unmet');
+    /* with a real tree, "." means any file changed */
+    const withTree = { ...ctx, noTree: false, evidence: { ...ev, git: { files_changed: ['README.md'], diff_excerpt: '' } } } as unknown as Parameters<typeof resolveCheck>[1];
+    expect((await resolveCheck({ kind: 'file_changed', path: '.' }, withTree)).status).toBe('met');
+  });
+});
+
+describe('calibrate rescore', () => {
+  it('refreshes the judge side of graded entries from the current receipt and leaves human grades alone', async () => {
+    const session = 'rescore-session-0001';
+    const cwd = tmpDir('tally-rescore-');
+    const cfg = loadConfig();
+    const llm = new StubLlm({ intake: () => ({ title: 'Rate limit', criteria: [{ text: 'Login returns 429', source: 'explicit', check: { kind: 'none' } }, { text: 'README updated', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } }], spec_quality: { score: 7, missing: [], questions: [] }, estimate_hours: 1, rationale: '' }), judge: () => ({ criteria: [{ id: 'c1', status: 'met', evidence: 'ok', files: [], confidence: 0.9 }], quality_score: 7, quality_reason: 'r', verdict_reason: 'v', recommendations: ['a', 'b', 'c'] }) }, session);
+    await intake({ session, cwd, text: 'rate limit the login endpoint', cfg, llm });
+    const j = await judgeSession({ session, cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'manual', skipGit: true, verification: { ran: false, reason: 'no tree' } });
+    const human = j.criteria.map(() => 'met' as const);
+    const before = { ts: '2026-09-20T00:00:00Z', session, source: 'backfill' as const, grader: 'krish', task_title: j.task.title, criteria: j.criteria.map((c) => ({ id: c.id, text: c.text, judge: 'unmet' as const, human: 'met' as const, evidence: 'old' })), judge_verdict: 'not worth it' as const, human_verdict: 'worth it' as const };
+    fs.mkdirSync(iso.home, { recursive: true });
+    fs.appendFileSync(path.join(iso.home, 'calibration.jsonl'), JSON.stringify(before) + '\n');
+    const r = rescoreCalibration({ grader: 'krish' });
+    expect(r.rescored).toEqual([session]);
+    const entries = readCal().filter((e) => e.session === session);
+    /* readCalibration keeps the newest entry per session and grader; the raw file keeps both */
+    expect(entries.length).toBe(1);
+    expect(fs.readFileSync(path.join(iso.home, 'calibration.jsonl'), 'utf8').trim().split('\n').length).toBe(2);
+    const latest = entries[0]!;
+    expect(latest.rescored_from).toBe(before.ts);
+    expect(latest.criteria.map((c) => c.human)).toEqual(human);
+    expect(latest.criteria.map((c) => c.judge)).toEqual(j.criteria.map((c) => c.status));
+    expect(latest.judge_verdict).toBe(j.verdict.verdict);
+    /* nothing changed: no new entry */
+    expect(rescoreCalibration({ grader: 'krish' }).rescored).toEqual([]);
   });
 });

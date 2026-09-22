@@ -17,6 +17,7 @@ Design choices I expect pushback on:
 - Verdicts are deterministic thresholds over model-rated criteria, not a model's opinion of "worth it". A model rates the criteria; arithmetic decides.
 - The judge is tiered: mechanical checks (file exists, diff contains, tests pass) resolve for free; a small model handles the rest with a trimmed evidence pack; a stronger model only re-checks criteria where a one-step change would flip the verdict, or where the small model called a correctness criterion partial/unmet. Self-overhead on the fixtures is 4.1% of session spend.
 - "Tests pass" in a transcript is treated as a claim. If Tally cannot run the tests itself (no consent, no test command, no real tree), the criterion is `unverifiable`, never `met`.
+- The Coach runs on its own (a Stop hook spawns one pass per turn, observations land on the next prompt, human decisions become status-line flags), so nothing has to be opened.
 - Injected coaching notes are phrased as observations ("Tally observed npm test fail 3 times"), not instructions, because hook context is context, not a command channel.
 
 Accuracy is early and the README says so: 19/19 criteria and 5/5 verdicts on five authored fixture sessions; on {{CALIBRATION_SESSIONS}} of my own real sessions blind-graded before seeing Tally's answer, {{CALIBRATION_CRITERION_AGREEMENT}} criterion agreement and {{CALIBRATION_VERDICT_AGREEMENT}} verdict agreement. The grading tool is in the package (`tally calibrate grade`), and the thing I most want from this thread is people's disagreement tables.

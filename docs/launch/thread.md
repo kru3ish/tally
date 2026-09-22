@@ -24,7 +24,7 @@ It's tiered so it stays cheap. Mechanical checks first (free), a small model on 
 Tally's own spend on the calibration receipts: 4.1% of the session. Every receipt prints its own share.
 
 **4/**
-The Coach runs beside the session. Same command failing 3×, same file read 3×, context at 85%, an MCP server loaded but unused for 10 sessions, spend at 80% of budget. One key to act; what reaches Claude is an observation, never an instruction.
+The Coach runs on its own, no pane to open. Same command failing 3×, same file read 3×, context at 85%, an MCP server loaded but unused for 10 sessions, spend at 80% of budget. What reaches Claude is an observation, never an instruction. The status line shows task, spend vs budget and open flags.
 
 **5/**
 Accuracy, honestly: early.

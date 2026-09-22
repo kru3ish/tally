@@ -71,6 +71,12 @@ if (!process.argv.includes('--import')) {
     const a = answers.get(s.slice(0, 8));
     if (!a) continue;
     const task = loadTask(s)!;
+    const judge = loadJudge(s)!;
+    if (judge.criteria.length !== task.criteria.length) {
+      process.stdout.write(`${s.slice(0, 8)}: skipped, the receipt has ${judge.criteria.length} criteria but the task now has ${task.criteria.length} (re-run tally judge first)
+`);
+      continue;
+    }
     const replay = replayOf(s);
     const nCoach = replay?.shown.length ?? 0;
     if (a.criteria.length !== task.criteria.length) {

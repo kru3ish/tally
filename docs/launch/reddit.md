@@ -13,7 +13,7 @@ What it does, per task:
 1. **Freezes the acceptance criteria** when the session starts, from the GitHub/Jira/Linear link in your first prompt. No link? It infers the task from your prompts and commits, labels it *unconfirmed*, and the Coach asks you to confirm, edit or link with one key.
 2. **Judges the result when you push.** Diff, every test command the session ran, the final message. Then it re-runs your tests itself, because a transcript saying "all tests pass" is a claim. Each criterion gets met / partial / unmet / unverifiable with the evidence line. Completion, cost by phase, waste in dollars, ROI, verdict.
 3. **Follows up a week later**: merged, reverted, reopened, review churn, CI. The verdict gets adjusted.
-4. **Coaches live** in a second terminal: same command failing 3×, same file read 3×, context at 85%, MCP server loaded but unused for 10 sessions, spend at 80% of budget. One key to apply, inject, skip or mute.
+4. **Coaches on its own** after every turn, nothing to open: same command failing 3×, same file read 3×, context at 85%, MCP server loaded but unused for 10 sessions, spend at 80% of budget. Observations reach Claude on the next prompt; things only you can decide show as flags in the status line (`/tally:statusline`).
 
 Things people here will care about:
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { claudeHome, ensureDir, tallyHome, builtHookPath, readJson } from '../paths.js';
+import { claudeHome, ensureDir, tallyHome, builtHookPath, builtCliPath, readJson } from '../paths.js';
 
 export const HOOK_EVENTS: Array<{ event: string; matcher?: string; async: boolean }> = [
   { event: 'SessionStart', async: false },
@@ -49,6 +49,41 @@ export class PluginConflictError extends Error {
   }
 }
 
+export function statusLineCommand(cliPath = builtCliPath()): string {
+  return `node "${cliPath.replace(/\\/g, '/')}" statusline`;
+}
+
+export function isTallyStatusLine(v: unknown): boolean {
+  return !!v && typeof v === 'object' && typeof (v as { command?: unknown }).command === 'string' && /tally[^\s"']*[\\/]dist[\\/]cli\.js"?\s+statusline/i.test((v as { command: string }).command);
+}
+
+/* Adds Tally's status line to the user settings unless another one is configured (or `force`). */
+export function installStatusLine(opts: { force?: boolean; cliPath?: string } = {}): { installed: boolean; file: string; command: string; reason?: string } {
+  const file = settingsPath('user');
+  const command = statusLineCommand(opts.cliPath);
+  const raw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const settings = raw.trim() ? (JSON.parse(raw) as Settings) : {};
+  const current = settings.statusLine as { command?: string } | undefined;
+  if (current && !isTallyStatusLine(current) && !opts.force) return { installed: false, file, command, reason: `A status line is already configured in ${file} (${String(current.command ?? current).slice(0, 80)}). Pass --force to replace it with Tally's.` };
+  if (current && isTallyStatusLine(current) && current.command === command) return { installed: false, file, command, reason: `Tally's status line is already installed in ${file}.` };
+  settings.statusLine = { type: 'command', command, padding: 0 };
+  ensureDir(path.dirname(file));
+  const indent = raw.trim() ? detectIndent(raw) : 2;
+  fs.writeFileSync(file, JSON.stringify(settings, null, indent) + (!raw || raw.endsWith('\n') ? '\n' : ''));
+  return { installed: true, file, command };
+}
+
+export function uninstallStatusLine(): { removed: boolean } {
+  const file = settingsPath('user');
+  if (!fs.existsSync(file)) return { removed: false };
+  const raw = fs.readFileSync(file, 'utf8');
+  const settings = JSON.parse(raw) as Settings;
+  if (!isTallyStatusLine(settings.statusLine)) return { removed: false };
+  delete settings.statusLine;
+  fs.writeFileSync(file, JSON.stringify(settings, null, detectIndent(raw)) + (raw.endsWith('\n') ? '\n' : ''));
+  return { removed: true };
+}
+
 export function settingsPath(scope: 'user' | 'project', cwd = process.cwd()): string {
   return scope === 'user' ? path.join(claudeHome(), 'settings.json') : path.join(cwd, '.claude', 'settings.json');
 }
@@ -84,7 +119,7 @@ function originalMarker(file: string): string {
   return path.join(backupDir(), 'original-' + Buffer.from(file).toString('base64url') + '.json');
 }
 
-export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptPath?: string; force?: boolean }): { file: string; added: number; backup: string | null } {
+export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptPath?: string; force?: boolean; statusline?: boolean }): { file: string; added: number; backup: string | null; statusline: boolean } {
   const plugin = enabledPluginIds(opts.cwd);
   if (plugin.length && !opts.force) throw new PluginConflictError(plugin);
   const file = settingsPath(opts.scope, opts.cwd);
@@ -114,11 +149,17 @@ export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptP
     groups.push(group);
     added += 1;
   }
+  /* user scope also gets the status line, unless another one is configured */
+  let statusline = false;
+  if (opts.scope === 'user' && opts.statusline !== false && (!settings.statusLine || isTallyStatusLine(settings.statusLine))) {
+    settings.statusLine = { type: 'command', command: statusLineCommand(opts.scriptPath ? path.join(path.dirname(opts.scriptPath), 'cli.js') : undefined), padding: 0 };
+    statusline = true;
+  }
   ensureDir(path.dirname(file));
   const indent = existed && raw.trim() ? detectIndent(raw) : 2;
   const trailingNl = !existed || raw.endsWith('\n');
   fs.writeFileSync(file, JSON.stringify(settings, null, indent) + (trailingNl ? '\n' : ''));
-  return { file, added, backup: bk };
+  return { file, added, backup: bk, statusline };
 }
 
 export function uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): { file: string; removed: number; restoredOriginal: boolean } {
@@ -146,6 +187,7 @@ export function uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): { 
     }
     if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   }
+  if (isTallyStatusLine(settings.statusLine)) delete settings.statusLine;
   const hadOriginal = fs.existsSync(marker);
   const originalMissing = fs.existsSync(marker + '.missing');
   if (originalMissing) {

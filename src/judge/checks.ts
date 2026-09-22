@@ -90,8 +90,26 @@ export function commandAllowed(command: string, cwd: string, testCommand?: strin
   return false;
 }
 
-export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidence: Evidence; verification: VerificationResult; consent?: boolean; timeoutMs: number }): Promise<CheckResult> {
+export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidence: Evidence; verification: VerificationResult; consent?: boolean; timeoutMs: number; noTree?: boolean }): Promise<CheckResult> {
   const { evidence: ev, verification: ver } = ctx;
+  /* No git tree for this session (backfill of uncommitted work): the working directory has moved on since, so a
+     file or command check against it would answer a different question. The transcript's own Edit/Write calls are
+     facts about what the session did, so file_changed and diff_contains can resolve from the reconstruction, labelled;
+     everything else is unverifiable rather than unmet. */
+  if (ctx.noTree && check.kind !== 'tests_pass' && check.kind !== 'pr') {
+    const rec = ev.reconstruction;
+    if (check.kind === 'file_changed') {
+      const hit = check.path === '.' || check.path === '*' ? rec.changes[0]?.file : fileMatches(rec.changes.map((c) => c.file), check.path);
+      return hit ? { status: 'met', evidence: `${hit} was written by the session (reconstructed from the transcript, not verified against disk)`, files: [hit] } : { status: 'unverifiable', evidence: `no git tree for this session and the transcript shows no write to ${check.path}`, files: [] };
+    }
+    if (check.kind === 'diff_contains') {
+      const re = safeRegex(check.pattern);
+      if (!re) return { status: 'unverifiable', evidence: `invalid pattern ${check.pattern}`, files: [] };
+      const m = re.exec(rec.diff_text);
+      return m ? { status: 'met', evidence: `reconstructed changes match /${check.pattern}/ ("${m[0].slice(0, 60)}"), not verified against disk`, files: [] } : { status: 'unverifiable', evidence: `no git tree for this session and the reconstructed changes do not match /${check.pattern}/`, files: [] };
+    }
+    return { status: 'unverifiable', evidence: `no git tree for this session; a ${check.kind} check needs a real tree`, files: [] };
+  }
   switch (check.kind) {
     case 'tests_pass': {
       if (!ver.ran) return { status: 'unverifiable', evidence: `tests not run (${ver.reason ?? 'unknown'})`, files: [] };
@@ -102,7 +120,8 @@ export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidenc
       return fs.existsSync(p) ? { status: 'met', evidence: `${check.path} exists`, files: [check.path] } : { status: 'unmet', evidence: `${check.path} does not exist`, files: [] };
     }
     case 'file_changed': {
-      const hit = fileMatches(ev.git.files_changed, check.path);
+      /* "." or "*" from intake means "anything changed" */
+      const hit = check.path === '.' || check.path === '*' ? ev.git.files_changed[0] : fileMatches(ev.git.files_changed, check.path);
       return hit ? { status: 'met', evidence: `${hit} is in the diff`, files: [hit] } : { status: 'unmet', evidence: `${check.path} is not in the diff (${ev.git.files_changed.length} files changed)`, files: [] };
     }
     case 'file_contains': {

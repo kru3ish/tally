@@ -62,6 +62,7 @@ export async function gradeSession(session: string, opts: { grader: string; ask:
   const j = loadJudge(session)!;
   const summary = evidenceSummary(session);
   const task = loadTask(session)!;
+  if (j.criteria.length !== task.criteria.length) throw new Error(`the receipt for ${session.slice(0, 8)} has ${j.criteria.length} criteria but the task now has ${task.criteria.length}; re-run tally judge ${session.slice(0, 8)} before grading`);
   opts.out(`Blind grading · session ${session.slice(0, 8)} · grader ${opts.grader}\n(Tally's own statuses and verdict stay hidden until you have graded.)\n`);
   opts.out(summary);
   let criteria = task.criteria.map((c) => ({ id: c.id, text: c.text }));

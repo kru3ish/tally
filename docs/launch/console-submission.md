@@ -16,7 +16,7 @@ Paste the fields below. Fill `{{…}}` with `npx tsx scripts/fill-calibration.ts
 Per-task receipts and live coaching for Claude Code: criteria in, what shipped, what it cost, whether it held up.
 
 **Short description (≤500 chars):**
-Tally freezes a ticket's acceptance criteria when a session starts, then on push collects the diff and test runs, re-runs the tests itself, rates each criterion with cited evidence, and computes completion, cost by phase, waste, ROI and a verdict. A week later it checks whether the PR was merged or reverted. A Coach pane flags loops, re-reads, context pressure, unused MCP servers and budget burn with one-key actions. Local only; hooks make no network calls; model calls use your own Claude login.
+Tally freezes a ticket's acceptance criteria when a session starts, then on push collects the diff and test runs, re-runs the tests itself, rates each criterion with cited evidence, and computes completion, cost by phase, waste, ROI and a verdict. A week later it checks whether the PR was merged or reverted. A Coach runs after every turn on its own and flags loops, re-reads, context pressure, unused MCP servers and budget burn; a status line shows task, spend against budget and open flags. Local only; hooks make no network calls; model calls use your own Claude login.
 
 **Long description:**
 
@@ -25,8 +25,9 @@ Claude Code reports what a session cost. Tally reports what a task returned.
 - **Intake:** GitHub, Jira, Linear, a `.md` file, or plain text. Criteria are frozen in `task.json`; spec quality is scored and the missing information listed. With no ticket the task is inferred from the prompts, branch and commits, marked unconfirmed until the user confirms, edits or links it.
 - **Judge:** git diff, every test/lint command the session ran, ship events, the final message; independent test re-run with per-repo consent and a scrubbed environment; per-criterion met / partial / unmet / unverifiable with cited evidence; deterministic completion %, cost by phase and by model, waste in dollars, value, ROI and verdict. Tiered so it stays cheap: mechanical checks, then a small model, then a stronger model only where the verdict depends on it (self-overhead 4.1% of session spend on the calibration receipts).
 - **Follow-up:** merged, reverted, reopened, review churn, CI after merge; verdict adjusted.
-- **Coach:** thirteen deterministic rules plus an optional small-model pass; notes reach Claude as observations under a `Tally:` prefix, never as instructions.
-- **Slash commands:** `/tally:task`, `/tally:judge`, `/tally:coach`, `/tally:report`, `/tally:tally`.
+- **Coach (autopilot):** the Stop hook runs one pass per turn; thirteen deterministic rules plus an optional small-model pass; notes reach Claude as observations under a `Tally:` prefix, never as instructions; human decisions become status-line flags.
+- **Status line:** `/tally:statusline` puts task, spend vs budget, context use and open flags in Claude Code's status bar.
+- **Slash commands:** `/tally:task`, `/tally:judge`, `/tally:coach`, `/tally:report`, `/tally:tally`, `/tally:statusline`.
 
 **What the plugin needs:** Node 18+ (hooks run `node ${CLAUDE_PLUGIN_ROOT}/dist/hook.js`), `git`. Optional: `gh` for GitHub intake, write-back and follow-up; the `@kru3ish/tally` npm CLI for the Coach pane, reports and backfill.
 
@@ -36,7 +37,7 @@ Claude Code reports what a session cost. Tally reports what a task returned.
 
 **Accuracy statement:** Preview. Fixture regression: 19/19 criteria and 5/5 verdicts on 5 authored sessions. Real sessions, blind-graded: {{CALIBRATION_CRITERION_AGREEMENT}} criterion agreement, {{CALIBRATION_VERDICT_AGREEMENT}} verdict agreement on {{CALIBRATION_SESSIONS}} sessions ({{CALIBRATION_DATE}}). CI replays recorded model output and fails on regression.
 
-**Testing:** `claude plugin validate . --strict` in CI; 141 tests on ubuntu, macOS and Windows × Node 18/22; clean install of the npm tarball in a fresh HOME on all three; install/uninstall of settings hooks verified byte-identical. `tally demo` replays a recorded session end to end with a stubbed model.
+**Testing:** `claude plugin validate . --strict` in CI; 149 tests on ubuntu, macOS and Windows × Node 18/22; clean install of the npm tarball in a fresh HOME on all three; install/uninstall of settings hooks verified byte-identical. `tally demo` replays a recorded session end to end with a stubbed model.
 
 **License:** MIT
 

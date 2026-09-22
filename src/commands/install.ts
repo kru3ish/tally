@@ -20,9 +20,9 @@ export async function run(args: Args): Promise<number | void> {
     }
     throw err;
   }
-  process.stdout.write(`Installed ${r.added} hook group(s) into ${r.file}\n`);
+  process.stdout.write(`Installed ${r.added} hook group(s) into ${r.file}${r.statusline ? ' and the Tally status line' : ''}\n`);
   if (r.backup) process.stdout.write(`Backup: ${r.backup}\n`);
-  process.stdout.write(`Data dir: ${tallyHome()}\nNext: run \`tally start\` beside a Claude Code session, or \`tally doctor\`.\n`);
+  process.stdout.write(`Data dir: ${tallyHome()}\nThe Coach now runs on its own after every turn (autopilot) and the status line shows the task, spend and flags; \`tally watch\` opens the optional one-key pane. Check with \`tally doctor\`.\n`);
 }
 
 export async function runUninstall(args: Args): Promise<void> {
