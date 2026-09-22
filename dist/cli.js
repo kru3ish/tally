@@ -826,8 +826,8 @@ var init_parseUtil = __esm({
     init_errors();
     init_en();
     makeIssue = (params) => {
-      const { data, path: path42, errorMaps, issueData } = params;
-      const fullPath = [...path42, ...issueData.path || []];
+      const { data, path: path43, errorMaps, issueData } = params;
+      const fullPath = [...path43, ...issueData.path || []];
       const fullIssue = {
         ...issueData,
         path: fullPath
@@ -1135,11 +1135,11 @@ var init_types = __esm({
     init_parseUtil();
     init_util();
     ParseInputLazyPath = class {
-      constructor(parent, value, path42, key) {
+      constructor(parent, value, path43, key) {
         this._cachedPath = [];
         this.parent = parent;
         this.data = value;
-        this._path = path42;
+        this._path = path43;
         this._key = key;
       }
       get path() {
@@ -7365,7 +7365,7 @@ function moments(session, files, max = 12) {
   } catch {
     return [];
   }
-  const base = (f) => f.split(/[\/]/).pop() ?? f;
+  const base = (f) => f.split(/[\\/]/).pop() ?? f;
   const names = files.map((f) => base(f).toLowerCase());
   const out = [];
   for (const c of t.toolCalls) {
@@ -12287,6 +12287,10 @@ var init_export = __esm({
 });
 
 // src/cli.ts
+import path42 from "node:path";
+function packageVersion() {
+  return readJson(path42.join(packageRoot(), "package.json"), {}).version ?? "0.0.0";
+}
 function parseArgs(argv) {
   const out = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
@@ -12322,7 +12326,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._.shift();
   if (has(args, "version") || cmd === "version") {
-    process.stdout.write("tally 0.1.1\n");
+    process.stdout.write(`tally ${packageVersion()}
+`);
     return;
   }
   if (!cmd || cmd === "help" || cmd === "--help" || has(args, "help")) {
@@ -12447,5 +12452,6 @@ init_cli();
 export {
   flag,
   has,
+  packageVersion,
   parseArgs
 };

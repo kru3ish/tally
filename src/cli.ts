@@ -1,4 +1,9 @@
-import { log } from './paths.js';
+import { log, packageRoot, readJson } from './paths.js';
+import path from 'node:path';
+
+export function packageVersion(): string {
+  return readJson<{ version?: string }>(path.join(packageRoot(), 'package.json'), {}).version ?? '0.0.0';
+}
 
 export interface Args {
   _: string[];
@@ -130,7 +135,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._.shift();
   if (has(args, 'version') || cmd === 'version') {
-    process.stdout.write('tally 0.1.1\n');
+    /* the version comes from package.json so the CLI, the plugin manifest and the marketplace can never disagree */
+    process.stdout.write(`tally ${packageVersion()}\n`);
     return;
   }
   if (!cmd || cmd === 'help' || cmd === '--help' || has(args, 'help')) {

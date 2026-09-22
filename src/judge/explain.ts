@@ -35,7 +35,7 @@ function moments(session: string, files: string[], max = 12): string[] {
     return [];
   }
   /* transcripts from Windows carry backslash paths; split on either separator so basenames match on every OS */
-  const base = (f: string) => f.split(/[\/]/).pop() ?? f;
+  const base = (f: string) => f.split(/[\\/]/).pop() ?? f;
   const names = files.map((f) => base(f).toLowerCase());
   const out: string[] = [];
   for (const c of t.toolCalls) {
