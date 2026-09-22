@@ -24,6 +24,8 @@ Trusted publishing can only be configured for a package that already exists, so 
 4. Confirm the workflow file still has `permissions: id-token: write` and a step that upgrades npm to 11.5.1 or newer (trusted publishing needs it; Node 22's bundled npm is older).
 5. Test on the next tag: the run's publish step should log `npm notice Publishing to https://registry.npmjs.org/ with tag latest and public access` and, on npmjs.com, the version shows a **Provenance** badge linking to the workflow run.
 
+Status 2026-09-22: the trusted publisher was configured for 0.1.1 but the workflow got `403 OIDC permission denied for this action` on two fresh runs (npm 12.0.2, Node 22, `id-token: write`, provenance statement signed). 0.1.1 was published from a laptop with `--provenance=false`; the tag run then re-ran and no-op'd. Before the next tag, compare the four fields on npmjs.com against the workflow claim (`kru3ish` / `tally` / `publish.yml`, environment blank, all case-sensitive) and, if it still fails, delete and re-create the entry.
+
 If a publish must happen from a laptop again (for example the workflow is broken), `npm publish --access public` with `npm login` still works unless "disallow tokens" was enabled; provenance is only available from the workflow.
 
 ## Website
