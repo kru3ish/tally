@@ -26,6 +26,16 @@ Trusted publishing can only be configured for a package that already exists, so 
 
 If a publish must happen from a laptop again (for example the workflow is broken), `npm publish --access public` with `npm login` still works unless "disallow tokens" was enabled; provenance is only available from the workflow.
 
+## Website
+
+`site/index.html` is the landing page, deployed to https://kru3ish.github.io/tally by `.github/workflows/pages.yml` on every push that touches `site/`. GitHub Pages must be enabled once with GitHub Actions as the source: Settings → Pages → Build and deployment → Source: GitHub Actions, or
+
+```bash
+curl -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json"   https://api.github.com/repos/kru3ish/tally/pages -d '{"build_type":"workflow"}'
+```
+
+The accuracy figures on the page are filled by `npx tsx scripts/fill-calibration.ts` together with the README and the launch drafts.
+
 ## Rollback
 
 - Mark a bad version: `npm deprecate @kru3ish/tally@X.Y.Z "reason"` (unpublish is possible only within 72 hours and only as a last resort).

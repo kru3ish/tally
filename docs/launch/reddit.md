@@ -19,7 +19,7 @@ Things people here will care about:
 
 - **Cost of Tally itself:** the judge is tiered (mechanical checks → small model → stronger model only where a criterion could flip the verdict). On the calibration receipts it's 4.1% of the session's spend, printed on every receipt.
 - **Privacy:** local only. Hooks make no network calls. Model calls go through your own `claude` login, isolated from your MCP servers and hooks. Nothing uploaded. `rm -rf ~/.tally` removes everything.
-- **Accuracy, honestly:** preview. 19/19 criteria and 5/5 verdicts on five authored fixture sessions; {{CALIBRATION_CRITERION_AGREEMENT}} criterion agreement and {{CALIBRATION_VERDICT_AGREEMENT}} verdict agreement on {{CALIBRATION_SESSIONS}} of my own real sessions, blind-graded. Use it as a second opinion.
+- **Accuracy, honestly:** preview. 19/19 criteria and 5/5 verdicts on five authored fixture sessions; 51% criterion agreement and 18% verdict agreement on 11 of my own real sessions, blind-graded. Use it as a second opinion.
 - **Doesn't replace the built-ins:** `/cost` for totals, `/insights` for the 30-day retrospective, `/plugin` Stats for what's loaded. Tally points you at them where they already do the job.
 
 Install:

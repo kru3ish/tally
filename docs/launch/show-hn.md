@@ -20,6 +20,6 @@ Design choices I expect pushback on:
 - The Coach runs on its own (a Stop hook spawns one pass per turn, observations land on the next prompt, human decisions become status-line flags), so nothing has to be opened.
 - Injected coaching notes are phrased as observations ("Tally observed npm test fail 3 times"), not instructions, because hook context is context, not a command channel.
 
-Accuracy is early and the README says so: 19/19 criteria and 5/5 verdicts on five authored fixture sessions; on {{CALIBRATION_SESSIONS}} of my own real sessions blind-graded before seeing Tally's answer, {{CALIBRATION_CRITERION_AGREEMENT}} criterion agreement and {{CALIBRATION_VERDICT_AGREEMENT}} verdict agreement. The grading tool is in the package (`tally calibrate grade`), and the thing I most want from this thread is people's disagreement tables.
+Accuracy is early and the README says so: 19/19 criteria and 5/5 verdicts on five authored fixture sessions; on 11 of my own real sessions blind-graded before seeing Tally's answer, 51% criterion agreement and 18% verdict agreement. The grading tool is in the package (`tally calibrate grade`), and the thing I most want from this thread is people's disagreement tables.
 
 Everything runs locally; hooks make no network calls and finish in under 150 ms; model calls go through your existing `claude` login. MIT, TypeScript, no runtime dependencies. Install as a plugin (`/plugin marketplace add kru3ish/tally`) or npm (`npm i -g @kru3ish/tally`).

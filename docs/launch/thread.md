@@ -29,7 +29,7 @@ The Coach runs on its own, no pane to open. Same command failing 3×, same file 
 **5/**
 Accuracy, honestly: early.
 Fixtures (5 sessions, 19 criteria): 19/19 criteria, 5/5 verdicts.
-My own real sessions, blind-graded (n={{CALIBRATION_SESSIONS}}): {{CALIBRATION_CRITERION_AGREEMENT}} criterion agreement, {{CALIBRATION_VERDICT_AGREEMENT}} verdicts.
+My own real sessions, blind-graded (n=11): 51% criterion agreement, 18% verdicts.
 
 /plugin marketplace add kru3ish/tally → /plugin install tally@tally
 Grade your own sessions with `tally calibrate grade` and tell me where it's wrong.
