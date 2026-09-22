@@ -20,6 +20,8 @@ interface StatusInput {
 
 export interface CoachFlags {
   pending: Array<{ rule: string; key: string; title: string; usd_saved: number; ts?: string; label?: string }>;
+  /* flag keys already handed to Claude as context, so a flag is announced once */
+  announced?: string[];
   updated?: string;
 }
 

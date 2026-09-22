@@ -1,6 +1,6 @@
 # Tally (preview)
 
-**A receipt for every Claude Code task, and a coach while it runs.**
+**A receipt for every Claude Code task, and a coach that runs on its own.**
 
 Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coaching is built in (`/insights`). What nobody gives you is a receipt for **one task**: the ticket's acceptance criteria frozen at intake, what actually shipped, what it cost, what was wasted, whether it held up after merge, and whether it was worth it. Tally's Judge writes that receipt. The Coach is the live feedback loop those receipts drive.
 
@@ -25,7 +25,9 @@ Two ways; pick one. Both record the same events into `~/.tally` and can be remov
 /plugin install tally@tally
 ```
 
-Then install the CLI for the Coach pane, reports and backfill:
+Then `/tally:statusline` once, so the task, spend against budget, context and open Coach flags sit in Claude Code's status bar. The Coach itself needs nothing: it runs after every turn (autopilot) and hands Claude its observations on the next prompt.
+
+Optionally install the CLI for the one-key Coach pane, reports and backfill:
 
 ```bash
 npm i -g @kru3ish/tally       # gives you `tally` (and `cc-tally`, the same binary)
@@ -36,7 +38,7 @@ tally doctor                  # checks claude, gh, hooks, pricing; must not say 
 
 ```bash
 npm i -g @kru3ish/tally
-tally install                 # refuses if the plugin is already enabled, so you never record twice
+tally install                 # hooks + status line; refuses if the plugin is already enabled, so you never record twice
 tally doctor
 ```
 
@@ -45,8 +47,10 @@ What each path gives you:
 | | Plugin only | Plugin + CLI (`npm i -g @kru3ish/tally`) |
 |---|---|---|
 | Hooks record every session; receipts on push and at session end | yes | yes |
+| Coach autopilot: rules run after every turn, observations reach Claude on the next prompt | yes | yes |
+| Status line: task, spend vs budget, context %, open Coach flags (`/tally:statusline` or `tally install`) | yes | yes |
 | `/tally:task`, `/tally:judge`, `/tally:report`, `/tally:tally` (status), `/tally:coach` (pending suggestions) | yes | yes |
-| Live Coach pane with one-key actions (`tally watch`, `tally start`) | no, the slash command prints the install hint | yes |
+| Optional one-key Coach pane (`tally watch`, `tally start`) | no, the slash command prints the install hint | yes |
 | Receipts for past sessions (`tally backfill`) and blind grading (`tally calibrate`) | no | yes |
 | Experiments, `tally undo`, `tally doctor`, `tally followup` on demand | no | yes |
 
@@ -57,9 +61,10 @@ Uninstall: `/plugin uninstall tally` or `tally uninstall` (settings come back by
 ## Use it
 
 ```bash
-claude                        # start Claude Code as usual
-tally watch                   # in a second terminal: the Coach attaches to the live session (`tally start` opens a tmux split)
+claude                        # start Claude Code as usual; Tally is already running
 ```
+
+Nothing else to start. After each of Claude's turns the hooks run the Coach once; anything it observes (a command failing three times, a file read three times, spend at 80% of budget, an MCP server erroring) is queued and reaches Claude as a `Tally:` line on your next prompt. Things only you can decide (confirm an inferred task, allow test re-runs, write a CLAUDE.md) are handed to Claude once as flags with the exact command, so Claude asks you in the conversation and runs it on your yes; they also show in the status line, `tally coach` lists them, `tally watch` acts on them with one key, and `tally config coach.autopilot false` turns autopilot off.
 
 Paste a GitHub, Jira or Linear URL (or a `.md` path) in your first prompt and Tally links the task. With no ticket, Tally **infers** the task from your first prompts, the branch name and the commits you make, labels it `inferred task (unconfirmed)`, and the Coach asks once: `[c]onfirm  [e]dit  [l]ink`. From the CLI:
 
@@ -149,7 +154,7 @@ Model calls, per task, on the fixture sessions: intake ≈ $0.01 (cached on repe
 
 ## The Coach
 
-A plain terminal pane (`tally watch`) beside Claude Code. Each suggestion has one-key actions: `[a]pply`, `[i]nject`, `[s]kip`, `[m]ute rule`; an inferred task gets `[c]onfirm  [e]dit  [l]ink`. Injected notes reach Claude on its next turn as **observations** (`Tally: Tally observed npm test fail 3 times …`), never as instructions; what Claude does with them is up to Claude.
+Autopilot by default: the Stop hook spawns one Coach pass per turn, observations are injected automatically, and human decisions become flags that Claude asks you about. The optional pane (`tally watch`) shows the same suggestions with one-key actions: `[a]pply`, `[i]nject`, `[s]kip`, `[m]ute rule`; an inferred task gets `[c]onfirm  [e]dit  [l]ink`. Injected notes reach Claude on its next turn as **observations** (`Tally: Tally observed npm test fail 3 times …`), never as instructions; what Claude does with them is up to Claude.
 
 Rules are deterministic first, LLM second:
 

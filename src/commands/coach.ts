@@ -8,7 +8,8 @@ import { applySuggestion, injectSuggestion } from '../coach/actions.js';
 import { llmCoach } from '../coach/llm-coach.js';
 import { makeLlm } from '../llm/client.js';
 import { readFlags, flagsFile } from './statusline.js';
-import { writeJson } from '../paths.js';
+import { writeJson, builtCliPath } from '../paths.js';
+import { enqueueInject } from '../coach/inject.js';
 
 export async function run(args: Args): Promise<number | void> {
   const cfg = loadConfig();
@@ -50,7 +51,16 @@ export async function run(args: Args): Promise<number | void> {
         injected += 1;
       } else if (!flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, ts: s.ts, label: s.action.label });
     }
-    writeJson(flagsFile(session), { pending: flags.pending, updated: new Date().toISOString() });
+    /* hand new flags to Claude once, with the exact command, so the user can decide in the conversation and Claude runs it */
+    const announced = new Set(flags.announced ?? []);
+    const fresh = flags.pending.filter((f) => !announced.has(f.key));
+    if (fresh.length) {
+      const cli = builtCliPath().replace(/\\/g, '/');
+      const lines = fresh.map((f, i) => `(${i + 1}) ${f.title}${f.label ? ` [${f.label}]` : ''} → node "${cli}" coach --apply ${f.rule} --session ${session}`);
+      enqueueInject(session, `Tally observed ${fresh.length} Coach flag${fresh.length === 1 ? '' : 's'} waiting for a decision from the user: ${lines.join('; ')}. Each is the user's call; Tally records the answer when the command runs.`, 'autopilot:flags', cwd);
+      for (const f of fresh) announced.add(f.key);
+    }
+    writeJson(flagsFile(session), { pending: flags.pending, announced: [...announced].filter((k) => flags.pending.some((f) => f.key === k)), updated: new Date().toISOString() });
     saveState(session, engine.state);
     if (!has(args, 'auto')) process.stdout.write(`autopilot: ${shown.length} suggestion(s), ${injected} queued for Claude's next turn, ${flags.pending.length} flag(s) on the status line\n`);
     return;
@@ -59,10 +69,11 @@ export async function run(args: Args): Promise<number | void> {
   const applyIdx = flag(args, 'apply');
   const injectIdx = flag(args, 'inject');
   if (applyIdx !== undefined || injectIdx !== undefined) {
-    const idx = Number(applyIdx ?? injectIdx) - 1;
-    const s = all[idx];
+    /* a number is the index in the list; anything else is a rule id or key, which is what the injected flag note uses */
+    const target = String(applyIdx ?? injectIdx);
+    const s = /^\d+$/.test(target) ? all[Number(target) - 1] : all.find((x) => x.rule === target || x.key === target);
     if (!s) {
-      process.stderr.write(`No suggestion #${idx + 1}. Run \`tally coach --once\` to list them.\n`);
+      process.stderr.write(`No suggestion ${/^\d+$/.test(target) ? '#' + target : `for ${target}`}. Run \`tally coach --once\` to list them.\n`);
       return 1;
     }
     const r = applyIdx !== undefined ? applySuggestion(s, { session, cwd, cfg, mode: 'ask' }) : injectSuggestion(s, { session, cwd });

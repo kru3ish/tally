@@ -57,11 +57,21 @@ describe('autopilot', () => {
     const flags = readFlags(session);
     /* the inferred task needs a human: it is a flag, never an injected instruction */
     expect(flags.pending.some((f) => f.rule === 'task-confirm')).toBe(true);
+    /* flags are handed to Claude once, as an observation with the exact command, so the user decides in the conversation */
+    const flagNote = queued.find((q) => /Coach flag/.test(q.note))!;
+    expect(flagNote).toBeTruthy();
+    expect(flagNote.note).toMatch(/^Tally observed \d+ Coach flags? waiting for a decision from the user/);
+    expect(flagNote.note).toContain('coach --apply task-confirm --session ' + session);
+    expect(flags.announced).toContain(flags.pending.find((f) => f.rule === 'task-confirm')!.key);
     const state = JSON.parse(fs.readFileSync(path.join(sessionDir(session), 'coach-state.json'), 'utf8')) as { shown: number };
     expect(state.shown).toBeGreaterThan(0);
-    /* a second tick does not repeat itself */
+    /* a second tick does not repeat itself, and does not re-announce the flags */
     await coachRun({ _: [], flags: { tick: true, session, cwd, auto: true } });
     expect(pendingInjects(session).length).toBe(queued.length);
+    /* --apply accepts the rule id the note uses */
+    const code = await coachRun({ _: [], flags: { apply: 'task-confirm', session, cwd } });
+    expect(code).toBe(0);
+    expect(readFlags(session).pending.some((f) => f.rule === 'task-confirm')).toBe(false);
     const delivered = hook('UserPromptSubmit', { session_id: session, cwd, prompt: 'next' });
     expect(delivered.stdout).toContain('Tally: Tally observed');
     expect(pendingInjects(session).length).toBe(0);
