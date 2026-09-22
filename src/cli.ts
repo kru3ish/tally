@@ -121,7 +121,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._.shift();
   if (has(args, 'version') || cmd === 'version') {
-    process.stdout.write('tally 0.1.0\n');
+    process.stdout.write('tally 0.1.1\n');
     return;
   }
   if (!cmd || cmd === 'help' || cmd === '--help' || has(args, 'help')) {

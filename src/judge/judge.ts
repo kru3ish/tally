@@ -90,13 +90,60 @@ export function loadJudge(session: string): Judge | null {
   return p.success ? p.data : null;
 }
 
-export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean }): Verdict {
+export interface Counts {
+  met: number;
+  partial: number;
+  unmet: number;
+  unverifiable: number;
+}
+
+/* Completion is measured over the criteria that could actually be checked (0.1.1): an unverifiable criterion is a gap in
+   the evidence, not a failure. Value is still credited conservatively over all criteria, so unverifiable work earns nothing. */
+export function scoreCounts(counts: Counts, humanValue: number, costUsd: number): { completion_pct: number; credited: number; roi: number | null; verifiable: number; total: number } {
+  const total = counts.met + counts.partial + counts.unmet + counts.unverifiable;
+  const verifiable = total - counts.unverifiable;
+  const done = counts.met + 0.5 * counts.partial;
+  const completion_pct = verifiable ? round((done / verifiable) * 100, 1) : 0;
+  const credited = round(humanValue * (total ? done / total : 0), 2);
+  const roi = costUsd > 0 ? round(credited / costUsd, 2) : null;
+  return { completion_pct, credited, roi, verifiable, total };
+}
+
+export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean; verifiable?: number; unverifiable?: number }): Verdict {
   const { completion_pct, roi, quality, testsFailed } = input;
+  const verifiable = input.verifiable ?? 1;
+  const unverifiable = input.unverifiable ?? 0;
+  /* nothing could be checked: there is no basis for a call either way */
+  if (verifiable === 0) return 'borderline';
   const roiOk = roi === null ? true : roi >= 2;
   const roiBad = roi !== null && roi < 1;
-  if (completion_pct < 40 || roiBad || quality < 4) return 'not worth it';
-  if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) return 'worth it';
-  return 'borderline';
+  let verdict: Verdict = 'borderline';
+  if (completion_pct < 40 || roiBad || quality < 4) verdict = 'not worth it';
+  else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = 'worth it';
+  /* when most criteria could not be checked, neither extreme is earned */
+  if (unverifiable > verifiable) return 'borderline';
+  return verdict;
+}
+
+/* Re-derives completion, credited value, ROI and the verdict of a stored receipt from its criteria, with no model call.
+   Used after a scoring-rule change so graded receipts can be rescored against the unchanged human grades. */
+export function recomputeReceipt(session: string): Judge | null {
+  const j = loadJudge(session);
+  if (!j) return null;
+  const scored = scoreCounts(j.counts, j.value.human_value_usd, j.cost.total_usd);
+  const testsFailed = j.verification.ran && j.verification.passed === false;
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: j.counts.unverifiable });
+  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct;
+  const next: Judge = {
+    ...j,
+    completion_pct: scored.completion_pct,
+    completion_basis: { verifiable: scored.verifiable, total: scored.total },
+    value: { ...j.value, credited_value_usd: scored.credited, roi_multiple: scored.roi },
+    verdict: { verdict, reason: changed && !/\[recomputed/.test(j.verdict.reason) ? `${j.verdict.reason} [recomputed with the 0.1.1 completion rule: ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${j.counts.unverifiable} unverifiable]` : j.verdict.reason },
+  };
+  const validated = JudgeSchema.parse(next);
+  persistJudge(validated, loadTask(session));
+  return validated;
 }
 
 function bucket(x: { usage: { input: number; output: number; cache_write: number; cache_read: number }; cost: number; messages: number }): { usd: number; messages: number; tokens: number } {
@@ -220,10 +267,10 @@ export async function judgeSession(opts: {
       const vals = Object.values(st);
       const met = vals.filter((s) => s === 'met').length;
       const partial = vals.filter((s) => s === 'partial').length;
-      const pct = vals.length ? ((met + 0.5 * partial) / vals.length) * 100 : 0;
-      const creditedNow = humanValue * (pct / 100);
-      const roiNow = t.cost > 0 ? creditedNow / t.cost : null;
-      return computeVerdict({ completion_pct: pct, roi: roiNow, quality: tier1Quality, testsFailed: testsFailedNow });
+      const unmet = vals.filter((s) => s === 'unmet').length;
+      const unverifiable = vals.length - met - partial - unmet;
+      const sc = scoreCounts({ met, partial, unmet, unverifiable }, humanValue, t.cost);
+      return computeVerdict({ completion_pct: sc.completion_pct, roi: sc.roi, quality: tier1Quality, testsFailed: testsFailedNow, verifiable: sc.verifiable, unverifiable });
     };
     tier1 = judgmentIds.map((id) => {
       const r = resolved.get(id)!;
@@ -260,15 +307,14 @@ export async function judgeSession(opts: {
   });
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of criteria) counts[c.status] += 1;
-  const completion_pct = criteria.length ? round(((counts.met + 0.5 * counts.partial) / criteria.length) * 100, 1) : 0;
-  const credited = round(humanValue * (completion_pct / 100), 2);
-  const roi = t.cost > 0 ? round(credited / t.cost, 2) : null;
+  const scored = scoreCounts(counts, humanValue, t.cost);
+  const { completion_pct, credited, roi } = scored;
   const testsFailed = ver.ran && ver.passed === false;
   const mech = mechanicalSummary({ ver, completion_pct, counts, waste: { total_usd: waste.total_usd, failed_loops: waste.failed_loops, repeated_reads: waste.repeated_reads, dead_weight: waste.dead_weight, compaction_churn: waste.compaction_churn }, cost: t.cost, budget: task.budget_usd, roi, unresolved: criteria.filter((c) => c.resolved_by === 'rule').length });
   const finalProse = prose as { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null;
   const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };
   const quality = Math.max(0, Math.min(10, Number(out.quality_score ?? 0)));
-  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed });
+  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
   const tiersRan: Array<'tier0' | 'tier1' | 'tier2'> = ['tier0', ...tierCosts.map((c) => c.tier)];
   const tiers: Judge['tiers'] = {
     ran: tiersRan,
@@ -301,6 +347,7 @@ export async function judgeSession(opts: {
     task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked) },
     criteria,
     completion_pct,
+    completion_basis: { verifiable: scored.verifiable, total: scored.total },
     counts,
     quality: { score: quality, reason: String(out.quality_reason ?? '') },
     verification: ver,

@@ -5265,6 +5265,12 @@ var init_checks = __esm({
 import fs10 from "node:fs";
 import path9 from "node:path";
 import crypto from "node:crypto";
+function sanitiseCheck(check) {
+  if (!check) return null;
+  const p = "path" in check ? check.path : void 0;
+  if (p !== void 0 && p !== "." && p !== "*" && (/\s/.test(p) || /^([A-Za-z]:)?[\\/]/.test(p) || p.length > 200)) return null;
+  return check;
+}
 function taskFile(session) {
   return path9.join(sessionDir(session), "task.json");
 }
@@ -5304,7 +5310,7 @@ async function intake(opts) {
   const inferred = fetched.source.kind === "text";
   const ctxText = inferred && opts.context ? `
 ${opts.context.branch ? `BRANCH: ${opts.context.branch}
-` : ""}${opts.context.commits?.length ? `COMMITS MADE DURING THE SESSION:
+` : ""}${opts.context.commits?.length ? `COMMITS MADE DURING THE SESSION (the strongest evidence of what the engineer set out to do; weight them above the prompt wording):
 ${opts.context.commits.slice(0, 20).map((c) => "- " + c).join("\n")}
 ` : ""}` : "";
   const prompt = `TITLE: ${fetched.title}
@@ -5331,8 +5337,11 @@ ${bodyForLlm || "(empty)"}`;
     model = r2.model;
     writeJson(intakeCacheFile(cacheKey), { key: cacheKey, ts: (/* @__PURE__ */ new Date()).toISOString(), model, out });
   }
-  const criteria = (out.criteria ?? []).filter((c) => c.text?.trim()).map((c, i) => {
-    const check = parseCheck(c.check);
+  const MAX_CRITERIA = 8;
+  const raw = (out.criteria ?? []).filter((c) => c.text?.trim());
+  const kept = [...raw.filter((c) => c.source === "explicit"), ...raw.filter((c) => c.source !== "explicit")].slice(0, MAX_CRITERIA);
+  const criteria = kept.map((c, i) => {
+    const check = sanitiseCheck(parseCheck(c.check));
     return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === "explicit" ? "explicit" : "inferred", kind: check ? "mechanical" : "judgment", ...check ? { check } : {} };
   });
   if (criteria.length === 0) criteria.push({ id: "c1", text: `Deliver: ${fetched.title}`, source: "inferred", kind: "judgment" });
@@ -5476,7 +5485,7 @@ var init_intake = __esm({
     INTAKE_SYSTEM = `You turn a software task description into a frozen checklist of acceptance criteria for a later, skeptical audit.
 Rules:
 - Each criterion must be a single verifiable statement about observable behaviour, code, tests, or docs. No vague "works well".
-- Mark a criterion "explicit" when the ticket states it (including checkbox lists), "inferred" when a competent engineer would assume it (tests for new behaviour, no regressions). Keep inferred criteria to at most 3.
+- Mark a criterion "explicit" when the ticket states it (including checkbox lists), "inferred" when a competent engineer would assume it (tests for new behaviour, no regressions). Keep inferred criteria to at most 3 and the whole list to at most 8; merge minor points rather than listing every sentence.
 - spec_quality.score is 0-10: 10 = every criterion is testable and scoped; 5 = usable but missing key details; below 5 = the engineer should ask questions before starting. List what is missing and the exact questions to ask.
 - estimate_hours is the human-hours a competent engineer would need without AI assistance, including tests. Be realistic, not optimistic.
 - For each criterion give a "check": a mechanical test that decides it with no judgment, or kind "none" when only a reader can decide.
@@ -6603,6 +6612,8 @@ var init_schema = __esm({
         escalations: external_exports.array(external_exports.object({ id: external_exports.string(), reason: external_exports.enum(["low-confidence", "verdict-sensitive", "correctness"]) })).optional()
       }).default({ ran: ["tier2"], reason: "legacy receipt", mechanical: 0, judgment: 0, calls: [], llm_cost_usd: 0 }),
       completion_pct: external_exports.number().min(0).max(100),
+      /* 0.1.1: completion is over the criteria that could be checked; the basis says how many that was */
+      completion_basis: external_exports.object({ verifiable: external_exports.number().int().nonnegative(), total: external_exports.number().int().nonnegative() }).optional(),
       counts: external_exports.object({ met: external_exports.number(), partial: external_exports.number(), unmet: external_exports.number(), unverifiable: external_exports.number() }),
       quality: external_exports.object({ score: external_exports.number().min(0).max(10), reason: external_exports.string() }),
       verification: external_exports.object({
@@ -6713,7 +6724,7 @@ function renderReport(j) {
     for (const n of j.followup.notes) L.push(`- ${n}`);
   }
   L.push("");
-  L.push(`## Acceptance criteria \u2014 ${j.completion_pct}% complete (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
+  L.push(`## Acceptance criteria \u2014 ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` of ${j.completion_basis.verifiable} verifiable` : ""} (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
   L.push("");
   L.push("| # | Status | Criterion | Evidence |");
   L.push("|---|---|---|---|");
@@ -6803,7 +6814,7 @@ function renderSummary(j, color = true) {
   const verdictColor = j.verdict.verdict === "worth it" ? "32" : j.verdict.verdict === "borderline" ? "33" : "31";
   const L = [];
   L.push(c("1", `Tally receipt \xB7 ${j.task.title}`));
-  L.push(`${c(verdictColor, c("1", j.verdict.verdict.toUpperCase()))}${j.followup ? `  \u2192 after follow-up: ${c("1", j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ""}  \xB7  ${j.completion_pct}% complete  \xB7  quality ${j.quality.score}/10  \xB7  ROI ${j.value.roi_multiple === null ? "n/a" : j.value.roi_multiple + "\xD7"}`);
+  L.push(`${c(verdictColor, c("1", j.verdict.verdict.toUpperCase()))}${j.followup ? `  \u2192 after follow-up: ${c("1", j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ""}  \xB7  ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` (${j.counts.unverifiable} unverifiable)` : ""}  \xB7  quality ${j.quality.score}/10  \xB7  ROI ${j.value.roi_multiple === null ? "n/a" : j.value.roi_multiple + "\xD7"}`);
   for (const cr of j.criteria) {
     const col = cr.status === "met" ? "32" : cr.status === "partial" ? "33" : cr.status === "unmet" ? "31" : "90";
     L.push(`  ${c(col, STATUS_ICON[cr.status])} ${cr.id} ${cr.text} ${c("90", `[${cr.resolved_by === "tier0" ? "check" : cr.resolved_by === "rule" ? "rule" : cr.resolved_by}${cr.confidence !== void 0 && cr.resolved_by !== "tier0" ? ` ${cr.confidence.toFixed(2)}` : ""}]`)}`);
@@ -6854,13 +6865,45 @@ function loadJudge(session) {
   const p = JudgeSchema.safeParse(raw);
   return p.success ? p.data : null;
 }
+function scoreCounts(counts, humanValue, costUsd) {
+  const total = counts.met + counts.partial + counts.unmet + counts.unverifiable;
+  const verifiable = total - counts.unverifiable;
+  const done = counts.met + 0.5 * counts.partial;
+  const completion_pct = verifiable ? round(done / verifiable * 100, 1) : 0;
+  const credited = round(humanValue * (total ? done / total : 0), 2);
+  const roi = costUsd > 0 ? round(credited / costUsd, 2) : null;
+  return { completion_pct, credited, roi, verifiable, total };
+}
 function computeVerdict(input) {
   const { completion_pct, roi, quality, testsFailed } = input;
+  const verifiable = input.verifiable ?? 1;
+  const unverifiable = input.unverifiable ?? 0;
+  if (verifiable === 0) return "borderline";
   const roiOk = roi === null ? true : roi >= 2;
   const roiBad = roi !== null && roi < 1;
-  if (completion_pct < 40 || roiBad || quality < 4) return "not worth it";
-  if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) return "worth it";
-  return "borderline";
+  let verdict = "borderline";
+  if (completion_pct < 40 || roiBad || quality < 4) verdict = "not worth it";
+  else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = "worth it";
+  if (unverifiable > verifiable) return "borderline";
+  return verdict;
+}
+function recomputeReceipt(session) {
+  const j = loadJudge(session);
+  if (!j) return null;
+  const scored = scoreCounts(j.counts, j.value.human_value_usd, j.cost.total_usd);
+  const testsFailed = j.verification.ran && j.verification.passed === false;
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: j.counts.unverifiable });
+  const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct;
+  const next = {
+    ...j,
+    completion_pct: scored.completion_pct,
+    completion_basis: { verifiable: scored.verifiable, total: scored.total },
+    value: { ...j.value, credited_value_usd: scored.credited, roi_multiple: scored.roi },
+    verdict: { verdict, reason: changed && !/\[recomputed/.test(j.verdict.reason) ? `${j.verdict.reason} [recomputed with the 0.1.1 completion rule: ${scored.completion_pct}% of ${scored.verifiable} verifiable criteria, ${j.counts.unverifiable} unverifiable]` : j.verdict.reason }
+  };
+  const validated = JudgeSchema.parse(next);
+  persistJudge(validated, loadTask(session));
+  return validated;
 }
 function bucket(x) {
   return { usd: round(x.cost), messages: x.messages, tokens: x.usage.input + x.usage.output + x.usage.cache_write + x.usage.cache_read };
@@ -6984,10 +7027,10 @@ async function judgeSession(opts) {
       const vals = Object.values(st);
       const met = vals.filter((s) => s === "met").length;
       const partial = vals.filter((s) => s === "partial").length;
-      const pct = vals.length ? (met + 0.5 * partial) / vals.length * 100 : 0;
-      const creditedNow = humanValue * (pct / 100);
-      const roiNow = t.cost > 0 ? creditedNow / t.cost : null;
-      return computeVerdict({ completion_pct: pct, roi: roiNow, quality: tier1Quality, testsFailed: testsFailedNow });
+      const unmet = vals.filter((s) => s === "unmet").length;
+      const unverifiable = vals.length - met - partial - unmet;
+      const sc = scoreCounts({ met, partial, unmet, unverifiable }, humanValue, t.cost);
+      return computeVerdict({ completion_pct: sc.completion_pct, roi: sc.roi, quality: tier1Quality, testsFailed: testsFailedNow, verifiable: sc.verifiable, unverifiable });
     };
     tier1 = judgmentIds.map((id) => {
       const r2 = resolved.get(id);
@@ -7019,15 +7062,14 @@ async function judgeSession(opts) {
   });
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of criteria) counts[c.status] += 1;
-  const completion_pct = criteria.length ? round((counts.met + 0.5 * counts.partial) / criteria.length * 100, 1) : 0;
-  const credited = round(humanValue * (completion_pct / 100), 2);
-  const roi = t.cost > 0 ? round(credited / t.cost, 2) : null;
+  const scored = scoreCounts(counts, humanValue, t.cost);
+  const { completion_pct, credited, roi } = scored;
   const testsFailed = ver.ran && ver.passed === false;
   const mech = mechanicalSummary({ ver, completion_pct, counts, waste: { total_usd: waste.total_usd, failed_loops: waste.failed_loops, repeated_reads: waste.repeated_reads, dead_weight: waste.dead_weight, compaction_churn: waste.compaction_churn }, cost: t.cost, budget: task.budget_usd, roi, unresolved: criteria.filter((c) => c.resolved_by === "rule").length });
   const finalProse = prose;
   const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };
   const quality = Math.max(0, Math.min(10, Number(out.quality_score ?? 0)));
-  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed });
+  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
   const tiersRan = ["tier0", ...tierCosts.map((c) => c.tier)];
   const tiers = {
     ran: tiersRan,
@@ -7058,6 +7100,7 @@ async function judgeSession(opts) {
     task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked) },
     criteria,
     completion_pct,
+    completion_basis: { verifiable: scored.verifiable, total: scored.total },
     counts,
     quality: { score: quality, reason: String(out.quality_reason ?? "") },
     verification: ver,
@@ -7354,6 +7397,16 @@ async function run3(args) {
   const reasonFlag = flag(args, "reason");
   const reason = ["push", "pr", "merge", "publish", "session_end", "manual"].includes(reasonFlag ?? "") ? reasonFlag : auto ? "session_end" : "manual";
   const cwd = sessionCwd(session) ?? process.cwd();
+  if (has(args, "recompute")) {
+    const j = recomputeReceipt(session);
+    if (!j) {
+      process.stderr.write(`No receipt for session ${session}.
+`);
+      return 1;
+    }
+    process.stdout.write(renderSummary(j, !has(args, "plain")) + "\n");
+    return;
+  }
   const existing = existingReceiptFor(session, cwd);
   if (existing && !has(args, "force") && !has(args, "deep")) {
     log(`judge: ${session} already judged at HEAD ${existing.head?.slice(0, 8) ?? "?"} (${existing.reason}); reusing`);
@@ -8262,13 +8315,15 @@ var init_permission_friction = __esm({
 });
 
 // src/coach/rules/burn-rate.ts
-var BURN_WINDOW_MIN, BURN_MIN_USD, burnRate;
+var BURN_WINDOW_MIN, BURN_MIN_USD, BURN_MIN_CALLS, BURN_REPEAT_MIN, burnRate;
 var init_burn_rate = __esm({
   "src/coach/rules/burn-rate.ts"() {
     "use strict";
     init_helpers();
-    BURN_WINDOW_MIN = 10;
-    BURN_MIN_USD = 1.5;
+    BURN_WINDOW_MIN = 15;
+    BURN_MIN_USD = 3;
+    BURN_MIN_CALLS = 10;
+    BURN_REPEAT_MIN = 30;
     burnRate = {
       id: "burn-rate",
       describe: "Spend is high while no files change, or spend passed 80% / 100% of the task budget",
@@ -8281,10 +8336,10 @@ var init_burn_rate = __esm({
           const spent = recent.reduce((s, m) => s + m.cost, 0);
           const edits = postTools(ctx).filter((e) => e.ts >= since && ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(toolName(e))).length;
           const calls = postTools(ctx).filter((e) => e.ts >= since).length;
-          if (spent >= BURN_MIN_USD && edits === 0 && calls >= 5) {
+          if (spent >= BURN_MIN_USD && edits === 0 && calls >= BURN_MIN_CALLS) {
             out.push({
               rule: this.id,
-              key: `burn:${Math.floor(ctx.now.getTime() / (BURN_WINDOW_MIN * 6e4))}`,
+              key: `burn:${Math.floor(ctx.now.getTime() / (BURN_REPEAT_MIN * 6e4))}`,
               severity: "warn",
               title: `$${spent.toFixed(2)} in ${BURN_WINDOW_MIN} min, no file changed`,
               message: `The last ${BURN_WINDOW_MIN} minutes cost $${spent.toFixed(2)} across ${calls} tool calls without a single edit. That is exploration or thrashing. Narrow the question or give Claude the file names.`,
@@ -10434,6 +10489,8 @@ function buildCalibrationReport(entries) {
   const vd = [];
   let vTotal = 0;
   let vAgree = 0;
+  let vNear = 0;
+  const V_ORDER = { "not worth it": 0, borderline: 1, "worth it": 2 };
   for (const e of entries) {
     for (const c of e.criteria) {
       total += 1;
@@ -10449,6 +10506,7 @@ function buildCalibrationReport(entries) {
     if (e.human_verdict) {
       vTotal += 1;
       if (e.human_verdict === e.judge_verdict) vAgree += 1;
+      if (Math.abs((V_ORDER[e.human_verdict] ?? 1) - (V_ORDER[e.judge_verdict] ?? 1)) <= 1) vNear += 1;
       else vd.push({ session: e.session, task: e.task_title, human: e.human_verdict, judge: e.judge_verdict });
     }
   }
@@ -10506,6 +10564,7 @@ function buildCalibrationReport(entries) {
     lenient_agreement: total ? lenient / total : null,
     verdict_total: vTotal,
     verdict_agreement: vTotal ? vAgree / vTotal : null,
+    verdict_lenient_agreement: vTotal ? vNear / vTotal : null,
     confusion,
     disagreements,
     verdict_disagreements: vd,
@@ -10521,7 +10580,7 @@ function renderCalibrationReport(r, title = "Judge calibration") {
     return L.join("\n");
   }
   L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact \xB7 ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) \xB7 n=${r.criteria}`);
-  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} of ${r.verdict_total}` : "n/a (no human verdicts)"} \xB7 n=${r.verdict_total}`);
+  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact \xB7 ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : "n/a (no human verdicts)"} \xB7 n=${r.verdict_total}`);
   L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
   if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(" and ")}`);
   else L.push("inter-grader          n/a (no session graded by two people; use --grader <name>)");
@@ -11425,12 +11484,31 @@ var init_ticket = __esm({
 // src/backfill/run.ts
 import fs35 from "node:fs";
 import path35 from "node:path";
+function tier2Estimate(sessionCostUsd) {
+  return Math.min(3, 0.15 + 4e-3 * sessionCostUsd);
+}
+function backfillSpendSince(hours = 24) {
+  const f = tallySpendFile();
+  if (!fs35.existsSync(f)) return 0;
+  const since = Date.now() - hours * 36e5;
+  let sum = 0;
+  for (const line of fs35.readFileSync(f, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line);
+      if (Date.parse(e.ts ?? "") >= since && e.session && fs35.existsSync(path35.join(sessionDir(e.session), "backfill.json"))) sum += e.cost_usd ?? 0;
+    } catch {
+    }
+  }
+  return sum;
+}
 function projectCost(candidates, cfg) {
-  const tier2 = candidates.filter((c) => c.cost >= cfg.judge.deepThreshold).length;
+  const above = candidates.filter((c) => c.cost >= cfg.judge.deepThreshold);
+  const tier2 = above.length;
   const n = candidates.length;
   const intake2 = n * 0.01;
   const tier1 = n * 0.015;
-  const t2 = tier2 * 0.12;
+  const t2 = above.reduce((s, c) => s + tier2Estimate(c.cost), 0);
   return { sessions: n, intake_usd: intake2, tier1_usd: tier1, tier2_usd: t2, total_usd: intake2 + tier1 + t2, tier2_sessions: tier2 };
 }
 async function backfillSession(c, opts) {
@@ -11498,6 +11576,7 @@ var init_run = __esm({
     init_config();
     init_parse();
     init_paths();
+    init_client();
     init_events();
     init_intake();
     init_fetchers();
@@ -11613,9 +11692,15 @@ ${linked}/${cands.length} with a detected task link. Projected cost to backfill 
       return 1;
     }
     const maxSpend = Number(flag(args, "max-spend") ?? 3);
+    const already = backfillSpendSince(24);
     const proj = projectCost(chosen, cfg);
-    process.stdout.write(`Backfilling ${chosen.length} session(s). Projected Tally spend ${fmtUsd(proj.total_usd)} (cap ${fmtUsd(maxSpend)}; intake hits the cache when the ticket text is unchanged).
+    process.stdout.write(`Backfilling ${chosen.length} session(s). Projected Tally spend ${fmtUsd(proj.total_usd)}; cap ${fmtUsd(maxSpend)} per 24 h across runs, ${fmtUsd(already)} already spent (intake hits the cache when the ticket text is unchanged).
 `);
+    if (already >= maxSpend) {
+      process.stdout.write(`Stopped before starting: backfill spend in the last 24 h (${fmtUsd(already)}) is at the --max-spend cap. Raise --max-spend or wait.
+`);
+      return 1;
+    }
     const cwds = [...new Set(chosen.map((c) => c.cwd).filter((x) => !!x))];
     for (const c of cwds) {
       const consent = testRerunConsent(cfg, c);
@@ -11625,8 +11710,8 @@ ${linked}/${cands.length} with a detected task link. Projected cost to backfill 
     let spent = 0;
     let done = 0;
     for (const c of chosen) {
-      if (spent >= maxSpend) {
-        process.stdout.write(`Stopped: Tally spend ${fmtUsd(spent)} reached the --max-spend cap ${fmtUsd(maxSpend)} after ${done} session(s).
+      if (already + spent >= maxSpend) {
+        process.stdout.write(`Stopped: Tally backfill spend ${fmtUsd(already + spent)} in the last 24 h reached the --max-spend cap ${fmtUsd(maxSpend)} after ${done} session(s) this run.
 `);
         break;
       }
@@ -11709,7 +11794,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._.shift();
   if (has(args, "version") || cmd === "version") {
-    process.stdout.write("tally 0.1.0\n");
+    process.stdout.write("tally 0.1.1\n");
     return;
   }
   if (!cmd || cmd === "help" || cmd === "--help" || has(args, "help")) {

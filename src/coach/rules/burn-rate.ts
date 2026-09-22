@@ -1,8 +1,12 @@
 import type { Rule, Suggestion } from '../types.js';
 import { minutesAgo, postTools, toolName } from '../helpers.js';
 
-export const BURN_WINDOW_MIN = 10;
-export const BURN_MIN_USD = 1.5;
+/* 0.1.1: 8 of 32 replayed burn-rate suggestions were marked useful, so the bar is higher: $3 in 15 minutes over 10+ calls
+   with no edit, and at most one such note per 30 minutes */
+export const BURN_WINDOW_MIN = 15;
+export const BURN_MIN_USD = 3;
+export const BURN_MIN_CALLS = 10;
+export const BURN_REPEAT_MIN = 30;
 
 export const burnRate: Rule = {
   id: 'burn-rate',
@@ -16,10 +20,10 @@ export const burnRate: Rule = {
       const spent = recent.reduce((s, m) => s + m.cost, 0);
       const edits = postTools(ctx).filter((e) => e.ts >= since && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(toolName(e))).length;
       const calls = postTools(ctx).filter((e) => e.ts >= since).length;
-      if (spent >= BURN_MIN_USD && edits === 0 && calls >= 5) {
+      if (spent >= BURN_MIN_USD && edits === 0 && calls >= BURN_MIN_CALLS) {
         out.push({
           rule: this.id,
-          key: `burn:${Math.floor(ctx.now.getTime() / (BURN_WINDOW_MIN * 60000))}`,
+          key: `burn:${Math.floor(ctx.now.getTime() / (BURN_REPEAT_MIN * 60000))}`,
           severity: 'warn',
           title: `$${spent.toFixed(2)} in ${BURN_WINDOW_MIN} min, no file changed`,
           message: `The last ${BURN_WINDOW_MIN} minutes cost $${spent.toFixed(2)} across ${calls} tool calls without a single edit. That is exploration or thrashing. Narrow the question or give Claude the file names.`,

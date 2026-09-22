@@ -20,7 +20,7 @@ Tally is a small local tool that answers that per task. It runs as a Claude Code
 
 The Judge is tiered so it stays cheap: mechanical checks first, a small model on the rest, a stronger model only where a criterion could flip the verdict. On the calibration fixtures Tally's own spend is 4.1% of the session's.
 
-How accurate is it? Honestly: early. On five authored sessions with known answers, 19/19 criteria and 5/5 verdicts. On 11 of my own real sessions, blind-graded before seeing Tally's answer, criterion agreement is 51% and verdict agreement 18%. That is a second opinion, not an oracle, and the README says so.
+How accurate is it? Honestly: early. On five authored sessions with known answers, 19/19 criteria and 5/5 verdicts. On 11 of my own real sessions, blind-graded before seeing Tally's answer, criterion agreement is 51% and the verdict matches exactly on 1 of 11 and is within one step on 9 of 11. That is a second opinion, not an oracle, and the README says so.
 
 Everything is local. Hooks make no network calls and finish in under 150 ms; model calls go through your existing `claude` login; nothing is uploaded.
 

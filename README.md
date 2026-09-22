@@ -77,7 +77,7 @@ Inside Claude Code the plugin adds `/tally:task <ref>`, `/tally:judge [--post]`,
 
 ```
 Tally receipt · Rate limit the login endpoint
-BORDERLINE  ·  50% complete  ·  quality 7/10  ·  ROI 84.84×
+BORDERLINE  ·  66.7% complete (1 unverifiable)  ·  quality 7/10  ·  ROI 84.84×
   ✔ c1 POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes [tier2 1.00]
   ✔ c2 A test covers the 429 path [tier2 1.00]
   ✘ c3 README documents the limit [tier1 1.00]
@@ -88,8 +88,8 @@ Cost (API-equivalent): $1.33 / budget $56.25 (2.4%) · per met criterion $0.660 
   Tally's own spend: $0.070 (5.3% of session spend, separate)
   by phase: explore $0.528, build $0.149, verify $0.604, ship $0.045  · subagents: agent-explore-01 $0.009
 Value: 3h × $75 = $225, credited $113
-Why: Two of four criteria are met with an independent green test run, one is unmet and one unverifiable,
-so 50% completion. Spend is well inside the budget and the ROI is comfortably above 2×, but the README
+Why: Two of the three verifiable criteria are met with an independent green test run, one is unmet and one
+unverifiable, so 66.7% completion over what could be checked. Spend is well inside the budget and the ROI is comfortably above 2×, but the README
 criterion was skipped and stated as skipped, and $0.60 of the $1.33 went into three identical failing test runs.
 Next time:
   • When `npm test` fails twice with the same assertion, read the test before editing the implementation again.
@@ -135,9 +135,9 @@ Early, and measured two ways. Neither is a benchmark.
 
 Across six live runs the same fixtures scored between 18/19 and 19/19; CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the self-share exceeds 5%.
 
-**Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (63% within one step), verdict agreement 18% on 11 verdicts, Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
+**Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (63% within one step), verdict agreement 9% exact and 82% within one step on 11 verdicts, Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
 
-What those numbers say: on real sessions Tally and a human mostly agree on individual criteria and mostly disagree on the verdict. The first grading pass scored 35% / 1 of 11; it exposed a bias in the mechanical checks (on sessions with no git tree they answered `unmet` against a repo that had moved on, where a human said `unverifiable`), fixing that bias, not the grader, moved it to 51% / 2 of 11 after `tally calibrate rescore`. The remaining gap is the verdict rule: when tests cannot be re-run, unverifiable criteria pull completion down and Tally calls `borderline` where the author called `worth it`. That is the next thing to fix, and the reason verdicts are labelled a second opinion.
+What those numbers say: on real sessions Tally and a human mostly agree on individual criteria and rarely on the exact verdict, but they are usually one step apart. The first grading pass scored 35% / 1 of 11; it exposed a bias in the mechanical checks (on sessions with no git tree they answered `unmet` against a repo that had moved on, where a human said `unverifiable`), and fixing that bias, not the grader, moved criteria to 51%. 0.1.1 then stopped counting unverifiable criteria as failures, which moved verdicts from 7 to 9 of 11 within one step (exact stayed at 1). What remains is value estimation: on four expensive sessions the author called worth it, Tally's ROI rule says the spend exceeded the task's estimated value. Until that is calibrated, read the criteria lines and treat the verdict as a second opinion.
 
 Caveats: the fixtures are small JavaScript repos with one test file each; the small model's confidence is self-reported, so a confident wrong answer is only caught by the verdict-sensitivity and correctness guards; when a repo has no detectable test command, or you have not consented to re-runs, test criteria are `unverifiable` by rule; and on sessions with no commits the evidence is a transcript reconstruction, which the receipt says.
 
@@ -219,7 +219,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## Known limitations
 
-- **Calibration is early and verdicts disagree with the author most of the time.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement, 2 of 11 verdicts. No external graders yet. Treat verdicts as a second opinion and read the criteria lines.
+- **Calibration is early and exact verdicts rarely match the author.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement, verdicts 1 of 11 exact and 9 of 11 within one step. No external graders yet. Treat verdicts as a second opinion and read the criteria lines.
 - **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), and moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`).
 - Sessions with no commits are judged from the transcript reconstruction; edits made by tools Tally does not parse (an MCP file server, an editor) are invisible, and tests are not run.
 - Inferred tasks are only as good as the first prompts; confirm or edit them before trusting completion %.
@@ -241,7 +241,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 ## Development
 
 ```bash
-npm test            # typecheck, bundle with esbuild, then vitest (149 tests)
+npm test            # typecheck, bundle with esbuild, then vitest (154 tests)
 npm run build       # dist/cli.js + dist/hook.js, committed because the marketplace clones this repo
 npm run fixtures    # regenerates test/fixtures/session-basic
 ```

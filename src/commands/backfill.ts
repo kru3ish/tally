@@ -5,7 +5,7 @@ import { loadConfig, testRerunConsent } from '../config.js';
 import { makeLlm } from '../llm/client.js';
 import { scanSessions, type SessionCandidate } from '../backfill/scan.js';
 import { detectTaskLink } from '../backfill/link.js';
-import { backfillSession, projectCost, isBackfilled } from '../backfill/run.js';
+import { backfillSession, projectCost, isBackfilled, backfillSpendSince } from '../backfill/run.js';
 import { fmtUsd } from '../cost/pricing.js';
 import { sessionDir } from '../paths.js';
 
@@ -90,8 +90,13 @@ export async function run(args: Args): Promise<number | void> {
       return 1;
     }
     const maxSpend = Number(flag(args, 'max-spend') ?? 3);
+    const already = backfillSpendSince(24);
     const proj = projectCost(chosen, cfg);
-    process.stdout.write(`Backfilling ${chosen.length} session(s). Projected Tally spend ${fmtUsd(proj.total_usd)} (cap ${fmtUsd(maxSpend)}; intake hits the cache when the ticket text is unchanged).\n`);
+    process.stdout.write(`Backfilling ${chosen.length} session(s). Projected Tally spend ${fmtUsd(proj.total_usd)}; cap ${fmtUsd(maxSpend)} per 24 h across runs, ${fmtUsd(already)} already spent (intake hits the cache when the ticket text is unchanged).\n`);
+    if (already >= maxSpend) {
+      process.stdout.write(`Stopped before starting: backfill spend in the last 24 h (${fmtUsd(already)}) is at the --max-spend cap. Raise --max-spend or wait.\n`);
+      return 1;
+    }
     const cwds = [...new Set(chosen.map((c) => c.cwd).filter((x): x is string => !!x))];
     for (const c of cwds) {
       const consent = testRerunConsent(cfg, c);
@@ -100,8 +105,8 @@ export async function run(args: Args): Promise<number | void> {
     let spent = 0;
     let done = 0;
     for (const c of chosen) {
-      if (spent >= maxSpend) {
-        process.stdout.write(`Stopped: Tally spend ${fmtUsd(spent)} reached the --max-spend cap ${fmtUsd(maxSpend)} after ${done} session(s).\n`);
+      if (already + spent >= maxSpend) {
+        process.stdout.write(`Stopped: Tally backfill spend ${fmtUsd(already + spent)} in the last 24 h reached the --max-spend cap ${fmtUsd(maxSpend)} after ${done} session(s) this run.\n`);
         break;
       }
       if (isBackfilled(c.session) && !has(args, 'force')) {

@@ -20,7 +20,7 @@ export function renderReport(j: Judge): string {
     for (const n of j.followup.notes) L.push(`- ${n}`);
   }
   L.push('');
-  L.push(`## Acceptance criteria — ${j.completion_pct}% complete (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
+  L.push(`## Acceptance criteria — ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` of ${j.completion_basis.verifiable} verifiable` : ''} (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
   L.push('');
   L.push('| # | Status | Criterion | Evidence |');
   L.push('|---|---|---|---|');
@@ -111,7 +111,7 @@ export function renderSummary(j: Judge, color = true): string {
   const verdictColor = j.verdict.verdict === 'worth it' ? '32' : j.verdict.verdict === 'borderline' ? '33' : '31';
   const L: string[] = [];
   L.push(c('1', `Tally receipt · ${j.task.title}`));
-  L.push(`${c(verdictColor, c('1', j.verdict.verdict.toUpperCase()))}${j.followup ? `  → after follow-up: ${c('1', j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ''}  ·  ${j.completion_pct}% complete  ·  quality ${j.quality.score}/10  ·  ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`);
+  L.push(`${c(verdictColor, c('1', j.verdict.verdict.toUpperCase()))}${j.followup ? `  → after follow-up: ${c('1', j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ''}  ·  ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` (${j.counts.unverifiable} unverifiable)` : ''}  ·  quality ${j.quality.score}/10  ·  ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`);
   for (const cr of j.criteria) {
     const col = cr.status === 'met' ? '32' : cr.status === 'partial' ? '33' : cr.status === 'unmet' ? '31' : '90';
     L.push(`  ${c(col, STATUS_ICON[cr.status]!)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}`);

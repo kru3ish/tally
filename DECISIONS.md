@@ -122,3 +122,11 @@ One line each. Newest at the bottom.
 - B3: Coach precision from the same grading: 65% of 83 replayed suggestions marked useful; `burn-rate` at 25% is the noisy rule (32 shown, 8 useful) and is the first candidate for a higher threshold.
 - B4: The calibration spend caps were per invocation, not cumulative: A4 cost $5.18 against a $3 brief and the re-judge $8.13, driven by opus tier 2 on two very large transcripts. `backfill add all --max-spend` already stops cumulatively; a global cap across separate invocations is on the list.
 
+## 0.1.1 (2026-09-22)
+
+- V1: Completion is over verifiable criteria; unverifiable is a gap, not a failure. Value is still credited over all criteria (unverifiable earns nothing), and a verdict is `borderline` when nothing could be checked or unverifiable criteria are the majority. `judge --recompute` re-derives stored receipts so graded sessions can be rescored without model calls. Fixture eval unchanged (19/19, 5/5, 4.1%).
+- V2: Measured effect on the 11 graded sessions: criteria 51% / 63% (unchanged), verdicts within one step 7 → 9 of 11, exact 2 → 1 (one session moved from an agreed `not worth it` to `borderline` because 6 of its 7 criteria were unverifiable). Reported as is. The report now prints verdict agreement within one step next to exact, mirroring the criterion metric.
+- V3: The remaining verdict gap is ROI: four expensive sessions ($13–$769) the author called worth it or borderline get `not worth it` because spend exceeded hours × rate × completion. The estimate is a model guess from the prompt; calibrating it (or asking the user for the estimate once) is the next target. Not tuned here with n=11.
+- V4: burn-rate: $3 / 15 min / 10+ calls / once per 30 min (was $1.5 / 10 min / 5 calls / once per 10 min) after 8 of 32 replayed suggestions were marked useful.
+- V5: `--max-spend` is cumulative over the last 24 h across invocations; tier-2 projection scales with session cost, capped at $3. Intake caps criteria at 8 and drops checks whose path cannot be a repo file.
+

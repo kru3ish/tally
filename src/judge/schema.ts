@@ -36,6 +36,8 @@ export const JudgeSchema = z.object({
     })
     .default({ ran: ['tier2'], reason: 'legacy receipt', mechanical: 0, judgment: 0, calls: [], llm_cost_usd: 0 }),
   completion_pct: z.number().min(0).max(100),
+  /* 0.1.1: completion is over the criteria that could be checked; the basis says how many that was */
+  completion_basis: z.object({ verifiable: z.number().int().nonnegative(), total: z.number().int().nonnegative() }).optional(),
   counts: z.object({ met: z.number(), partial: z.number(), unmet: z.number(), unverifiable: z.number() }),
   quality: z.object({ score: z.number().min(0).max(10), reason: z.string() }),
   verification: z.object({

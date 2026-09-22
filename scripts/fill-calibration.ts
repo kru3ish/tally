@@ -20,6 +20,7 @@ const values: Record<string, string> = {
   CALIBRATION_WITHIN_ONE_STEP: pct(r.lenient_agreement),
   CALIBRATION_VERDICTS: String(r.verdict_total),
   CALIBRATION_VERDICT_AGREEMENT: pct(r.verdict_agreement),
+  CALIBRATION_VERDICT_WITHIN_ONE_STEP: pct(r.verdict_lenient_agreement),
   CALIBRATION_LEAN: r.lean.lenient > r.lean.stricter ? `lenient on ${r.lean.lenient} of ${total}` : r.lean.stricter > r.lean.lenient ? `stricter on ${r.lean.stricter} of ${total}` : 'no lean',
   CALIBRATION_INTER_GRADER: r.inter_grader ? `${pct(r.inter_grader.agreement)} on ${r.inter_grader.criteria} criteria (${r.inter_grader.graders.join(', ')})` : 'one grader so far',
   CALIBRATION_COACH_PRECISION: r.coach.total ? `${r.coach.useful} of ${r.coach.total} replayed suggestions marked useful (${pct(r.coach.precision)})` : 'no replayed suggestions graded yet',

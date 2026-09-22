@@ -162,7 +162,7 @@ footer a:hover{color:var(--text)}
     </div>
     <div class="statusbar">
       <div class="lbl">Claude Code status line, always on</div>
-      <span class="d">Tally</span> <span class="d">·</span> Rate limit the login endpoint <span class="d">·</span> <span class="y">$1.33/$56.25 (2%)</span> <span class="d">·</span> ctx 34% <span class="d">·</span> <span class="c">2 coach flags (/tally:coach)</span> <span class="d">·</span> <span class="g">receipt: 50% · borderline</span>
+      <span class="d">Tally</span> <span class="d">·</span> Rate limit the login endpoint <span class="d">·</span> <span class="y">$1.33/$56.25 (2%)</span> <span class="d">·</span> ctx 34% <span class="d">·</span> <span class="c">2 coach flags (/tally:coach)</span> <span class="d">·</span> <span class="g">receipt: 67% · borderline</span>
     </div>
   </div>
 
@@ -170,7 +170,7 @@ footer a:hover{color:var(--text)}
     <div class="r-head"><b>TALLY RECEIPT</b><span>demo session · 2026-09-10</span></div>
     <div><b>Rate limit the login endpoint</b><br><span style="color:var(--paper-mute)">github.com/acme/app/issues/42 · criteria frozen 14:01</span></div>
     <div class="stamp">JUDGED</div>
-    <div class="verdict"><span class="b">BORDERLINE</span><span>50% complete</span><span>quality 7/10</span><span>ROI 84×</span></div>
+    <div class="verdict"><span class="b">BORDERLINE</span><span>66.7% complete (1 unverifiable)</span><span>quality 7/10</span><span>ROI 84×</span></div>
     <ul class="crit">
       <li><span class="ok">✔</span><span>c1 POST /api/login returns 429 after 5 failed attempts</span><span class="tier">tier 2 · 1.00</span></li>
       <li><span class="ok">✔</span><span>c2 A test covers the 429 path</span><span class="tier">tier 2 · 1.00</span></li>
@@ -186,7 +186,7 @@ footer a:hover{color:var(--text)}
       <div class="row"><span>Value credited</span><span>$113 of $225</span></div>
     </div>
     <div class="sec">
-      <div class="why">Two of four criteria are met with an independent green test run, one unmet, one unverifiable. Spend is well inside budget, but the README item was skipped and stated as skipped, and $0.60 went into three identical failing test runs.</div>
+      <div class="why">Two of the three verifiable criteria are met with an independent green test run, one unmet, one unverifiable. Spend is well inside budget, but the README item was skipped and stated as skipped, and $0.60 went into three identical failing test runs.</div>
       <div style="margin-top:8px;font-weight:600">Next time</div>
       <ol class="next">
         <li>When npm test fails twice with the same assertion, read the test before editing again.</li>
@@ -247,7 +247,7 @@ footer a:hover{color:var(--text)}
     <div class="stat"><div class="v">4.1<small>%</small></div><div class="l">Tally's own spend, share of session spend</div></div>
     <div class="stat"><div class="v">51%</div><div class="l">criterion agreement on 11 real sessions, 51 criteria (early, n=11)</div></div>
   </div>
-  <p class="callout">Real sessions, blind-graded (n=11, 2026-09-22): 51% exact criterion agreement (63% within one step), 18% verdict agreement on 11 verdicts, Tally stricter on 14 of 51. Coach: 54 of 83 replayed suggestions marked useful (65%). Grade your own with <code>tally calibrate grade</code>; that is the data this needs next.</p>
+  <p class="callout">Real sessions, blind-graded (n=11, 2026-09-22): 51% exact criterion agreement (63% within one step), 9% exact verdict agreement (82% within one step) on 11 verdicts, Tally stricter on 14 of 51. Coach: 54 of 83 replayed suggestions marked useful (65%). Grade your own with <code>tally calibrate grade</code>; that is the data this needs next.</p>
 </section>
 
 <section id="install">

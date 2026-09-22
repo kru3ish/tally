@@ -81,13 +81,21 @@ export const INTAKE_SCHEMA = {
 export const INTAKE_SYSTEM = `You turn a software task description into a frozen checklist of acceptance criteria for a later, skeptical audit.
 Rules:
 - Each criterion must be a single verifiable statement about observable behaviour, code, tests, or docs. No vague "works well".
-- Mark a criterion "explicit" when the ticket states it (including checkbox lists), "inferred" when a competent engineer would assume it (tests for new behaviour, no regressions). Keep inferred criteria to at most 3.
+- Mark a criterion "explicit" when the ticket states it (including checkbox lists), "inferred" when a competent engineer would assume it (tests for new behaviour, no regressions). Keep inferred criteria to at most 3 and the whole list to at most 8; merge minor points rather than listing every sentence.
 - spec_quality.score is 0-10: 10 = every criterion is testable and scoped; 5 = usable but missing key details; below 5 = the engineer should ask questions before starting. List what is missing and the exact questions to ask.
 - estimate_hours is the human-hours a competent engineer would need without AI assistance, including tests. Be realistic, not optimistic.
 - For each criterion give a "check": a mechanical test that decides it with no judgment, or kind "none" when only a reader can decide.
   Kinds: "tests_pass" (the project's test suite passes), "file_exists" {path}, "file_changed" {path} (the file appears in the diff), "file_contains" {path, pattern (regex)}, "diff_contains" {pattern (regex)}, "command" {command, expect_exit} (only the repo's own npm/make/test scripts), "pr" {state: pushed|opened|merged}.
   Prefer a check whenever the ticket names a file, a command, a test, or a PR outcome. Use "none" for behaviour that needs reading the code (correctness, edge cases, "works", "unchanged").
 Return only the JSON object.`;
+
+/* A check whose path is not a plausible repo-relative path (spaces, absolute, empty) decides nothing; it becomes a judgment criterion. */
+export function sanitiseCheck(check: ReturnType<typeof parseCheck>): ReturnType<typeof parseCheck> {
+  if (!check) return null;
+  const p = 'path' in check ? check.path : undefined;
+  if (p !== undefined && p !== '.' && p !== '*' && (/\s/.test(p) || /^([A-Za-z]:)?[\\/]/.test(p) || p.length > 200)) return null;
+  return check;
+}
 
 interface IntakeOut {
   title: string;
@@ -156,7 +164,7 @@ export async function intake(opts: {
   }
   const bodyForLlm = fetched.body.slice(0, 12000);
   const inferred = fetched.source.kind === 'text';
-  const ctxText = inferred && opts.context ? `\n${opts.context.branch ? `BRANCH: ${opts.context.branch}\n` : ''}${opts.context.commits?.length ? `COMMITS MADE DURING THE SESSION:\n${opts.context.commits.slice(0, 20).map((c) => '- ' + c).join('\n')}\n` : ''}` : '';
+  const ctxText = inferred && opts.context ? `\n${opts.context.branch ? `BRANCH: ${opts.context.branch}\n` : ''}${opts.context.commits?.length ? `COMMITS MADE DURING THE SESSION (the strongest evidence of what the engineer set out to do; weight them above the prompt wording):\n${opts.context.commits.slice(0, 20).map((c) => '- ' + c).join('\n')}\n` : ''}` : '';
   const prompt = `TITLE: ${fetched.title}\nSOURCE: ${fetched.source.kind}${fetched.source.url ? ' ' + fetched.source.url : ''}${inferred ? ' (no ticket: infer the task from the developer\'s own words, branch and commits; keep criteria to what they evidently set out to do)' : ''}\nLABELS: ${fetched.labels.join(', ') || '(none)'}\n${fetched.story_points ? `STORY POINTS: ${fetched.story_points}\n` : ''}${ctxText}\nDESCRIPTION:\n${bodyForLlm || '(empty)'}`;
   /* one small-model call per distinct task content; identical tickets are free to re-intake */
   const cacheKey = intakeCacheKey(fetched, opts.cfg.models.intake);
@@ -176,12 +184,14 @@ export async function intake(opts: {
     model = r.model;
     writeJson(intakeCacheFile(cacheKey), { key: cacheKey, ts: new Date().toISOString(), model, out });
   }
-  const criteria: Task['criteria'] = (out.criteria ?? [])
-    .filter((c) => c.text?.trim())
-    .map((c, i) => {
-      const check = parseCheck(c.check);
-      return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const), kind: check ? ('mechanical' as const) : ('judgment' as const), ...(check ? { check } : {}) };
-    });
+  const MAX_CRITERIA = 8;
+  const raw = (out.criteria ?? []).filter((c) => c.text?.trim());
+  /* at most 8 criteria, explicit ones first: a long brief produced 19, which no receipt can grade sensibly */
+  const kept = [...raw.filter((c) => c.source === 'explicit'), ...raw.filter((c) => c.source !== 'explicit')].slice(0, MAX_CRITERIA);
+  const criteria: Task['criteria'] = kept.map((c, i) => {
+    const check = sanitiseCheck(parseCheck(c.check));
+    return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const), kind: check ? ('mechanical' as const) : ('judgment' as const), ...(check ? { check } : {}) };
+  });
   if (criteria.length === 0) criteria.push({ id: 'c1', text: `Deliver: ${fetched.title}`, source: 'inferred', kind: 'judgment' });
   const r = { cost_usd: cost, model };
   const score = Math.max(0, Math.min(10, Number(out.spec_quality?.score ?? 0)));

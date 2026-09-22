@@ -157,7 +157,10 @@ describe('self-contained dist', () => {
     expect(pkg.files).toEqual(['dist', 'README.md', 'LICENSE', 'CHANGELOG.md', '.claude-plugin', 'hooks', 'commands']);
     const plugin = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>;
     for (const k of ['name', 'version', 'author', 'homepage', 'repository', 'license']) expect(plugin[k], k).toBeTruthy();
-    expect(plugin.version).toBe('0.1.0');
+    /* the three version fields move together */
+    expect(plugin.version).toBe(pkg.version);
+    const market0 = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')) as { plugins: Array<{ version?: string }> };
+    expect(market0.plugins[0]!.version).toBe(pkg.version);
     const market = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')) as { name: string; description: string; plugins: Array<{ name: string; source: string; description: string }> };
     expect(market.description).toBeTruthy();
     expect(market.plugins[0]).toMatchObject({ name: 'tally', source: './' });

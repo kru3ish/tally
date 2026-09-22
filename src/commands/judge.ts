@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type Args, flag, has } from '../cli.js';
 import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
-import { judgeSession, existingReceiptFor, renderSummary } from '../judge/judge.js';
+import { judgeSession, existingReceiptFor, renderSummary, recomputeReceipt } from '../judge/judge.js';
 import { writeBack } from '../judge/writeback.js';
 import { resolveSession, sessionCwd, transcriptPathFor } from '../session.js';
 import { sessionDir, log } from '../paths.js';
@@ -33,6 +33,16 @@ export async function run(args: Args): Promise<number | void> {
   const reasonFlag = flag(args, 'reason');
   const reason = (['push', 'pr', 'merge', 'publish', 'session_end', 'manual'].includes(reasonFlag ?? '') ? reasonFlag : auto ? 'session_end' : 'manual') as Judge['reason'];
   const cwd = sessionCwd(session) ?? process.cwd();
+  if (has(args, 'recompute')) {
+    /* re-derive completion and verdict from the stored criteria (no model call); used after a scoring-rule change */
+    const j = recomputeReceipt(session);
+    if (!j) {
+      process.stderr.write(`No receipt for session ${session}.\n`);
+      return 1;
+    }
+    process.stdout.write(renderSummary(j, !has(args, 'plain')) + '\n');
+    return;
+  }
   const existing = existingReceiptFor(session, cwd);
   if (existing && !has(args, 'force') && !has(args, 'deep')) {
     log(`judge: ${session} already judged at HEAD ${existing.head?.slice(0, 8) ?? '?'} (${existing.reason}); reusing`);

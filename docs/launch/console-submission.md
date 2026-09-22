@@ -8,7 +8,7 @@ Paste the fields below. Fill `{{…}}` with `npx tsx scripts/fill-calibration.ts
 
 **Install command:** `/plugin marketplace add kru3ish/tally` then `/plugin install tally@tally`
 
-**Version:** 0.1.0 (preview)
+**Version:** 0.1.1 (preview)
 
 **Category:** Productivity / Developer tools
 
@@ -35,9 +35,9 @@ Claude Code reports what a session cost. Tally reports what a task returned.
 
 **Data and privacy:** Everything is stored under `~/.tally` (kept outside `${CLAUDE_PLUGIN_DATA}` so receipts survive plugin updates and are shared with the CLI). Hook events are redacted (keys, tokens, bearer headers, passwords in URLs) and truncated before writing. Outbound traffic is limited to `claude -p` on the user's login and, only when the user opts in, GitHub/Jira/Linear API calls. Write-back to issues/PRs is off by default and never includes prompts or code. Details in `SECURITY.md`.
 
-**Accuracy statement:** Preview. Fixture regression: 19/19 criteria and 5/5 verdicts on 5 authored sessions. Real sessions, blind-graded: 51% criterion agreement, 18% verdict agreement on 11 sessions (2026-09-22). CI replays recorded model output and fails on regression.
+**Accuracy statement:** Preview. Fixture regression: 19/19 criteria and 5/5 verdicts on 5 authored sessions. Real sessions, blind-graded: 51% criterion agreement, verdicts exact on 1 of 11 and within one step on 9 of 11 (2026-09-22). CI replays recorded model output and fails on regression.
 
-**Testing:** `claude plugin validate . --strict` in CI; 149 tests on ubuntu, macOS and Windows × Node 18/22; clean install of the npm tarball in a fresh HOME on all three; install/uninstall of settings hooks verified byte-identical. `tally demo` replays a recorded session end to end with a stubbed model.
+**Testing:** `claude plugin validate . --strict` in CI; 154 tests on ubuntu, macOS and Windows × Node 18/22; clean install of the npm tarball in a fresh HOME on all three; install/uninstall of settings hooks verified byte-identical. `tally demo` replays a recorded session end to end with a stubbed model.
 
 **License:** MIT
 

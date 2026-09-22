@@ -5,6 +5,7 @@ import { testRerunConsent } from '../config.js';
 import type { LlmClient } from '../llm/client.js';
 import { parseTranscriptFile } from '../transcript/parse.js';
 import { sessionDir, ensureDir, writeJson, appendLine } from '../paths.js';
+import { tallySpendFile } from '../llm/client.js';
 import { eventsFile } from '../store/events.js';
 import { intake, loadTask, type Task } from '../task/intake.js';
 import { fetchTask, type FetchDeps } from '../task/fetchers.js';
@@ -46,13 +47,38 @@ export interface CostProjection {
   tier2_sessions: number;
 }
 
-/* Rough per-session prices from the calibration receipts: intake ≈ $0.01 (0 on cache hit), tier 1 ≈ $0.015, tier 2 ≈ $0.12 above the deep threshold. */
+/* Per-session prices from the calibration receipts: intake ≈ $0.01 (0 on cache hit), tier 1 ≈ $0.015. Tier 2 runs opus on
+   the full evidence above the deep threshold, so it scales with the transcript: ≈ $0.15 + $0.004 per dollar of session spend,
+   capped at $3 (a $769 session cost $2.92, a $128 one $1.29). */
+export function tier2Estimate(sessionCostUsd: number): number {
+  return Math.min(3, 0.15 + 0.004 * sessionCostUsd);
+}
+
+/* Tally's own backfill spend in the last `hours`, across every invocation, so --max-spend is a real cap and not a per-run one. */
+export function backfillSpendSince(hours = 24): number {
+  const f = tallySpendFile();
+  if (!fs.existsSync(f)) return 0;
+  const since = Date.now() - hours * 3600e3;
+  let sum = 0;
+  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as { ts?: string; session?: string; cost_usd?: number };
+      if (Date.parse(e.ts ?? '') >= since && e.session && fs.existsSync(path.join(sessionDir(e.session), 'backfill.json'))) sum += e.cost_usd ?? 0;
+    } catch {
+      /* skip */
+    }
+  }
+  return sum;
+}
+
 export function projectCost(candidates: SessionCandidate[], cfg: Config): CostProjection {
-  const tier2 = candidates.filter((c) => c.cost >= cfg.judge.deepThreshold).length;
+  const above = candidates.filter((c) => c.cost >= cfg.judge.deepThreshold);
+  const tier2 = above.length;
   const n = candidates.length;
   const intake = n * 0.01;
   const tier1 = n * 0.015;
-  const t2 = tier2 * 0.12;
+  const t2 = above.reduce((s, c) => s + tier2Estimate(c.cost), 0);
   return { sessions: n, intake_usd: intake, tier1_usd: tier1, tier2_usd: t2, total_usd: intake + tier1 + t2, tier2_sessions: tier2 };
 }
 

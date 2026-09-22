@@ -162,7 +162,8 @@ describe('tier 1 and tier 2', () => {
     expect(j.criteria[2]!.confidence).toBe(0.95);
     expect(j.tiers.ran).toEqual(['tier0', 'tier1', 'tier2']);
     expect(j.tiers.reason).toContain('verdict-sensitive');
-    expect(j.tiers.escalations).toEqual([{ id: 'c2', reason: 'verdict-sensitive' }, { id: 'c3', reason: 'verdict-sensitive' }]);
+    /* 0.1.1: completion is over verifiable criteria, so moving c3 one step no longer flips the verdict; it still escalates on confidence */
+    expect(j.tiers.escalations).toEqual([{ id: 'c2', reason: 'verdict-sensitive' }, { id: 'c3', reason: 'low-confidence' }]);
     expect(j.verdict.reason).toBe('v2');
     expect(j.tiers.calls.map((c) => c.tier)).toEqual(['tier1', 'tier2']);
   });

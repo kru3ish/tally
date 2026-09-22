@@ -127,6 +127,8 @@ export interface CalibrationReport {
   lenient_agreement: number | null;
   verdict_total: number;
   verdict_agreement: number | null;
+  /* borderline next to either extreme counts as one step; worth it vs not worth it is two */
+  verdict_lenient_agreement: number | null;
   confusion: Record<Status, Record<Status, number>>;
   disagreements: Array<{ session: string; task: string; id: string; text: string; human: Status; judge: Status; evidence: string }>;
   verdict_disagreements: Array<{ session: string; task: string; human: VerdictText; judge: VerdictText }>;
@@ -148,6 +150,8 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
   const vd: CalibrationReport['verdict_disagreements'] = [];
   let vTotal = 0;
   let vAgree = 0;
+  let vNear = 0;
+  const V_ORDER: Record<string, number> = { 'not worth it': 0, borderline: 1, 'worth it': 2 };
   for (const e of entries) {
     for (const c of e.criteria) {
       total += 1;
@@ -163,6 +167,7 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     if (e.human_verdict) {
       vTotal += 1;
       if (e.human_verdict === e.judge_verdict) vAgree += 1;
+      if (Math.abs((V_ORDER[e.human_verdict] ?? 1) - (V_ORDER[e.judge_verdict] ?? 1)) <= 1) vNear += 1;
       else vd.push({ session: e.session, task: e.task_title, human: e.human_verdict, judge: e.judge_verdict });
     }
   }
@@ -220,6 +225,7 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     lenient_agreement: total ? lenient / total : null,
     verdict_total: vTotal,
     verdict_agreement: vTotal ? vAgree / vTotal : null,
+    verdict_lenient_agreement: vTotal ? vNear / vTotal : null,
     confusion,
     disagreements,
     verdict_disagreements: vd,
@@ -236,7 +242,7 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
     return L.join('\n');
   }
   L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact · ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) · n=${r.criteria}`);
-  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} of ${r.verdict_total}` : 'n/a (no human verdicts)'} · n=${r.verdict_total}`);
+  L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact · ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : 'n/a (no human verdicts)'} · n=${r.verdict_total}`);
   L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
   if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(' and ')}`);
   else L.push('inter-grader          n/a (no session graded by two people; use --grader <name>)');
