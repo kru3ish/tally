@@ -193,6 +193,8 @@ function install(opts) {
   let added = 0;
   for (const { event, matcher, async } of HOOK_EVENTS) {
     const groups = settings.hooks[event] ??= [];
+    const wanted = hookCommand(event, opts.scriptPath);
+    for (const g of groups) g.hooks = (g.hooks ?? []).filter((h) => !(isTallyHook(h) && typeof h.command === "string" && h.command !== wanted && !fs2.existsSync(/"([^"]+hook\.js)"/.exec(h.command)?.[1] ?? "")));
     const already = groups.some((g) => (g.hooks ?? []).some(isTallyHook));
     if (already) continue;
     const hook = { type: "command", command: hookCommand(event, opts.scriptPath), timeout: 5 };
@@ -9548,6 +9550,13 @@ function runChecks() {
   const plugin = Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith("tally"));
   const ways = [user && "user settings", project && "project settings", plugin && "plugin"].filter(Boolean);
   checks.push({ name: "hooks", ok: ways.length === 1 ? true : ways.length === 0 ? false : "warn", detail: ways.length === 0 ? `not installed; run \`tally install\` or /plugin install tally@tally (${settingsPath("user")})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(", ")}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice. Keep one: \`tally uninstall\` removes the settings hooks, /plugin uninstall tally removes the plugin` });
+  const referenced = [];
+  for (const f of [settingsPath("user"), settingsPath("project", process.cwd())]) {
+    const st = readJson(f, {});
+    for (const groups of Object.values(st.hooks ?? {})) for (const g of groups) for (const h of g.hooks ?? []) if (isTallyHook(h)) referenced.push((h.args?.[0] ?? /"([^"]+hook\.js)"/.exec(h.command ?? "")?.[1] ?? "").replace(/^\$\{CLAUDE_PLUGIN_ROOT\}.*/, ""));
+  }
+  const missing = [...new Set(referenced.filter((p) => p && !fs25.existsSync(p)))];
+  if (referenced.length) checks.push({ name: "hook script", ok: missing.length ? false : true, detail: missing.length ? `${missing.join(", ")} does not exist; every hook event is failing (non-blocking). Run \`tally install\` to repoint the hooks at ${builtHookPath()}` : `${[...new Set(referenced)].join(", ")} exists` });
   const hook = builtHookPath();
   fs25.mkdirSync(tallyHome(), { recursive: true });
   if (fs25.existsSync(hook)) {

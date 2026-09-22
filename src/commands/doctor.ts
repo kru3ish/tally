@@ -5,7 +5,7 @@ import { type Args, has } from '../cli.js';
 import { loadConfig, ConfigSchema } from '../config.js';
 import { claudeHome, tallyHome, configFile, pricingFile, readJson, builtHookPath } from '../paths.js';
 import { loadPricing, bundledPricingPath } from '../cost/pricing.js';
-import { isInstalled, settingsPath } from '../install/install.js';
+import { isInstalled, settingsPath, isTallyHook } from '../install/install.js';
 import { activeSessions } from '../session.js';
 import { resolveClaudeBin } from '../llm/client.js';
 import { loadHistory } from '../coach/context.js';
@@ -45,6 +45,15 @@ export function runChecks(): Check[] {
   const plugin = Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith('tally'));
   const ways = [user && 'user settings', project && 'project settings', plugin && 'plugin'].filter(Boolean) as string[];
   checks.push({ name: 'hooks', ok: ways.length === 1 ? true : ways.length === 0 ? false : 'warn', detail: ways.length === 0 ? `not installed; run \`tally install\` or /plugin install tally@tally (${settingsPath('user')})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(', ')}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice. Keep one: \`tally uninstall\` removes the settings hooks, /plugin uninstall tally removes the plugin` });
+
+  /* a hook whose script moved (a rebuild, an npm update, a deleted checkout) fails on every event without blocking the session */
+  const referenced: string[] = [];
+  for (const f of [settingsPath('user'), settingsPath('project', process.cwd())]) {
+    const st = readJson<{ hooks?: Record<string, Array<{ hooks?: Array<{ command?: string; args?: string[] }> }>> }>(f, {});
+    for (const groups of Object.values(st.hooks ?? {})) for (const g of groups) for (const h of g.hooks ?? []) if (isTallyHook(h)) referenced.push((h.args?.[0] ?? /"([^"]+hook\.js)"/.exec(h.command ?? '')?.[1] ?? '').replace(/^\$\{CLAUDE_PLUGIN_ROOT\}.*/, ''));
+  }
+  const missing = [...new Set(referenced.filter((p) => p && !fs.existsSync(p)))];
+  if (referenced.length) checks.push({ name: 'hook script', ok: missing.length ? false : true, detail: missing.length ? `${missing.join(', ')} does not exist; every hook event is failing (non-blocking). Run \`tally install\` to repoint the hooks at ${builtHookPath()}` : `${[...new Set(referenced)].join(', ')} exists` });
 
   const hook = builtHookPath();
   fs.mkdirSync(tallyHome(), { recursive: true });

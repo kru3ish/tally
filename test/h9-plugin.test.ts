@@ -73,6 +73,25 @@ describe('double-install guard', () => {
   });
 });
 
+describe('moved hook script', () => {
+  it('doctor flags a hook whose script is gone and tally install repoints it', () => {
+    const settings = settingsPath('user');
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    fs.writeFileSync(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "C:/old/tally/dist/hooks/hook.js" Stop', timeout: 5 }] }] } }, null, 2) + '
+');
+    const before = runChecks().find((c) => c.name === 'hook script')!;
+    expect(before.ok).toBe(false);
+    expect(before.detail).toContain('does not exist');
+    expect(before.detail).toContain('tally install');
+    install({ scope: 'user' });
+    const s = JSON.parse(fs.readFileSync(settings, 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    const stops = s.hooks.Stop.flatMap((g) => g.hooks).filter((h) => /tally/i.test(h.command));
+    expect(stops.length).toBe(1);
+    expect(stops[0]!.command).toContain('dist/hook.js');
+    expect(runChecks().find((c) => c.name === 'hook script')!.ok).toBe(true);
+  });
+});
+
 describe('hook de-duplication', () => {
   it('drops the second delivery of the same (session, event, tool_use_id) and keeps distinct ones', () => {
     const session = 'dup-session-0001';

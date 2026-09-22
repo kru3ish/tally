@@ -102,6 +102,9 @@ export function install(opts: { scope: 'user' | 'project'; cwd?: string; scriptP
   let added = 0;
   for (const { event, matcher, async } of HOOK_EVENTS) {
     const groups = (settings.hooks[event] ??= []);
+    /* a Tally hook that points at a script which no longer exists is replaced, not kept */
+    const wanted = hookCommand(event, opts.scriptPath);
+    for (const g of groups) g.hooks = (g.hooks ?? []).filter((h) => !(isTallyHook(h) && typeof h.command === 'string' && h.command !== wanted && !fs.existsSync(/"([^"]+hook\.js)"/.exec(h.command)?.[1] ?? '')));
     const already = groups.some((g) => (g.hooks ?? []).some(isTallyHook));
     if (already) continue;
     const hook: Record<string, unknown> = { type: 'command', command: hookCommand(event, opts.scriptPath), timeout: 5 };
