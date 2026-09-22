@@ -26,8 +26,9 @@ export function isolate(): { home: string; claude: string; restore: () => void }
       else process.env.TALLY_HOME = prev.TALLY_HOME;
       if (prev.CLAUDE_CONFIG_DIR === undefined) delete process.env.CLAUDE_CONFIG_DIR;
       else process.env.CLAUDE_CONFIG_DIR = prev.CLAUDE_CONFIG_DIR;
-      fs.rmSync(home, { recursive: true, force: true });
-      fs.rmSync(claude, { recursive: true, force: true });
+      /* macOS occasionally reports ENOTEMPTY while a just-exited child still holds a file; retry instead of failing the test */
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+      fs.rmSync(claude, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     },
   };
 }
