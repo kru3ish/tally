@@ -77,8 +77,7 @@ describe('moved hook script', () => {
   it('doctor flags a hook whose script is gone and tally install repoints it', () => {
     const settings = settingsPath('user');
     fs.mkdirSync(path.dirname(settings), { recursive: true });
-    fs.writeFileSync(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "C:/old/tally/dist/hooks/hook.js" Stop', timeout: 5 }] }] } }, null, 2) + '
-');
+    fs.writeFileSync(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "C:/old/tally/dist/hooks/hook.js" Stop', timeout: 5 }] }] } }, null, 2) + '\n');
     const before = runChecks().find((c) => c.name === 'hook script')!;
     expect(before.ok).toBe(false);
     expect(before.detail).toContain('does not exist');
