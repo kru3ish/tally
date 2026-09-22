@@ -41,7 +41,8 @@ export function buildContext(opts: { session: string; cwd: string; cfg: Config; 
   const mainMsgs = transcript?.messages.filter((m) => m.agent === 'main') ?? [];
   const avgTurnCostUsd = mainMsgs.length ? mainMsgs.reduce((s, m) => s + m.cost, 0) / mainMsgs.length : 0.15;
   const model = String(startEv?.data.model ?? mainMsgs[0]?.model ?? '');
-  const contextWindow = isModel1M(model) ? 1_000_000 : opts.cfg.context_window;
+  /* a measured context above the configured window means the model has the larger one (1M); never report > 100% */
+  const contextWindow = isModel1M(model) || (transcript?.contextTokensNow ?? 0) > opts.cfg.context_window ? 1_000_000 : opts.cfg.context_window;
   const lastTs = events.at(-1)?.ts ?? transcript?.endedAt;
   return {
     session: opts.session,

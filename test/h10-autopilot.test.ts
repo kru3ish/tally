@@ -51,6 +51,8 @@ describe('autopilot', () => {
     const queued = pendingInjects(session);
     expect(queued.length).toBeGreaterThan(0);
     for (const q of queued) expect(q.note).toMatch(/^Tally observed /);
+    /* nothing that describes an unwritten file is injected on autopilot */
+    for (const q of queued) expect(q.note).not.toMatch(/HANDOFF\.md|CLAUDE\.md now/);
     expect(readEvents(session).filter((e) => e.type === 'inject').length).toBe(queued.length);
     const flags = readFlags(session);
     /* the inferred task needs a human: it is a flag, never an injected instruction */

@@ -40,8 +40,9 @@ export async function run(args: Args): Promise<number | void> {
     for (const s of result.held) if ((s.action.kind === 'confirm' || s.action.kind === 'consent') && !flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, label: s.action.label });
     let injected = 0;
     for (const s of shown) {
-      const note = s.action.kind === 'inject' ? s.action.note : s.inject_note;
-      if (note) {
+      /* only a pure observation is injected on its own; an inject_note that accompanies a write (HANDOFF.md, CLAUDE.md)
+         describes a file autopilot has not written, so those wait for a human as flags */
+      if (s.action.kind === 'inject') {
         injectSuggestion(s, { session, cwd });
         injected += 1;
       } else if (!flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, ts: s.ts, label: s.action.label });

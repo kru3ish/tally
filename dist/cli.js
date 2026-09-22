@@ -8644,7 +8644,7 @@ function buildContext(opts) {
   const mainMsgs = transcript?.messages.filter((m) => m.agent === "main") ?? [];
   const avgTurnCostUsd = mainMsgs.length ? mainMsgs.reduce((s, m) => s + m.cost, 0) / mainMsgs.length : 0.15;
   const model = String(startEv?.data.model ?? mainMsgs[0]?.model ?? "");
-  const contextWindow = isModel1M(model) ? 1e6 : opts.cfg.context_window;
+  const contextWindow = isModel1M(model) || (transcript?.contextTokensNow ?? 0) > opts.cfg.context_window ? 1e6 : opts.cfg.context_window;
   const lastTs = events.at(-1)?.ts ?? transcript?.endedAt;
   return {
     session: opts.session,
@@ -9347,8 +9347,7 @@ async function run9(args) {
     for (const s of result2.held) if ((s.action.kind === "confirm" || s.action.kind === "consent") && !flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, label: s.action.label });
     let injected = 0;
     for (const s of shown) {
-      const note = s.action.kind === "inject" ? s.action.note : s.inject_note;
-      if (note) {
+      if (s.action.kind === "inject") {
         injectSuggestion(s, { session, cwd });
         injected += 1;
       } else if (!flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, ts: s.ts, label: s.action.label });
