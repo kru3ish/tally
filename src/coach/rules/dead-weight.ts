@@ -99,8 +99,8 @@ export const deadWeight: Rule = {
     for (const item of dw.items.slice(0, 3)) {
       const measure =
         item.basis === 'measured'
-          ? `Measured: first turns in this repo run ${item.overhead_tokens.toLocaleString()} tokens higher with "${item.name}" loaded than without it (${item.compared.with} vs ${item.compared.without} sessions), about $${item.usd_per_session.toFixed(2)} per session.`
-          : `Estimated: the first turn loads ${dw.avg_first_turn.toLocaleString()} tokens on average, ${dw.overhead.toLocaleString()} above baseline, shared evenly by everything loaded; "${item.name}"'s even share is ~${item.overhead_tokens.toLocaleString()} tokens (~$${item.usd_per_session.toFixed(2)} per session). No session without it exists yet to measure the real delta.`;
+          ? `Measured: first turns in this repo run ${item.overhead_tokens.toLocaleString('en-US')} tokens higher with "${item.name}" loaded than without it (${item.compared.with} vs ${item.compared.without} sessions), about $${item.usd_per_session.toFixed(2)} per session.`
+          : `Estimated: the first turn loads ${dw.avg_first_turn.toLocaleString('en-US')} tokens on average, ${dw.overhead.toLocaleString('en-US')} above baseline, shared evenly by everything loaded; "${item.name}"'s even share is ~${item.overhead_tokens.toLocaleString('en-US')} tokens (~$${item.usd_per_session.toFixed(2)} per session). No session without it exists yet to measure the real delta.`;
       const remove = item.recommendation === 'remove';
       const removal = item.kind === 'mcp' ? `claude mcp remove ${item.name}` : `claude plugin disable <plugin providing ${item.name}>   # or delete .claude/skills/${item.name}`;
       out.push({

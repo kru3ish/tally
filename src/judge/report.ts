@@ -28,7 +28,7 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push(`## How it was judged`);
   L.push('');
-  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString()} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}${j.tiers.escalations?.length ? ' Escalated: ' + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(', ') + '.' : ''}`);
+  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString('en-US')} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}${j.tiers.escalations?.length ? ' Escalated: ' + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(', ') + '.' : ''}`);
   L.push('');
   L.push(`## Quality: ${j.quality.score}/10`);
   L.push('');
@@ -66,8 +66,8 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push(`- Failed loops: ${fmtUsd(j.waste.failed_loops.reduce((s, x) => s + x.usd, 0))}${j.waste.failed_loops.length ? ' — ' + j.waste.failed_loops.map((l) => `\`${l.command}\` ×${l.repeats}`).join(', ') : ''}`);
   L.push(`- Repeated reads: ${fmtUsd(j.waste.repeated_reads.reduce((s, x) => s + x.usd, 0))}${j.waste.repeated_reads.length ? ' — ' + j.waste.repeated_reads.map((r) => `${r.file} ×${r.reads}`).join(', ') : ''}`);
-  L.push(`- Dead-weight context: ${fmtUsd(j.waste.dead_weight.usd)} — first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString()} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString()} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString()} baseline`);
-  L.push(`- Compaction churn: ${fmtUsd(j.waste.compaction_churn.usd)} — ${j.waste.compaction_churn.compactions} compaction(s), ${j.waste.compaction_churn.recache_tokens.toLocaleString()} tokens re-cached`);
+  L.push(`- Dead-weight context: ${fmtUsd(j.waste.dead_weight.usd)} — first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString('en-US')} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString('en-US')} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString('en-US')} baseline`);
+  L.push(`- Compaction churn: ${fmtUsd(j.waste.compaction_churn.usd)} — ${j.waste.compaction_churn.compactions} compaction(s), ${j.waste.compaction_churn.recache_tokens.toLocaleString('en-US')} tokens re-cached`);
   L.push('');
   L.push('## Value');
   L.push('');
@@ -80,7 +80,7 @@ export function renderReport(j: Judge): string {
   if (j.attribution.rows.length) {
     L.push('| Kind | Name | Invocations | Errors | Tokens | Spend | Touched a met criterion |');
     L.push('|---|---|---|---|---|---|---|');
-    for (const r of j.attribution.rows) L.push(`| ${r.kind} | ${r.name} | ${r.invocations} | ${r.errors} | ${r.tokens.toLocaleString()} | ${fmtUsd(r.usd)} | ${r.touched_met_criteria === null ? '–' : r.touched_met_criteria ? 'yes' : 'no'} |`);
+    for (const r of j.attribution.rows) L.push(`| ${r.kind} | ${r.name} | ${r.invocations} | ${r.errors} | ${r.tokens.toLocaleString('en-US')} | ${fmtUsd(r.usd)} | ${r.touched_met_criteria === null ? '–' : r.touched_met_criteria ? 'yes' : 'no'} |`);
   } else {
     L.push('_No skills or MCP tools were invoked._');
   }

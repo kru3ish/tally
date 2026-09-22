@@ -36,6 +36,9 @@ export async function run(args: Args): Promise<number | void> {
       }
     }
     const flags = readFlags(session);
+    /* a flag whose rule no longer fires (the file got written, the task was confirmed) is dropped */
+    const live = new Set(engine.evaluate(ctx).map((s) => s.key));
+    flags.pending = flags.pending.filter((f) => live.has(f.key));
     /* a confirmation or consent waits for a human, so it is a status-line flag even while the noise limit holds it back */
     for (const s of result.held) if ((s.action.kind === 'confirm' || s.action.kind === 'consent') && !flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, label: s.action.label });
     let injected = 0;
@@ -71,7 +74,7 @@ export async function run(args: Args): Promise<number | void> {
     return r.ok ? 0 : 1;
   }
   process.stdout.write(renderHeader(ctx, color) + '\n\n');
-  if (!all.length) {
+  if (!all.length && !readFlags(session).pending.length) {
     process.stdout.write('No suggestions right now.\n');
     return;
   }
@@ -79,5 +82,12 @@ export async function run(args: Args): Promise<number | void> {
   const list = has(args, 'all') ? all : [...result.show, ...result.held];
   list.forEach((s, i) => process.stdout.write(renderSuggestion(s, color, i + 1) + '\n\n'));
   if (!has(args, 'all')) saveState(session, engine.state);
+  /* flags: what autopilot left for a human, with the index that --apply / --inject take */
+  const flagged = readFlags(session).pending.map((f) => ({ ...f, idx: all.findIndex((s) => s.key === f.key) + 1 }));
+  if (flagged.length) {
+    process.stdout.write(`Waiting for you (${flagged.length} flag${flagged.length === 1 ? '' : 's'} from autopilot):\n`);
+    for (const f of flagged) process.stdout.write(`  ${f.idx > 0 ? `#${f.idx}` : ' ·'}  ${f.title}${f.label ? `  →  ${f.label}` : ''}${f.idx > 0 ? `   (tally coach --apply ${f.idx})` : '   (no longer applicable; cleared on the next tick)'}\n`);
+    process.stdout.write('\n');
+  }
   process.stdout.write(`Act on one: tally coach --apply <#> | --inject <#>   (or run \`tally watch\` for the live pane)\n`);
 }

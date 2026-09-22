@@ -6521,7 +6521,7 @@ function mechanicalSummary(input) {
   const recs = [];
   for (const l of input.waste.failed_loops.slice(0, 1)) recs.push(`\`${l.command}\` failed ${l.repeats} times in a row ($${l.usd.toFixed(2)}); after the second identical failure, read the output and change approach.`);
   for (const r of input.waste.repeated_reads.slice(0, 1)) recs.push(`${r.file} was read ${r.reads} times ($${r.usd.toFixed(2)}); keep notes instead of re-reading.`);
-  if (input.waste.dead_weight.usd > 0.05) recs.push(`First-turn context carries ${input.waste.dead_weight.overhead_tokens.toLocaleString()} tokens above baseline ($${input.waste.dead_weight.usd.toFixed(2)} this session); prune unused skills and MCP servers.`);
+  if (input.waste.dead_weight.usd > 0.05) recs.push(`First-turn context carries ${input.waste.dead_weight.overhead_tokens.toLocaleString("en-US")} tokens above baseline ($${input.waste.dead_weight.usd.toFixed(2)} this session); prune unused skills and MCP servers.`);
   if (input.waste.compaction_churn.compactions > 0) recs.push(`${input.waste.compaction_churn.compactions} compaction(s) re-cached ${input.waste.compaction_churn.usd > 0 ? "$" + input.waste.compaction_churn.usd.toFixed(2) : "context"}; write HANDOFF.md before /compact.`);
   if (input.cost > input.budget) recs.push(`Spend $${input.cost.toFixed(2)} exceeded the $${input.budget.toFixed(2)} budget; re-scope earlier next time.`);
   if (!ver.ran) recs.push("Allow test re-runs (tally config consent on) so test criteria stop being unverifiable.");
@@ -6732,7 +6732,7 @@ function renderReport(j) {
   L.push("");
   L.push(`## How it was judged`);
   L.push("");
-  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(" \u2192 ")}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? " Model calls: " + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(", ")} (${c.prompt_tokens.toLocaleString()} prompt tokens, ${fmtUsd(c.cost_usd)})`).join("; ") + "." : " No model call."}${j.tiers.escalations?.length ? " Escalated: " + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(", ") + "." : ""}`);
+  L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(" \u2192 ")}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? " Model calls: " + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(", ")} (${c.prompt_tokens.toLocaleString("en-US")} prompt tokens, ${fmtUsd(c.cost_usd)})`).join("; ") + "." : " No model call."}${j.tiers.escalations?.length ? " Escalated: " + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(", ") + "." : ""}`);
   L.push("");
   L.push(`## Quality: ${j.quality.score}/10`);
   L.push("");
@@ -6772,8 +6772,8 @@ OTel cross-check: ${fmtUsd(j.cost.otel.total_usd ?? 0)} reported by Claude Code 
   L.push("");
   L.push(`- Failed loops: ${fmtUsd(j.waste.failed_loops.reduce((s, x) => s + x.usd, 0))}${j.waste.failed_loops.length ? " \u2014 " + j.waste.failed_loops.map((l) => `\`${l.command}\` \xD7${l.repeats}`).join(", ") : ""}`);
   L.push(`- Repeated reads: ${fmtUsd(j.waste.repeated_reads.reduce((s, x) => s + x.usd, 0))}${j.waste.repeated_reads.length ? " \u2014 " + j.waste.repeated_reads.map((r) => `${r.file} \xD7${r.reads}`).join(", ") : ""}`);
-  L.push(`- Dead-weight context: ${fmtUsd(j.waste.dead_weight.usd)} \u2014 first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString()} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString()} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString()} baseline`);
-  L.push(`- Compaction churn: ${fmtUsd(j.waste.compaction_churn.usd)} \u2014 ${j.waste.compaction_churn.compactions} compaction(s), ${j.waste.compaction_churn.recache_tokens.toLocaleString()} tokens re-cached`);
+  L.push(`- Dead-weight context: ${fmtUsd(j.waste.dead_weight.usd)} \u2014 first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString("en-US")} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString("en-US")} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString("en-US")} baseline`);
+  L.push(`- Compaction churn: ${fmtUsd(j.waste.compaction_churn.usd)} \u2014 ${j.waste.compaction_churn.compactions} compaction(s), ${j.waste.compaction_churn.recache_tokens.toLocaleString("en-US")} tokens re-cached`);
   L.push("");
   L.push("## Value");
   L.push("");
@@ -6786,7 +6786,7 @@ OTel cross-check: ${fmtUsd(j.cost.otel.total_usd ?? 0)} reported by Claude Code 
   if (j.attribution.rows.length) {
     L.push("| Kind | Name | Invocations | Errors | Tokens | Spend | Touched a met criterion |");
     L.push("|---|---|---|---|---|---|---|");
-    for (const r of j.attribution.rows) L.push(`| ${r.kind} | ${r.name} | ${r.invocations} | ${r.errors} | ${r.tokens.toLocaleString()} | ${fmtUsd(r.usd)} | ${r.touched_met_criteria === null ? "\u2013" : r.touched_met_criteria ? "yes" : "no"} |`);
+    for (const r of j.attribution.rows) L.push(`| ${r.kind} | ${r.name} | ${r.invocations} | ${r.errors} | ${r.tokens.toLocaleString("en-US")} | ${fmtUsd(r.usd)} | ${r.touched_met_criteria === null ? "\u2013" : r.touched_met_criteria ? "yes" : "no"} |`);
   } else {
     L.push("_No skills or MCP tools were invoked._");
   }
@@ -7862,12 +7862,12 @@ var init_reread = __esm({
             key: `reread:${key}:${evs.length}`,
             severity: "warn",
             title: `${shortPath(file, ctx.cwd)} read ${evs.length}\xD7`,
-            message: `${shortPath(file, ctx.cwd)} has been read ${evs.length} times (~${tokens.toLocaleString()} tokens each). Every re-read is billed again and sits in context. Pin the parts that matter instead.`,
+            message: `${shortPath(file, ctx.cwd)} has been read ${evs.length} times (~${tokens.toLocaleString("en-US")} tokens each). Every re-read is billed again and sits in context. Pin the parts that matter instead.`,
             usd_saved: ctx.avgTurnCostUsd * extra,
             action: {
               kind: "inject",
               label: "Ask Claude to keep notes instead of re-reading",
-              note: `Tally observed ${shortPath(file, ctx.cwd)} being read ${evs.length} times this session (~${tokens.toLocaleString()} tokens each time); the file has not changed between reads.`
+              note: `Tally observed ${shortPath(file, ctx.cwd)} being read ${evs.length} times this session (~${tokens.toLocaleString("en-US")} tokens each time); the file has not changed between reads.`
             }
           });
         }
@@ -7931,7 +7931,7 @@ var init_context_pressure = __esm({
           key: `context:${level}`,
           severity: pct >= crit ? "critical" : "warn",
           title: `Context at ${pct.toFixed(0)}%`,
-          message: `Context is ${ctx.contextTokensNow.toLocaleString()} of ${ctx.contextWindow.toLocaleString()} tokens (${pct.toFixed(0)}%). Auto-compact will lose working state. Write HANDOFF.md now, then run /compact on your terms. Re-caching after compaction costs about $${recacheUsd.toFixed(2)}.`,
+          message: `Context is ${ctx.contextTokensNow.toLocaleString("en-US")} of ${ctx.contextWindow.toLocaleString("en-US")} tokens (${pct.toFixed(0)}%). Auto-compact will lose working state. Write HANDOFF.md now, then run /compact on your terms. Re-caching after compaction costs about $${recacheUsd.toFixed(2)}.`,
           usd_saved: recacheUsd + ctx.avgTurnCostUsd * 2,
           action: { kind: "write_md", label: "Write HANDOFF.md, then suggest /compact", file: path18.join(ctx.cwd, "HANDOFF.md"), content: buildHandoff(ctx), mode: "replace" },
           inject_note: `Tally observed the context at ${pct.toFixed(0)}% of the window; HANDOFF.md in the repo root now holds the goal, current state, and next steps as of ${ctx.now.toISOString().slice(11, 16)} UTC.`
@@ -8209,7 +8209,7 @@ var init_dead_weight = __esm({
         if (!dw.items.length) return [];
         const out = [];
         for (const item of dw.items.slice(0, 3)) {
-          const measure = item.basis === "measured" ? `Measured: first turns in this repo run ${item.overhead_tokens.toLocaleString()} tokens higher with "${item.name}" loaded than without it (${item.compared.with} vs ${item.compared.without} sessions), about $${item.usd_per_session.toFixed(2)} per session.` : `Estimated: the first turn loads ${dw.avg_first_turn.toLocaleString()} tokens on average, ${dw.overhead.toLocaleString()} above baseline, shared evenly by everything loaded; "${item.name}"'s even share is ~${item.overhead_tokens.toLocaleString()} tokens (~$${item.usd_per_session.toFixed(2)} per session). No session without it exists yet to measure the real delta.`;
+          const measure = item.basis === "measured" ? `Measured: first turns in this repo run ${item.overhead_tokens.toLocaleString("en-US")} tokens higher with "${item.name}" loaded than without it (${item.compared.with} vs ${item.compared.without} sessions), about $${item.usd_per_session.toFixed(2)} per session.` : `Estimated: the first turn loads ${dw.avg_first_turn.toLocaleString("en-US")} tokens on average, ${dw.overhead.toLocaleString("en-US")} above baseline, shared evenly by everything loaded; "${item.name}"'s even share is ~${item.overhead_tokens.toLocaleString("en-US")} tokens (~$${item.usd_per_session.toFixed(2)} per session). No session without it exists yet to measure the real delta.`;
           const remove = item.recommendation === "remove";
           const removal = item.kind === "mcp" ? `claude mcp remove ${item.name}` : `claude plugin disable <plugin providing ${item.name}>   # or delete .claude/skills/${item.name}`;
           out.push({
@@ -9318,7 +9318,7 @@ function renderStatusLine(input, color = true) {
   }
   const ctx = input.context_window?.used_percentage;
   if (typeof ctx === "number") parts.push(ctx >= 85 ? paint2(C2.red, `ctx ${Math.round(ctx)}%`) : ctx >= 70 ? paint2(C2.yellow, `ctx ${Math.round(ctx)}%`) : `ctx ${Math.round(ctx)}%`);
-  if (flags) parts.push(paint2(C2.cyan, `${flags} coach flag${flags === 1 ? "" : "s"} (/tally:coach)`));
+  if (flags) parts.push(paint2(C2.cyan, `${flags} coach flag${flags === 1 ? "" : "s"} (${enabledPluginIds().length ? "/tally:coach" : "tally coach"})`));
   if (judge) parts.push(paint2(judge.verdict.verdict === "worth it" ? C2.green : judge.verdict.verdict === "not worth it" ? C2.red : C2.yellow, `receipt: ${judge.completion_pct}% \xB7 ${judge.verdict.verdict}`));
   return parts.join(paint2(C2.dim, " \xB7 "));
 }
@@ -9399,6 +9399,8 @@ async function run9(args) {
       }
     }
     const flags = readFlags(session);
+    const live = new Set(engine.evaluate(ctx).map((s) => s.key));
+    flags.pending = flags.pending.filter((f) => live.has(f.key));
     for (const s of result2.held) if ((s.action.kind === "confirm" || s.action.kind === "consent") && !flags.pending.some((f) => f.key === s.key)) flags.pending.push({ rule: s.rule, key: s.key, title: s.title, usd_saved: s.usd_saved, label: s.action.label });
     let injected = 0;
     for (const s of shown) {
@@ -9434,7 +9436,7 @@ async function run9(args) {
     return r.ok ? 0 : 1;
   }
   process.stdout.write(renderHeader(ctx, color) + "\n\n");
-  if (!all.length) {
+  if (!all.length && !readFlags(session).pending.length) {
     process.stdout.write("No suggestions right now.\n");
     return;
   }
@@ -9442,6 +9444,14 @@ async function run9(args) {
   const list = has(args, "all") ? all : [...result.show, ...result.held];
   list.forEach((s, i) => process.stdout.write(renderSuggestion(s, color, i + 1) + "\n\n"));
   if (!has(args, "all")) saveState(session, engine.state);
+  const flagged = readFlags(session).pending.map((f) => ({ ...f, idx: all.findIndex((s) => s.key === f.key) + 1 }));
+  if (flagged.length) {
+    process.stdout.write(`Waiting for you (${flagged.length} flag${flagged.length === 1 ? "" : "s"} from autopilot):
+`);
+    for (const f of flagged) process.stdout.write(`  ${f.idx > 0 ? `#${f.idx}` : " \xB7"}  ${f.title}${f.label ? `  \u2192  ${f.label}` : ""}${f.idx > 0 ? `   (tally coach --apply ${f.idx})` : "   (no longer applicable; cleared on the next tick)"}
+`);
+    process.stdout.write("\n");
+  }
   process.stdout.write(`Act on one: tally coach --apply <#> | --inject <#>   (or run \`tally watch\` for the live pane)
 `);
 }

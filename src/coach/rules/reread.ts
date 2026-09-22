@@ -23,12 +23,12 @@ export const reread: Rule = {
         key: `reread:${key}:${evs.length}`,
         severity: 'warn',
         title: `${shortPath(file, ctx.cwd)} read ${evs.length}×`,
-        message: `${shortPath(file, ctx.cwd)} has been read ${evs.length} times (~${tokens.toLocaleString()} tokens each). Every re-read is billed again and sits in context. Pin the parts that matter instead.`,
+        message: `${shortPath(file, ctx.cwd)} has been read ${evs.length} times (~${tokens.toLocaleString('en-US')} tokens each). Every re-read is billed again and sits in context. Pin the parts that matter instead.`,
         usd_saved: ctx.avgTurnCostUsd * extra,
         action: {
           kind: 'inject',
           label: 'Ask Claude to keep notes instead of re-reading',
-          note: `Tally observed ${shortPath(file, ctx.cwd)} being read ${evs.length} times this session (~${tokens.toLocaleString()} tokens each time); the file has not changed between reads.`,
+          note: `Tally observed ${shortPath(file, ctx.cwd)} being read ${evs.length} times this session (~${tokens.toLocaleString('en-US')} tokens each time); the file has not changed between reads.`,
         },
       });
     }

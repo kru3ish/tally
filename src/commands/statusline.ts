@@ -7,7 +7,7 @@ import { type Args, has } from '../cli.js';
 import { loadTask } from '../task/intake.js';
 import { loadJudge } from '../judge/judge.js';
 import { sessionDir, builtCliPath } from '../paths.js';
-import { installStatusLine, uninstallStatusLine, settingsPath } from '../install/install.js';
+import { installStatusLine, uninstallStatusLine, settingsPath, enabledPluginIds } from '../install/install.js';
 import { fmtUsd } from '../cost/pricing.js';
 
 interface StatusInput {
@@ -58,7 +58,8 @@ export function renderStatusLine(input: StatusInput, color = true): string {
   }
   const ctx = input.context_window?.used_percentage;
   if (typeof ctx === 'number') parts.push(ctx >= 85 ? paint(C.red, `ctx ${Math.round(ctx)}%`) : ctx >= 70 ? paint(C.yellow, `ctx ${Math.round(ctx)}%`) : `ctx ${Math.round(ctx)}%`);
-  if (flags) parts.push(paint(C.cyan, `${flags} coach flag${flags === 1 ? '' : 's'} (/tally:coach)`));
+  /* the slash command only exists with the plugin; CLI installs get the CLI command */
+  if (flags) parts.push(paint(C.cyan, `${flags} coach flag${flags === 1 ? '' : 's'} (${enabledPluginIds().length ? '/tally:coach' : 'tally coach'})`));
   if (judge) parts.push(paint(judge.verdict.verdict === 'worth it' ? C.green : judge.verdict.verdict === 'not worth it' ? C.red : C.yellow, `receipt: ${judge.completion_pct}% · ${judge.verdict.verdict}`));
   return parts.join(paint(C.dim, ' · '));
 }

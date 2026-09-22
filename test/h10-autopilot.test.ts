@@ -77,7 +77,11 @@ describe('autopilot', () => {
     expect(line).toContain('Rate limit the login endpoint');
     expect(line).toContain('$30.50/$37.50 (81%)');
     expect(line).toContain('ctx 72%');
-    expect(line).toContain('2 coach flags (/tally:coach)');
+    expect(line).toContain('2 coach flags (tally coach)');
+    fs.mkdirSync(path.dirname(settingsPath('user')), { recursive: true });
+    fs.writeFileSync(settingsPath('user'), JSON.stringify({ enabledPlugins: { 'tally@tally': true } }));
+    expect(renderStatusLine({ session_id: session, cost: { total_cost_usd: 1 } }, false)).toContain('2 coach flags (/tally:coach)');
+    fs.unlinkSync(settingsPath('user'));
     const r = spawnSync(process.execPath, [path.join(root, 'dist', 'cli.js'), 'statusline', '--plain'], { input: JSON.stringify({ session_id: session, cost: { total_cost_usd: 1 } }), encoding: 'utf8', env: { ...process.env } });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('Rate limit the login endpoint');
