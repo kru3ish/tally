@@ -81,6 +81,22 @@ When Claude runs `git push` or `gh pr create`, the Judge runs in the background 
 
 Inside Claude Code the plugin adds `/tally:task <ref>`, `/tally:judge [--post]`, `/tally:coach`, `/tally:report` and `/tally:tally` (status).
 
+## For one person
+
+The moment Tally is installed it reads the transcripts already on the machine and prints a one-page report with no model calls: total spend over the last 30 days, the three biggest sessions, where money bought nothing (retry loops, repeated reads, first-turn load, compactions), the one habit that would have saved the most, and what the same usage costs on each Claude plan at list price. `tally onboard` reprints it; `tally onboard --since 90d --json` feeds it to something else.
+
+```bash
+tally onboard                     # the 30-day report, from disk, no model
+tally replay <session>            # the session as a timeline: prompts, first edits, first failing test, retry loops, context pressure, compactions, the receipt
+tally prompts                     # what your best tasks' opening prompts had in common, and a template built from them
+tally ask "which tasks cost the most per criterion this month?"   # a question over the receipts; numbers only leave the machine, answer cites sessions
+tally export --invoice --out sept.md    # invoice lines: task, criteria met, independent test result, estimate, AI cost, verdict
+```
+
+`tally report` also shows estimate versus outcome by size bucket (≤ 1 h, 1–4 h, > 4 h): completion and cost per estimated hour, so you see where planning is consistently off. If the Coach or you leave a `HANDOFF.md` in the repo, the next session start hands its first lines to Claude as the state to resume from (files older than a day are ignored).
+
+Inside Claude Code these are `/tally:onboard`, `/tally:replay`, `/tally:prompts` and `/tally:ask`.
+
 ## What a receipt looks like
 
 ```
@@ -231,6 +247,7 @@ Tally keeps its data in `~/.tally` rather than the plugin's data dir on purpose:
 
 - Everything is local. Hooks make no network calls.
 - Tally's only outbound traffic is `claude -p` (your login, isolated from your MCP servers, hooks and skills), and, only when you ask, `gh` and the Jira/Linear APIs.
+- **Air-gapped:** `tally config models.provider openai-compatible` points the Judge, Coach and intake at any OpenAI-compatible chat endpoint (`models.base_url`, default Ollama at `http://localhost:11434/v1`; key from the env var named by `models.api_key_env`). No traffic leaves the machine. Structured output is requested as JSON and parsed leniently, so a small local model works for the Coach and tier 1; calibrate before trusting a local model's verdicts (`tally calibrate grade`).
 - Write-back is opt-in (`--post` or `writeback: true`) and carries the verdict, completion, cost and the criteria list. Never prompts or code.
 - Test re-runs execute your project's test command with a scrubbed environment and a timeout, only after you consent once per repo.
 
@@ -253,7 +270,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 ## Known limitations
 
 - **Calibration is early and exact verdicts rarely match the author.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement; 3 abstentions, and on the rest verdicts 1 of 8 exact, 6 of 8 within one step. No external graders yet. Treat verdicts as a second opinion, read the criteria lines, and dispute what is wrong.
-- **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), and moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`).
+- **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`), best-of-N model comparison on the same task, private eval suites from receipts, visual verification of UI tasks, and per-line human/AI attribution. Each is listed in DECISIONS.md with the reason.
 - Sessions with no commits are judged from the transcript reconstruction; edits made by tools Tally does not parse (an MCP file server, an editor) are invisible, and tests are not run.
 - Inferred tasks are only as good as the first prompts; confirm or edit them before trusting completion %.
 - Dead-weight overhead is measured only when the repo has sessions both with and without the item; otherwise it is an even share, labelled estimated.
@@ -267,7 +284,6 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 - Real-session calibration with outside graders, and a published agreement table that updates per release.
 - Plugin evals in CI.
-- `tally judge --explain <criterion>`: the exact evidence lines behind a status.
 - Receipts as a PR check (GitHub Action) for teams.
 - OTel cross-check on by default when Claude Code telemetry is enabled.
 

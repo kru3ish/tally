@@ -28,6 +28,11 @@ Checked against `claude --version` = **2.1.268** and the official docs at code.c
 - Headless: `claude -p "<prompt>" --output-format json --json-schema '<schema>' --model <m> --system-prompt <s> --max-turns 1 --tools "" --no-session-persistence`. Output JSON: `result` (string), `structured_output` (object), `total_cost_usd`, `usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cache_creation.ephemeral_1h/5m`), `modelUsage[model]` (`costUSD`, `contextWindow`, `canonicalModel`), `session_id`, `is_error`, `num_turns`.
 - **Measured:** a plain `claude -p` from a normal cwd loaded 172k tokens of plugins/MCP/CLAUDE.md context and cost $0.35 for a one-line answer. Adding `--setting-sources "" --strict-mcp-config --tools ""` and running from an empty temp dir cut it to 7.3k tokens / $0.016. `--bare` is cheaper still but does not use subscription login (`Not logged in`), so Tally uses the isolation flags rather than `--bare`.
 
+## OpenAI-compatible providers (0.3.0)
+
+- Ollama serves `POST /v1/chat/completions` at `http://localhost:11434/v1`; `response_format: {type: 'json_object'}` is accepted by Ollama and vLLM and ignored by servers that do not support it, so the JSON schema is also stated in the system prompt and the reply is parsed leniently (fenced or bare object). `usage.prompt_tokens/completion_tokens` come back from all three; cost is zero unless `models.usd_per_million_*` is set.
+- Model names are passed through as configured (`models.judge`, `models.coach`, `models.intake`); set them to the local model tags, e.g. `tally config models.coach llama3.1:8b`.
+
 ## Transcripts
 
 - Location: `~/.claude/projects/<cwd with [:\\/.] replaced by ->/<session-id>.jsonl`. Sidecar dir `<session-id>/tool-results/` holds large tool outputs; `<session-id>/subagents/agent-*.jsonl` appears when subagents ran (older builds mark subagent lines inline with `isSidechain: true` + `agentId`). Tally handles both.

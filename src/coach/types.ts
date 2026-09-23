@@ -54,6 +54,7 @@ export interface HistoryEntry {
   tally_own_usd?: number;
   tally_share_pct?: number;
   cost_confidence?: 'full' | 'partial';
+  estimate_hours?: number;
 }
 
 export interface RuleContext {

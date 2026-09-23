@@ -132,6 +132,15 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## 0.3.0 (2026-09-23)
+
+- S1: The agent checks itself through MCP, not through prose. `tally_unmet` returns the unmet criteria with the mechanical status; the Stop gate blocks once when quick checks say a criterion is unmet. Both use only file and git checks (no model), so they are fast and cannot be argued with; anything needing judgment waits for the Judge.
+- S2: The first thing a new user sees is their own numbers. `tally onboard` runs at the end of install from transcripts already on disk, with no model call and no account, because a tool that asks for trust before showing value loses the solo developer in the first minute.
+- S3: Plan comparison is a table from `pricing.json` with a `plans_last_verified` date, not a recommendation. Tally prints the API-equivalent monthly figure next to list prices and a note when a usage limit was reached; the user decides.
+- S4: A local model is a provider switch, not a fork. `OpenAICompatible` asks for JSON and parses leniently, records zero cost unless prices are configured, and tags the model `local:<name>` so calibration can be filtered by provider.
+- S5: `tally ask` sends the export rows (numbers only) plus the trend, never prompts or code, and prints which sessions the answer relied on; an answer without citations is still shown but labelled "none cited".
+- S6: Cut, with reasons: best-of-N (runs the task N times; cost and consent questions outweigh the value for now), private eval suites from receipts (needs the fixture format to stabilise), visual verification (needs a browser in the loop; the hooks must stay under 150 ms), per-line human/AI attribution (git blame cannot tell them apart without an editor integration).
+
 ## 0.2.0 (2026-09-23)
 
 - E1: Abstention is a verdict. `insufficient evidence` replaces the borderline cap when verifiable criteria are zero or a minority; calibration excludes abstentions from agreement and reports them, the trend report shows the rate. On the 11 graded sessions: 3 abstain; the other 8 are 1 exact and 6 within one step. A tool that says when it does not know is the credibility story for enterprise use.

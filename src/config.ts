@@ -12,6 +12,12 @@ export const ConfigSchema = z.object({
       tier2_escalation: z.string().default('sonnet'),
       coach: z.string().default('haiku'),
       intake: z.string().default('haiku'),
+      /* 'claude' runs `claude -p` on your login; 'openai-compatible' talks to base_url (Ollama, vLLM, LM Studio) for air-gapped use */
+      provider: z.enum(['claude', 'openai-compatible']).default('claude'),
+      base_url: z.string().default('http://localhost:11434/v1'),
+      api_key_env: z.string().default('TALLY_LLM_API_KEY'),
+      usd_per_million_input: z.number().nonnegative().default(0),
+      usd_per_million_output: z.number().nonnegative().default(0),
     })
     .default({}),
   context_window: z.number().int().positive().default(200000),

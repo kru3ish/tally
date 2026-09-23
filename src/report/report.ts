@@ -21,6 +21,8 @@ export interface Trend {
   by_task_source: Array<{ source: string; tasks: number; completion_pct: number | null; cost_per_task_usd: number | null; rework_rate: number | null }>;
   /* receipts where the Judge abstained (insufficient evidence) */
   abstained: number;
+  /* estimate vs what happened, by estimated-size bucket: where the intake estimate is consistently wrong */
+  estimation: Array<{ bucket: string; tasks: number; avg_completion: number | null; avg_cost_usd: number | null; avg_cost_per_est_hour: number | null }>;
 }
 
 function mean(xs: number[]): number | null {
@@ -88,6 +90,14 @@ export function computeTrend(opts: { repo?: string; days?: number; history?: His
     payoff,
     top_recommendations: [...recCount.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 5),
     abstained: receipts.filter((r) => (r.final_verdict ?? r.verdict) === 'insufficient evidence').length,
+    estimation: [
+      { bucket: '≤ 1 h', min: 0, max: 1 },
+      { bucket: '1–4 h', min: 1, max: 4 },
+      { bucket: '> 4 h', min: 4, max: Infinity },
+    ].map((b) => {
+      const rs = receipts.filter((r) => typeof r.estimate_hours === 'number' && r.estimate_hours > b.min && r.estimate_hours <= b.max);
+      return { bucket: b.bucket, tasks: rs.length, avg_completion: mean(rs.map((r) => r.completion_pct ?? 0)), avg_cost_usd: mean(rs.map((r) => r.cost_usd ?? 0)), avg_cost_per_est_hour: mean(rs.map((r) => (r.cost_usd ?? 0) / (r.estimate_hours || 1))) };
+    }).filter((x) => x.tasks > 0),
     by_task_source: ['linked', 'confirmed', 'inferred'].map((source) => {
       const rs = receipts.filter((r) => (r.task_source ?? (r.linked ? 'linked' : 'inferred')) === source);
       const fu = rs.filter((r) => r.final_status && r.final_status !== 'unknown');
@@ -114,6 +124,11 @@ export function renderTrend(t: Trend, opts: { repo?: string; days?: number } = {
   L.push(`tasks linked         ${f(t.linked_rate, (n) => (n * 100).toFixed(0) + '%')}`);
   L.push(`verdicts             ${Object.entries(t.verdicts).map(([k, v]) => `${k} ${v}`).join(' · ')}`);
   if (t.abstained) L.push(`abstained            ${t.abstained} of ${t.tasks} (insufficient evidence: fewer than half the criteria could be checked)`);
+  if (t.estimation.length) {
+    L.push('');
+    L.push('Estimate vs outcome (intake estimate buckets; where planning is consistently off)');
+    for (const e of t.estimation) L.push(`  ${e.bucket.padEnd(7)} ${String(e.tasks).padStart(3)} task(s)  completion ${f(e.avg_completion, (n) => n.toFixed(0) + '%')}  cost/task ${f(e.avg_cost_usd, fmtUsd)}  cost per estimated hour ${f(e.avg_cost_per_est_hour, fmtUsd)}`);
+  }
   if (t.recent_vs_prior) {
     const r = t.recent_vs_prior;
     L.push(`trend                cost ${f(r.prior_cost, fmtUsd)} → ${f(r.recent_cost, fmtUsd)}, completion ${f(r.prior_completion, (n) => n.toFixed(0) + '%')} → ${f(r.recent_completion, (n) => n.toFixed(0) + '%')} (older half → newer half)`);

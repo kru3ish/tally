@@ -22,6 +22,13 @@ export async function run(args: Args): Promise<number | void> {
   }
   process.stdout.write(`Installed ${r.added} hook group(s) into ${r.file}${r.statusline ? ' and the Tally status line' : ''}\n`);
   process.stdout.write('MCP server: run `tally mcp --install` so Claude can ask tally_unmet before saying a task is done.\n');
+  try {
+    const { buildOnboard, renderOnboard } = await import('./onboard.js');
+    const r = buildOnboard('30d');
+    if (r.sessions) process.stdout.write('\n' + renderOnboard(r) + '\n');
+  } catch {
+    /* the report is a bonus, never a failure */
+  }
   if (r.backup) process.stdout.write(`Backup: ${r.backup}\n`);
   process.stdout.write(`Data dir: ${tallyHome()}\nThe Coach now runs on its own after every turn (autopilot) and the status line shows the task, spend and flags; \`tally watch\` opens the optional one-key pane. Check with \`tally doctor\`.\n`);
 }

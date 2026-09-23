@@ -4,6 +4,8 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { appendLine, tallyHome, log } from '../paths.js';
 import { canonicalModel, type Usage } from '../cost/pricing.js';
+import { loadConfig } from '../config.js';
+import { OpenAICompatible } from './openai.js';
 
 export interface LlmRequest {
   kind: 'intake' | 'judge' | 'coach';
@@ -224,6 +226,8 @@ export function runProcess(bin: string, args: string[], opts: { cwd?: string; ti
 
 export function makeLlm(opts: { session?: string; stub?: Partial<Record<LlmRequest['kind'], StubResponder>> } = {}): LlmClient {
   if (opts.stub || process.env.TALLY_LLM === 'stub') return new StubLlm(opts.stub ?? defaultStubs(), opts.session);
+  const models = loadConfig().models;
+  if (models.provider === 'openai-compatible') return new OpenAICompatible({ baseUrl: models.base_url, apiKey: process.env[models.api_key_env], session: opts.session, usdPerMillionInput: models.usd_per_million_input, usdPerMillionOutput: models.usd_per_million_output });
   return new ClaudeCli({ session: opts.session });
 }
 

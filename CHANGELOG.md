@@ -2,6 +2,30 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.3.0] - 2026-09-23
+
+The agent asks Tally before it says done; one person gets the numbers on day one; air-gapped runs.
+
+### Added
+
+- **MCP server.** `tally mcp` (plugin: registered automatically; CLI: `tally mcp --install`) exposes `tally_task`, `tally_unmet`, `tally_receipt` and `tally_flags` so Claude can check what is still unmet before claiming a task is done.
+- **Definition-of-done Stop gate.** When the quick checks (file exists / contains / changed, diff contains) show an unmet criterion at Stop, the hook blocks once with the list (`coach.dod_gate`, cap `coach.dod_max_blocks`).
+- **Live criteria ticks and usage limits in the status line.** `met/checked ✔` from the quick checks, and the 5-hour and 7-day limits from Claude Code's own status JSON; a rate-limit rule warns at 80% with the reset time and a burn-rate ETA.
+- **Security watch.** Credential access, downloads piped into a shell, writes outside the repository and tool results that read like instructions to the agent become critical Coach notes and a `safety` section on the receipt.
+- **`tally onboard`.** A one-page report from the transcripts already on disk, no model calls, also printed at the end of `tally install`: spend, biggest sessions, waste that bought nothing, one habit to change, and the plan comparison from `pricing.json` (list prices, dated).
+- **`tally replay <session>`.** The session as a timeline with the off-track moments marked.
+- **`tally prompts`.** What the best-scoring tasks' opening prompts had in common, best half against worst half, with a template.
+- **`tally ask "<question>"`.** A question over the receipts, answered from the numbers-only export rows, citing sessions.
+- **`tally export --invoice`.** Markdown or CSV invoice lines: task, criteria met, independent test, estimate, AI cost, verdict.
+- **Estimate versus outcome** in `tally report`, by size bucket.
+- **Local models.** `models.provider: openai-compatible` with `base_url`, `api_key_env` and optional per-million prices; Ollama, vLLM, LM Studio and llama.cpp server work.
+- **Handoff resume.** A `HANDOFF.md` younger than a day is handed to Claude at SessionStart.
+
+### Changed
+
+- Security-watch flags are one per file, not per edit, and at most four per Coach pass.
+- Plugin commands: `/tally:onboard`, `/tally:replay`, `/tally:prompts`, `/tally:ask`.
+
 ## [0.2.0] - 2026-09-23
 
 Trust and control for teams, all local, no server.

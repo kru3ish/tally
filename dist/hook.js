@@ -306,6 +306,16 @@ function autopilotEnabled() {
   const cfg = readJson(configFile(), {});
   return cfg.coach?.autopilot !== false;
 }
+function handoffNote(cwd) {
+  if (!cwd) return "";
+  const f = path3.join(cwd, "HANDOFF.md");
+  if (!fs3.existsSync(f)) return "";
+  const age = Date.now() - fs3.statSync(f).mtimeMs;
+  if (age > 24 * 3600 * 1e3) return "";
+  const body = fs3.readFileSync(f, "utf8").split("\n").slice(0, 25).join("\n").slice(0, 1800);
+  return `Tally: HANDOFF.md in this repo was written ${Math.round(age / 6e4)} min ago and holds the state to resume from:
+${body}`;
+}
 function lastReceipt(cwd) {
   if (!cwd) return "";
   const key = repoKey(cwd);
@@ -398,7 +408,7 @@ function main() {
         loaded
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
-      const ctx = [lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join("\n");
+      const ctx = [handoffNote(cwd), lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join("\n");
       if (ctx) out = { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } };
       if (followupDue()) spawnDetached(["followup", "--auto"]);
       break;

@@ -185,6 +185,17 @@ function autopilotEnabled(): boolean {
   return cfg.coach?.autopilot !== false;
 }
 
+/* a HANDOFF.md written in the last 24 h (by the Coach or by hand) is the state to resume from */
+function handoffNote(cwd: string | undefined): string {
+  if (!cwd) return '';
+  const f = path.join(cwd, 'HANDOFF.md');
+  if (!fs.existsSync(f)) return '';
+  const age = Date.now() - fs.statSync(f).mtimeMs;
+  if (age > 24 * 3600 * 1000) return '';
+  const body = fs.readFileSync(f, 'utf8').split('\n').slice(0, 25).join('\n').slice(0, 1800);
+  return `Tally: HANDOFF.md in this repo was written ${Math.round(age / 60000)} min ago and holds the state to resume from:\n${body}`;
+}
+
 /* the newest receipt for this repo, one line, so every session opens knowing how the last one went */
 function lastReceipt(cwd: string | undefined): string {
   if (!cwd) return '';
@@ -286,7 +297,7 @@ function main(): void {
         loaded,
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
-      const ctx = [lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join('\n');
+      const ctx = [handoffNote(cwd), lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join('\n');
       if (ctx) out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } };
       if (followupDue()) spawnDetached(['followup', '--auto']);
       break;

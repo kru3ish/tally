@@ -21,6 +21,8 @@ function norm(p: string): string {
 export function scanSecurity(events: TallyEvent[], cwd: string): SecurityFlag[] {
   const flags: SecurityFlag[] = [];
   const repo = norm(cwd);
+  /* one flag per file, not per edit: the receipt and the Coach both want the fact, not the count */
+  const outside = new Set<string>();
   for (const e of events) {
     if (e.type !== 'post_tool' && e.type !== 'pre_tool') continue;
     const tool = String(e.data.tool_name ?? '');
@@ -30,7 +32,10 @@ export function scanSecurity(events: TallyEvent[], cwd: string): SecurityFlag[] 
     if (e.type === 'pre_tool') {
       if (tool === 'Bash' && cmd && CRED_RE.test(cmd) && /\b(cat|type|echo|cp|curl|scp|base64|printenv|env|set)\b/i.test(cmd)) flags.push({ ts: e.ts, kind: 'credential-access', detail: cmd.slice(0, 120) });
       if (tool === 'Bash' && cmd && REMOTE_EXEC_RE.test(cmd)) flags.push({ ts: e.ts, kind: 'remote-exec', detail: cmd.slice(0, 120) });
-      if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && file && repo && !norm(file).startsWith(repo + '/') && !/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(norm(file))) flags.push({ ts: e.ts, kind: 'write-outside-repo', detail: file.slice(0, 120) });
+      if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && file && repo && !norm(file).startsWith(repo + '/') && !/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(norm(file)) && !outside.has(norm(file))) {
+        outside.add(norm(file));
+        flags.push({ ts: e.ts, kind: 'write-outside-repo', detail: file.slice(0, 120) });
+      }
       continue;
     }
     const head = typeof e.data.response_head === 'string' ? e.data.response_head : '';
@@ -45,7 +50,8 @@ export const securityWatch: Rule = {
   evaluate(ctx: RuleContext): Suggestion[] {
     const flags = scanSecurity(ctx.events, ctx.cwd);
     const out: Suggestion[] = [];
-    for (const f of flags) {
+    /* at most four per pass so a burst never crowds out the other rules; the rest stay on the receipt */
+    for (const f of flags.slice(0, 4)) {
       const what = f.kind === 'credential-access' ? 'a command that reads or copies credentials' : f.kind === 'remote-exec' ? 'a download piped straight into a shell' : f.kind === 'write-outside-repo' ? 'a write outside the repository' : 'a tool result that reads like an instruction to the agent';
       out.push({
         rule: this.id,

@@ -435,6 +435,7 @@ export function persistJudge(judge: Judge, task: Task | null): void {
     source: judge.task.source,
     verdict: judge.verdict.verdict,
     completion_pct: judge.completion_pct,
+    estimate_hours: judge.value.estimate_hours,
     quality: judge.quality.score,
     cost_usd: judge.cost.total_usd,
     waste_usd: judge.waste.total_usd,
