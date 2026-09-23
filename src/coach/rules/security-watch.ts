@@ -1,6 +1,7 @@
 /* Risky agent behaviour in the session's events: commands that touch credentials, downloads piped to a shell, writes
    outside the repo, and tool results that read like instructions to the agent (prompt injection through a fetched page
    or an MCP result). Each finding is a critical, observation-only note; the Judge puts the same scan on the receipt. */
+import os from 'node:os';
 import type { Rule, RuleContext, Suggestion } from '../types.js';
 import type { TallyEvent } from '../../store/events.js';
 
@@ -10,12 +11,24 @@ export interface SecurityFlag {
   detail: string;
 }
 
-const CRED_RE = /(\.env\b|\.aws\/credentials|\.ssh\/id_[a-z0-9]+|\.npmrc|\.netrc|\.docker\/config\.json|\.git-credentials|\.kube\/config|keychain|secrets?\.(json|ya?ml|toml))/i;
+/* `.env` only as a path (not `process.env.X`) */
+const CRED_RE = /((?<![\w.])\.env\b|\.aws\/credentials|\.ssh\/id_[a-z0-9]+|\.npmrc|\.netrc|\.docker\/config\.json|\.git-credentials|\.kube\/config|keychain|secrets?\.(json|ya?ml|toml))/i;
 const REMOTE_EXEC_RE = /\b(curl|wget|Invoke-WebRequest|iwr)\b[^|;&]*\|\s*(sh|bash|zsh|sudo|node|python[0-9.]*|powershell|pwsh|iex)\b/i;
 const INJECTION_RE = /(ignore (all )?(previous|prior|above) instructions|you (must|should) now (run|execute|delete)|disregard (the )?(system|previous)|<\s*system\s*>|run the following command (immediately|now)|do not tell the user)/i;
 
 function norm(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+/* A write is worth a flag when it leaves the user's own projects: outside the repo and outside the home directory, or
+   into a dotfile or dot-directory under home (~/.ssh, ~/.bashrc, ~/.claude/settings.json). Another project under home
+   is the user's business; temp directories are never flagged. */
+export function isRiskyWrite(file: string, repo: string): boolean {
+  if (file.startsWith(repo + '/')) return false;
+  if (/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(file)) return false;
+  const home = norm(os.homedir());
+  if (!home || !file.startsWith(home + '/')) return true;
+  return file.slice(home.length + 1).startsWith('.');
 }
 
 export function scanSecurity(events: TallyEvent[], cwd: string): SecurityFlag[] {
@@ -32,7 +45,7 @@ export function scanSecurity(events: TallyEvent[], cwd: string): SecurityFlag[] 
     if (e.type === 'pre_tool') {
       if (tool === 'Bash' && cmd && CRED_RE.test(cmd) && /\b(cat|type|echo|cp|curl|scp|base64|printenv|env|set)\b/i.test(cmd)) flags.push({ ts: e.ts, kind: 'credential-access', detail: cmd.slice(0, 120) });
       if (tool === 'Bash' && cmd && REMOTE_EXEC_RE.test(cmd)) flags.push({ ts: e.ts, kind: 'remote-exec', detail: cmd.slice(0, 120) });
-      if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && file && repo && !norm(file).startsWith(repo + '/') && !/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(norm(file)) && !outside.has(norm(file))) {
+      if ((tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') && file && repo && isRiskyWrite(norm(file), repo) && !outside.has(norm(file))) {
         outside.add(norm(file));
         flags.push({ ts: e.ts, kind: 'write-outside-repo', detail: file.slice(0, 120) });
       }
@@ -52,7 +65,7 @@ export const securityWatch: Rule = {
     const out: Suggestion[] = [];
     /* at most four per pass so a burst never crowds out the other rules; the rest stay on the receipt */
     for (const f of flags.slice(0, 4)) {
-      const what = f.kind === 'credential-access' ? 'a command that reads or copies credentials' : f.kind === 'remote-exec' ? 'a download piped straight into a shell' : f.kind === 'write-outside-repo' ? 'a write outside the repository' : 'a tool result that reads like an instruction to the agent';
+      const what = f.kind === 'credential-access' ? 'a command that reads or copies credentials' : f.kind === 'remote-exec' ? 'a download piped straight into a shell' : f.kind === 'write-outside-repo' ? 'a write outside the repository into a system or dot path' : 'a tool result that reads like an instruction to the agent';
       out.push({
         rule: this.id,
         key: `sec:${f.kind}:${f.ts}`,

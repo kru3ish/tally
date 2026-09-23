@@ -6801,8 +6801,16 @@ var init_otel = __esm({
 });
 
 // src/coach/rules/security-watch.ts
+import os3 from "node:os";
 function norm3(p) {
   return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+function isRiskyWrite(file, repo) {
+  if (file.startsWith(repo + "/")) return false;
+  if (/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(file)) return false;
+  const home = norm3(os3.homedir());
+  if (!home || !file.startsWith(home + "/")) return true;
+  return file.slice(home.length + 1).startsWith(".");
 }
 function scanSecurity(events, cwd) {
   const flags = [];
@@ -6817,7 +6825,7 @@ function scanSecurity(events, cwd) {
     if (e.type === "pre_tool") {
       if (tool === "Bash" && cmd && CRED_RE.test(cmd) && /\b(cat|type|echo|cp|curl|scp|base64|printenv|env|set)\b/i.test(cmd)) flags.push({ ts: e.ts, kind: "credential-access", detail: cmd.slice(0, 120) });
       if (tool === "Bash" && cmd && REMOTE_EXEC_RE.test(cmd)) flags.push({ ts: e.ts, kind: "remote-exec", detail: cmd.slice(0, 120) });
-      if ((tool === "Write" || tool === "Edit" || tool === "MultiEdit") && file && repo && !norm3(file).startsWith(repo + "/") && !/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(norm3(file)) && !outside.has(norm3(file))) {
+      if ((tool === "Write" || tool === "Edit" || tool === "MultiEdit") && file && repo && isRiskyWrite(norm3(file), repo) && !outside.has(norm3(file))) {
         outside.add(norm3(file));
         flags.push({ ts: e.ts, kind: "write-outside-repo", detail: file.slice(0, 120) });
       }
@@ -6832,7 +6840,7 @@ var CRED_RE, REMOTE_EXEC_RE, INJECTION_RE, securityWatch;
 var init_security_watch = __esm({
   "src/coach/rules/security-watch.ts"() {
     "use strict";
-    CRED_RE = /(\.env\b|\.aws\/credentials|\.ssh\/id_[a-z0-9]+|\.npmrc|\.netrc|\.docker\/config\.json|\.git-credentials|\.kube\/config|keychain|secrets?\.(json|ya?ml|toml))/i;
+    CRED_RE = /((?<![\w.])\.env\b|\.aws\/credentials|\.ssh\/id_[a-z0-9]+|\.npmrc|\.netrc|\.docker\/config\.json|\.git-credentials|\.kube\/config|keychain|secrets?\.(json|ya?ml|toml))/i;
     REMOTE_EXEC_RE = /\b(curl|wget|Invoke-WebRequest|iwr)\b[^|;&]*\|\s*(sh|bash|zsh|sudo|node|python[0-9.]*|powershell|pwsh|iex)\b/i;
     INJECTION_RE = /(ignore (all )?(previous|prior|above) instructions|you (must|should) now (run|execute|delete)|disregard (the )?(system|previous)|<\s*system\s*>|run the following command (immediately|now)|do not tell the user)/i;
     securityWatch = {
@@ -6842,7 +6850,7 @@ var init_security_watch = __esm({
         const flags = scanSecurity(ctx.events, ctx.cwd);
         const out = [];
         for (const f of flags.slice(0, 4)) {
-          const what = f.kind === "credential-access" ? "a command that reads or copies credentials" : f.kind === "remote-exec" ? "a download piped straight into a shell" : f.kind === "write-outside-repo" ? "a write outside the repository" : "a tool result that reads like an instruction to the agent";
+          const what = f.kind === "credential-access" ? "a command that reads or copies credentials" : f.kind === "remote-exec" ? "a download piped straight into a shell" : f.kind === "write-outside-repo" ? "a write outside the repository into a system or dot path" : "a tool result that reads like an instruction to the agent";
           out.push({
             rule: this.id,
             key: `sec:${f.kind}:${f.ts}`,
@@ -10097,7 +10105,7 @@ __export(budget_exports, {
 });
 import fs31 from "node:fs";
 import path31 from "node:path";
-import os3 from "node:os";
+import os4 from "node:os";
 function hardStopFile(session) {
   return path31.join(sessionDir(session), "hard-stop.json");
 }
@@ -10125,7 +10133,7 @@ async function run10(args) {
     return 1;
   }
   if (sub === "approve") {
-    const r = approveBudget(session, flag(args, "by") ?? os3.userInfo().username, flag(args, "note"), process.cwd());
+    const r = approveBudget(session, flag(args, "by") ?? os4.userInfo().username, flag(args, "note"), process.cwd());
     process.stdout.write(r.lifted ? `Hard stop lifted for session ${session.slice(0, 8)}; tool calls are allowed again and the approval is recorded on the receipt.
 ` : `Approval recorded for session ${session.slice(0, 8)} (no hard stop was active).
 `);
@@ -10734,7 +10742,7 @@ var init_doctor = __esm({
 
 // src/demo/demo.ts
 import fs34 from "node:fs";
-import os4 from "node:os";
+import os5 from "node:os";
 import path33 from "node:path";
 import { spawnSync as spawnSync10 } from "node:child_process";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -10810,7 +10818,7 @@ async function runDemo(opts = {}) {
   const cyan = (s) => paint(color, "\x1B[36m", s);
   const step = (n, s) => out(`
 ${bold(cyan(`[${n}] ${s}`))}`);
-  const home = opts.home ?? fs34.mkdtempSync(path33.join(os4.tmpdir(), "tally-demo-"));
+  const home = opts.home ?? fs34.mkdtempSync(path33.join(os5.tmpdir(), "tally-demo-"));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
   process.env.TALLY_HOME = path33.join(home, "tally");
   process.env.CLAUDE_CONFIG_DIR = path33.join(home, "claude");
@@ -11569,7 +11577,7 @@ var init_grade = __esm({
 
 // src/calibrate/eval.ts
 import fs38 from "node:fs";
-import os5 from "node:os";
+import os6 from "node:os";
 import path37 from "node:path";
 import { spawnSync as spawnSync11 } from "node:child_process";
 function fixturesRoot() {
@@ -11619,7 +11627,7 @@ function materializeRepo(c, root) {
 }
 async function runFixture(c, opts) {
   const cfg = opts.cfg ?? loadConfig();
-  const workRoot = opts.workRoot ?? fs38.mkdtempSync(path37.join(os5.tmpdir(), "tally-cal-"));
+  const workRoot = opts.workRoot ?? fs38.mkdtempSync(path37.join(os6.tmpdir(), "tally-cal-"));
   const { cwd, base } = materializeRepo(c, workRoot);
   const session = c.task.session;
   ensureDir(sessionDir(session));
@@ -11652,7 +11660,7 @@ async function runFixture(c, opts) {
 async function runEval(opts) {
   const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
   if (!cases.length) throw new Error("no calibration fixtures found");
-  const workRoot = fs38.mkdtempSync(path37.join(os5.tmpdir(), "tally-cal-"));
+  const workRoot = fs38.mkdtempSync(path37.join(os6.tmpdir(), "tally-cal-"));
   const results = [];
   for (const c of cases) {
     const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
@@ -11745,7 +11753,7 @@ __export(calibrate_exports, {
   run: () => run21
 });
 import fs39 from "node:fs";
-import os6 from "node:os";
+import os7 from "node:os";
 import path38 from "node:path";
 import readline3 from "node:readline";
 async function run21(args) {
@@ -11784,7 +11792,7 @@ async function run21(args) {
       process.stderr.write("Usage: tally calibrate grade <session> [--grader name]   (the session needs a receipt: tally backfill add or tally judge)\n");
       return 1;
     }
-    const grader = flag(args, "grader") ?? os6.userInfo().username;
+    const grader = flag(args, "grader") ?? os7.userInfo().username;
     const rl = readline3.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q) => new Promise((res) => rl.question(q, res));
     try {
@@ -11826,7 +11834,7 @@ async function run21(args) {
     }
     const prevHome = process.env.TALLY_HOME;
     const keep = has(args, "keep");
-    if (!keep) process.env.TALLY_HOME = fs39.mkdtempSync(path38.join(os6.tmpdir(), "tally-cal-home-"));
+    if (!keep) process.env.TALLY_HOME = fs39.mkdtempSync(path38.join(os7.tmpdir(), "tally-cal-home-"));
     try {
       const only = flag(args, "only")?.split(",").filter(Boolean);
       const s = await runEval({ live, record, only, deep: has(args, "deep") });
@@ -11971,7 +11979,7 @@ var init_link = __esm({
 
 // src/backfill/history.ts
 import fs40 from "node:fs";
-import os7 from "node:os";
+import os8 from "node:os";
 import path39 from "node:path";
 import { spawnSync as spawnSync13 } from "node:child_process";
 function revBefore(cwd, ref, ts, exec) {
@@ -12017,7 +12025,7 @@ function reconstructWindow(cwd, opts) {
   return { start_head, end_head, branch, commits_in_window, extended_to_pr, notes };
 }
 function addWorktree(cwd, sha, exec = gitExecRaw) {
-  const dir = fs40.mkdtempSync(path39.join(os7.tmpdir(), "tally-wt-"));
+  const dir = fs40.mkdtempSync(path39.join(os8.tmpdir(), "tally-wt-"));
   fs40.rmdirSync(dir);
   const r = exec("git", ["worktree", "add", "--detach", dir, sha], cwd);
   if (!r.ok) throw new Error(`git worktree add failed: ${r.stderr.trim().slice(0, 200)}`);
@@ -12503,7 +12511,7 @@ __export(dispute_exports, {
   resolveSessionPrefix: () => resolveSessionPrefix,
   run: () => run23
 });
-import os8 from "node:os";
+import os9 from "node:os";
 import fs43 from "node:fs";
 import path42 from "node:path";
 function disputeCriterion(session, id, status, reason, by) {
@@ -12568,7 +12576,7 @@ async function run23(args) {
     return 1;
   }
   const full = resolveSessionPrefix(session);
-  const r = disputeCriterion(full, id, status, reason, flag(args, "by") ?? os8.userInfo().username);
+  const r = disputeCriterion(full, id, status, reason, flag(args, "by") ?? os9.userInfo().username);
   process.stdout.write(`Recorded: ${id} ${r.entry.criteria[0].judge} \u2192 ${status} (${reason}). The receipt is re-scored; the dispute is in the calibration log.
 
 `);
