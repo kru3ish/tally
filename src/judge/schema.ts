@@ -107,6 +107,8 @@ export const JudgeSchema = z.object({
     note: z.string(),
     rows: z.array(z.object({ kind: z.enum(['skill', 'mcp']), name: z.string(), invocations: z.number(), errors: z.number(), tokens: z.number(), usd: z.number(), touched_met_criteria: z.boolean().nullable() })),
   }),
+  /* risky agent behaviour seen in the session's events (security-watch rule) */
+  safety: z.object({ flags: z.array(z.object({ ts: z.string(), kind: z.string(), detail: z.string() })) }).optional(),
   verdict: z.object({ verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']), reason: z.string() }),
   recommendations: z.array(z.string()).max(3),
   judge_model: z.string(),

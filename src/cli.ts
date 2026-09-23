@@ -70,6 +70,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   budget: () => import('./commands/budget.js'),
   playbook: () => import('./commands/playbook.js'),
   export: () => import('./commands/export.js'),
+  mcp: () => import('./commands/mcp.js'),
 };
 
 const HELP = `tally — per-task receipts and live coaching for Claude Code
@@ -89,6 +90,7 @@ Judge
   dispute <session> <c#> --status s --reason ".."   Contest a criterion; the receipt keeps both and is re-scored
   budget status|approve       Repo-policy hard stop over budget (tally.json), and the approval that lifts it
   playbook [--all] [--write]  Recurring lessons across receipts, as a CLAUDE.md snippet
+  mcp [--install]             MCP server: Claude asks tally_task / tally_unmet / tally_receipt / tally_flags mid-task
   export [--since 30d] [--out f.jsonl] [--titles]   Numbers-only receipts for a team store
   followup [session]          Post-merge truth: merged, reverted, reopened, review churn, CI
   report                      Trends: cost per task, completion, rework, skill/MCP payoff

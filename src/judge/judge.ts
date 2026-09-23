@@ -14,6 +14,7 @@ import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
 import { resolveCheck } from './checks.js';
+import { scanSecurity } from '../coach/rules/security-watch.js';
 import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, ESCALATION_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, guardedConfidence, verdictSensitive, type Tier1Result, type Status } from './tiers.js';
 
 const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
@@ -408,6 +409,7 @@ export async function judgeSession(opts: {
     },
     value: { estimate_hours: task.estimate.hours, hourly_rate: task.hourly_rate, human_value_usd: round(humanValue, 2), credited_value_usd: credited, roi_multiple: roi },
     attribution: { label: 'correlational', note: 'Whether a skill or MCP call touched a met criterion is a correlation, not a cause. Run `tally experiment start <skill|mcp> <name> --tasks N` for a controlled answer.', rows },
+    safety: { flags: scanSecurity(events, opts.repoCwd ?? opts.cwd) },
     verdict: { verdict, reason: String(out.verdict_reason ?? '') },
     recommendations: (out.recommendations ?? []).map(String).filter(Boolean).slice(0, 3),
     judge_model: r.model,

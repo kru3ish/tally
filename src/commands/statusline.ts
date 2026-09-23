@@ -9,6 +9,9 @@ import { loadJudge } from '../judge/judge.js';
 import { sessionDir, builtCliPath } from '../paths.js';
 import { installStatusLine, uninstallStatusLine, settingsPath, enabledPluginIds } from '../install/install.js';
 import { fmtUsd } from '../cost/pricing.js';
+import { readProgress } from '../judge/quickcheck.js';
+import { rateLimitsFile } from '../coach/rules/rate-limit.js';
+import { writeJson } from '../paths.js';
 
 interface StatusInput {
   session_id?: string;
@@ -16,6 +19,7 @@ interface StatusInput {
   model?: { display_name?: string };
   cost?: { total_cost_usd?: number };
   context_window?: { used_percentage?: number | null };
+  rate_limits?: { five_hour?: { used_percentage?: number; resets_at?: number } | null; seven_day?: { used_percentage?: number; resets_at?: number } | null } | null;
 }
 
 export interface CoachFlags {
@@ -52,6 +56,9 @@ export function renderStatusLine(input: StatusInput, color = true): string {
   if (task) {
     const title = task.title.length > 34 ? task.title.slice(0, 33) + '…' : task.title;
     parts.push(`${title}${task.inferred && !task.confirmed ? paint(C.dim, ' (unconfirmed)') : ''}`);
+    /* live criteria ticks from the last quick check (Stop hook, Coach tick, or an MCP call) */
+    const prog = readProgress(session!);
+    if (prog && prog.checked) parts.push(paint(prog.met === prog.checked ? C.green : C.yellow, `${prog.met}/${prog.checked} ✔`));
     const pct = task.budget_usd ? Math.round((spend / task.budget_usd) * 100) : null;
     const budgetStr = pct === null ? fmtUsd(spend) : `${fmtUsd(spend)}/${fmtUsd(task.budget_usd)} (${pct}%)`;
     parts.push(pct !== null && pct >= 100 ? paint(C.red, budgetStr) : pct !== null && pct >= 80 ? paint(C.yellow, budgetStr) : budgetStr);
@@ -59,6 +66,20 @@ export function renderStatusLine(input: StatusInput, color = true): string {
     parts.push(paint(C.dim, `no task linked · ${fmtUsd(spend)}`));
   }
   const ctx = input.context_window?.used_percentage;
+  const fh = input.rate_limits?.five_hour?.used_percentage;
+  const sd = input.rate_limits?.seven_day?.used_percentage;
+  if (typeof fh === 'number' || typeof sd === 'number') {
+    const lim = [typeof fh === 'number' ? `5h ${Math.round(fh)}%` : '', typeof sd === 'number' ? `7d ${Math.round(sd)}%` : ''].filter(Boolean).join(' ');
+    const worst = Math.max(fh ?? 0, sd ?? 0);
+    parts.push(worst >= 90 ? paint(C.red, lim) : worst >= 70 ? paint(C.yellow, lim) : paint(C.dim, lim));
+    if (session) {
+      try {
+        writeJson(rateLimitsFile(session), { ts: new Date().toISOString(), five_hour: input.rate_limits?.five_hour ?? null, seven_day: input.rate_limits?.seven_day ?? null });
+      } catch {
+        /* status line must never fail */
+      }
+    }
+  }
   if (typeof ctx === 'number') parts.push(ctx >= 85 ? paint(C.red, `ctx ${Math.round(ctx)}%`) : ctx >= 70 ? paint(C.yellow, `ctx ${Math.round(ctx)}%`) : `ctx ${Math.round(ctx)}%`);
   /* the slash command only exists with the plugin; CLI installs get the CLI command */
   if (flags) parts.push(paint(C.cyan, `${flags} coach flag${flags === 1 ? '' : 's'} (${enabledPluginIds().length ? '/tally:coach' : 'tally coach'})`));

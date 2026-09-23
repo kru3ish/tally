@@ -20,6 +20,11 @@ export function renderReport(j: Judge): string {
     for (const n of j.followup.notes) L.push(`- ${n}`);
   }
   L.push('');
+  if (j.safety?.flags.length) {
+    L.push(`## Safety — ${j.safety.flags.length} flagged event(s)`);
+    for (const f of j.safety.flags) L.push(`- ${f.ts.slice(11, 19)} ${f.kind}: ${esc(f.detail)}`);
+    L.push('');
+  }
   L.push(`## Acceptance criteria — ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` of ${j.completion_basis.verifiable} verifiable` : ''} (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
   L.push('');
   L.push('| # | Status | Criterion | Evidence |');

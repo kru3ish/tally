@@ -11,6 +11,7 @@ import { readFlags, flagsFile } from './statusline.js';
 import { writeJson, builtCliPath } from '../paths.js';
 import { enqueueInject } from '../coach/inject.js';
 import { loadPolicy } from '../policy.js';
+import { quickChecks } from '../judge/quickcheck.js';
 import { hardStopFile, isApproved } from './budget.js';
 import fs from 'node:fs';
 
@@ -39,6 +40,7 @@ export async function run(args: Args): Promise<number | void> {
         /* the deterministic rules already ran */
       }
     }
+    if (ctx.task) quickChecks(session, cwd);
     /* repo policy hard stop: spend past the budget writes a marker the PreToolUse hook enforces; approval clears it */
     const pol = loadPolicy(cwd);
     if (ctx.task && pol.policy.budget.hard_stop && ctx.task.budget_usd > 0) {

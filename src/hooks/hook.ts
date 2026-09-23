@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { activeFile, appendLine, ensureDir, historyFile, readJson, repoKey, sessionDir, tallyHome, writeJson, claudeHome, configFile } from '../paths.js';
 import { redact, redactDeep } from '../redact.js';
+import { quickChecks } from '../judge/quickcheck.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /* dist/hook.js sits beside dist/cli.js in the bundle; TALLY_HOOK_CLI lets tests point the detached spawn at a stand-in */
@@ -35,6 +36,7 @@ interface HookInput {
   error?: unknown;
   agent_id?: string;
   agent_type?: string;
+  stop_hook_active?: boolean;
 }
 
 function readStdin(): string {
@@ -162,6 +164,22 @@ function updateActive(session: string, patch: Record<string, unknown>, remove = 
 }
 
 /* autopilot is on unless ~/.tally/config.json says coach.autopilot: false */
+function dodGate(session: string, cwd: string | undefined, stopHookActive: boolean): Record<string, unknown> | undefined {
+  if (stopHookActive || !fs.existsSync(path.join(sessionDir(session), 'task.json'))) return undefined;
+  const cfg = readJson<{ coach?: { dod_gate?: boolean; dod_max_blocks?: number } }>(configFile(), {});
+  if (cfg.coach?.dod_gate === false) return undefined;
+  const max = cfg.coach?.dod_max_blocks ?? 1;
+  const marker = path.join(sessionDir(session), 'dod-gate.json');
+  const state = readJson<{ blocks: number }>(marker, { blocks: 0 });
+  const progress = quickChecks(session, cwd);
+  const unmet = progress.items.filter((i) => i.status === 'unmet');
+  if (!unmet.length || state.blocks >= max) return undefined;
+  writeJson(marker, { blocks: state.blocks + 1, ts: nowIso(), unmet: unmet.map((u) => u.id) });
+  record(session, 'dod_gate', cwd, { unmet: unmet.map((u) => u.id), block: state.blocks + 1 });
+  const reason = `Tally: ${unmet.length} acceptance criteri${unmet.length === 1 ? 'on is' : 'a are'} still unmet by mechanical check: ${unmet.map((u) => `${u.id} "${u.text}" (${u.why})`).join('; ')}. Address ${unmet.length === 1 ? 'it' : 'them'}, or say why ${unmet.length === 1 ? 'it is' : 'they are'} out of scope.`;
+  return { decision: 'block', reason };
+}
+
 function autopilotEnabled(): boolean {
   const cfg = readJson<{ coach?: { autopilot?: boolean } }>(configFile(), {});
   return cfg.coach?.autopilot !== false;
@@ -344,6 +362,10 @@ function main(): void {
     case 'Stop': {
       record(session, 'stop', cwd, { last_assistant_message: truncate(input.last_assistant_message, 800) });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
+      /* definition-of-done gate: a task is linked, mechanical checks still fail, and this stop is not already a
+         re-run of a blocked one → block once (capped by coach.dod_max_blocks) with the exact list */
+      const gate = dodGate(session, cwd, input.stop_hook_active === true);
+      if (gate) out = gate as unknown as typeof out;
       /* autopilot: the Coach runs in a detached process and queues its observations for the next prompt */
       if (autopilotEnabled()) spawnDetached(['coach', '--tick', '--session', session, '--cwd', cwd ?? '', '--auto']);
       break;

@@ -3,8 +3,8 @@ import { createRequire as __tallyCreateRequire } from "node:module";
 const require = __tallyCreateRequire(import.meta.url);
 
 // src/hooks/hook.ts
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs3 from "node:fs";
+import path3 from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -90,16 +90,97 @@ function redactDeep(value) {
   return value;
 }
 
+// src/judge/quickcheck.ts
+import fs2 from "node:fs";
+import path2 from "node:path";
+import { spawnSync } from "node:child_process";
+function safeRegex(p) {
+  try {
+    return new RegExp(p, "i");
+  } catch {
+    return null;
+  }
+}
+function baseHead(session) {
+  const f = path2.join(sessionDir(session), "events.jsonl");
+  if (!fs2.existsSync(f)) return void 0;
+  for (const line of fs2.readFileSync(f, "utf8").split("\n")) {
+    if (!line.includes('"session_start"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e.type === "session_start" && e.data?.git_head) return e.data.git_head;
+    } catch {
+    }
+  }
+  return void 0;
+}
+function gitDiff(cwd, base) {
+  if (!fs2.existsSync(path2.join(cwd, ".git"))) return { files: [], text: "" };
+  const range = base ? [base] : ["HEAD"];
+  const names = spawnSync("git", ["diff", "--name-only", ...range], { cwd, encoding: "utf8", windowsHide: true, timeout: 3e3 });
+  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", windowsHide: true, timeout: 3e3 });
+  const files = [...(names.stdout ?? "").split("\n"), ...(untracked.stdout ?? "").split("\n")].map((s) => s.trim()).filter(Boolean);
+  const diff = spawnSync("git", ["diff", "--no-color", ...range], { cwd, encoding: "utf8", windowsHide: true, timeout: 3e3, maxBuffer: 8 * 1024 * 1024 });
+  return { files, text: diff.stdout ?? "" };
+}
+var norm = (p) => p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+function quickChecks(session, cwd) {
+  const task = readJson(path2.join(sessionDir(session), "task.json"), null);
+  const criteria = task?.criteria ?? [];
+  const items = [];
+  let diff = null;
+  const getDiff = () => diff ??= cwd ? gitDiff(cwd, baseHead(session)) : { files: [], text: "" };
+  for (const c of criteria) {
+    const ch = c.check;
+    if (!ch || ch.kind === "none") {
+      items.push({ id: c.id, text: c.text, kind: "judgment", status: "unknown", why: "needs the Judge (a reader decides this one)" });
+      continue;
+    }
+    if (ch.kind === "file_exists" && ch.path && cwd) {
+      const ok = fs2.existsSync(path2.join(cwd, ch.path));
+      items.push({ id: c.id, text: c.text, kind: ch.kind, status: ok ? "met" : "unmet", why: `${ch.path} ${ok ? "exists" : "does not exist"}` });
+    } else if (ch.kind === "file_contains" && ch.path && ch.pattern && cwd) {
+      const p = path2.join(cwd, ch.path);
+      const re = safeRegex(ch.pattern);
+      if (!fs2.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unmet", why: `${ch.path} does not exist` });
+      else if (!re) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unknown", why: "invalid pattern" });
+      else {
+        const ok = re.test(fs2.readFileSync(p, "utf8"));
+        items.push({ id: c.id, text: c.text, kind: ch.kind, status: ok ? "met" : "unmet", why: `${ch.path} ${ok ? "matches" : "does not match"} /${ch.pattern}/` });
+      }
+    } else if (ch.kind === "file_changed" && ch.path) {
+      const d = getDiff();
+      const want = norm(ch.path);
+      const hit = ch.path === "." || ch.path === "*" ? d.files[0] : d.files.find((f) => norm(f) === want || norm(f).endsWith("/" + want) || want.endsWith("/" + norm(f)));
+      items.push({ id: c.id, text: c.text, kind: ch.kind, status: hit ? "met" : "unmet", why: hit ? `${hit} is changed` : `${ch.path} is not changed yet (${d.files.length} file(s) changed so far)` });
+    } else if (ch.kind === "diff_contains" && ch.pattern) {
+      const d = getDiff();
+      const re = safeRegex(ch.pattern);
+      const ok = !!re && re.test(d.text);
+      items.push({ id: c.id, text: c.text, kind: ch.kind, status: ok ? "met" : "unmet", why: ok ? `the diff matches /${ch.pattern}/` : `the diff does not match /${ch.pattern}/ yet` });
+    } else {
+      items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unknown", why: ch.kind === "tests_pass" ? "tests are run by the Judge (tally judge), not here" : ch.kind === "pr" ? "decided by the push / PR events at judge time" : `${ch.kind} is run by the Judge` });
+    }
+  }
+  const checked = items.filter((i) => i.status !== "unknown").length;
+  const progress = { ts: (/* @__PURE__ */ new Date()).toISOString(), met: items.filter((i) => i.status === "met").length, checked, total: items.length, items };
+  try {
+    writeJson(path2.join(sessionDir(session), "progress.json"), progress);
+  } catch {
+  }
+  return progress;
+}
+
 // src/hooks/hook.ts
-var here = path2.dirname(fileURLToPath(import.meta.url));
-var CLI = process.env.TALLY_HOOK_CLI || [path2.join(here, "cli.js"), path2.join(here, "..", "cli.js")].find((p) => fs2.existsSync(p)) || path2.join(here, "cli.js");
+var here = path3.dirname(fileURLToPath(import.meta.url));
+var CLI = process.env.TALLY_HOOK_CLI || [path3.join(here, "cli.js"), path3.join(here, "..", "cli.js")].find((p) => fs3.existsSync(p)) || path3.join(here, "cli.js");
 var SHIP_RE = /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b|\bnpm\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/;
 var TASK_URL_RE = /https?:\/\/(github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/\d+|[^\s]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+|linear\.app\/[^\s]+\/issue\/[A-Z0-9]+-\d+[^\s]*)/;
 var TASK_MD_RE = /(?:^|\s)((?:[A-Za-z]:)?[^\s"']+\.md)(?=\s|$)/;
 var MAX_FIELD = 2e3;
 function readStdin() {
   try {
-    return fs2.readFileSync(0, "utf8");
+    return fs3.readFileSync(0, "utf8");
   } catch {
     return "";
   }
@@ -113,23 +194,23 @@ function nowIso() {
 }
 function record(session, type, cwd, data) {
   const ev = { ts: nowIso(), type, session, cwd, data: redactDeep(data) };
-  appendLine(path2.join(sessionDir(session), "events.jsonl"), JSON.stringify(ev));
+  appendLine(path3.join(sessionDir(session), "events.jsonl"), JSON.stringify(ev));
 }
 function alreadySeen(session, event, toolUseId) {
   if (!toolUseId) return false;
-  const file = path2.join(sessionDir(session), "seen.txt");
+  const file = path3.join(sessionDir(session), "seen.txt");
   const key = `${event}:${toolUseId}
 `;
   try {
-    if (fs2.existsSync(file) && fs2.readFileSync(file, "utf8").includes(key)) return true;
-    fs2.appendFileSync(file, key);
+    if (fs3.existsSync(file) && fs3.readFileSync(file, "utf8").includes(key)) return true;
+    fs3.appendFileSync(file, key);
   } catch {
   }
   return false;
 }
 function spawnDetached(args) {
   if (process.env.TALLY_NO_SPAWN) {
-    appendLine(path2.join(tallyHome(), "spawn.log"), JSON.stringify({ ts: nowIso(), args }));
+    appendLine(path3.join(tallyHome(), "spawn.log"), JSON.stringify({ ts: nowIso(), args }));
     return;
   }
   try {
@@ -143,29 +224,29 @@ function gitHead(cwd) {
   try {
     let dir = cwd;
     for (let i = 0; i < 6; i++) {
-      const gitPath = path2.join(dir, ".git");
-      if (fs2.existsSync(gitPath)) {
+      const gitPath = path3.join(dir, ".git");
+      if (fs3.existsSync(gitPath)) {
         let gitDir = gitPath;
-        if (fs2.statSync(gitPath).isFile()) {
-          const m = /gitdir:\s*(.+)/.exec(fs2.readFileSync(gitPath, "utf8"));
+        if (fs3.statSync(gitPath).isFile()) {
+          const m = /gitdir:\s*(.+)/.exec(fs3.readFileSync(gitPath, "utf8"));
           if (!m) return void 0;
-          gitDir = path2.resolve(dir, m[1].trim());
+          gitDir = path3.resolve(dir, m[1].trim());
         }
-        const head = fs2.readFileSync(path2.join(gitDir, "HEAD"), "utf8").trim();
+        const head = fs3.readFileSync(path3.join(gitDir, "HEAD"), "utf8").trim();
         const ref = /^ref:\s*(.+)$/.exec(head);
         if (!ref) return head;
-        const refFile = path2.join(gitDir, ref[1]);
-        if (fs2.existsSync(refFile)) return fs2.readFileSync(refFile, "utf8").trim();
-        const packed = path2.join(gitDir, "packed-refs");
-        if (fs2.existsSync(packed)) {
-          for (const line of fs2.readFileSync(packed, "utf8").split("\n")) {
+        const refFile = path3.join(gitDir, ref[1]);
+        if (fs3.existsSync(refFile)) return fs3.readFileSync(refFile, "utf8").trim();
+        const packed = path3.join(gitDir, "packed-refs");
+        if (fs3.existsSync(packed)) {
+          for (const line of fs3.readFileSync(packed, "utf8").split("\n")) {
             const [sha, name] = line.split(" ");
             if (name === ref[1]) return sha;
           }
         }
         return void 0;
       }
-      const parent = path2.dirname(dir);
+      const parent = path3.dirname(dir);
       if (parent === dir) break;
       dir = parent;
     }
@@ -179,19 +260,19 @@ function loadedInventory(cwd) {
   const plugins = /* @__PURE__ */ new Set();
   try {
     const home = claudeHome();
-    const global = readJson(path2.join(path2.dirname(home), ".claude.json"), {});
+    const global = readJson(path3.join(path3.dirname(home), ".claude.json"), {});
     for (const k of Object.keys(global.mcpServers ?? {})) mcp.add(k);
     if (cwd) for (const k of Object.keys(global.projects?.[cwd]?.mcpServers ?? {})) mcp.add(k);
     if (cwd) {
-      const proj = readJson(path2.join(cwd, ".mcp.json"), {});
+      const proj = readJson(path3.join(cwd, ".mcp.json"), {});
       for (const k of Object.keys(proj.mcpServers ?? {})) mcp.add(k);
     }
-    const settings = readJson(path2.join(home, "settings.json"), {});
+    const settings = readJson(path3.join(home, "settings.json"), {});
     for (const [k, v] of Object.entries(settings.enabledPlugins ?? {})) if (v) plugins.add(k.split("@")[0]);
-    const skillDirs = [path2.join(home, "skills"), cwd ? path2.join(cwd, ".claude", "skills") : ""].filter(Boolean);
+    const skillDirs = [path3.join(home, "skills"), cwd ? path3.join(cwd, ".claude", "skills") : ""].filter(Boolean);
     for (const d of skillDirs) {
-      if (!fs2.existsSync(d)) continue;
-      for (const s of fs2.readdirSync(d)) if (fs2.existsSync(path2.join(d, s, "SKILL.md"))) skills.add(s);
+      if (!fs3.existsSync(d)) continue;
+      for (const s of fs3.readdirSync(d)) if (fs3.existsSync(path3.join(d, s, "SKILL.md"))) skills.add(s);
     }
   } catch {
   }
@@ -206,6 +287,21 @@ function updateActive(session, patch, remove = false) {
   for (const [k, v] of Object.entries(active)) if (Date.parse(String(v.last_seen ?? "")) < cutoff) delete active[k];
   writeJson(file, active);
 }
+function dodGate(session, cwd, stopHookActive) {
+  if (stopHookActive || !fs3.existsSync(path3.join(sessionDir(session), "task.json"))) return void 0;
+  const cfg = readJson(configFile(), {});
+  if (cfg.coach?.dod_gate === false) return void 0;
+  const max = cfg.coach?.dod_max_blocks ?? 1;
+  const marker = path3.join(sessionDir(session), "dod-gate.json");
+  const state = readJson(marker, { blocks: 0 });
+  const progress = quickChecks(session, cwd);
+  const unmet = progress.items.filter((i) => i.status === "unmet");
+  if (!unmet.length || state.blocks >= max) return void 0;
+  writeJson(marker, { blocks: state.blocks + 1, ts: nowIso(), unmet: unmet.map((u) => u.id) });
+  record(session, "dod_gate", cwd, { unmet: unmet.map((u) => u.id), block: state.blocks + 1 });
+  const reason = `Tally: ${unmet.length} acceptance criteri${unmet.length === 1 ? "on is" : "a are"} still unmet by mechanical check: ${unmet.map((u) => `${u.id} "${u.text}" (${u.why})`).join("; ")}. Address ${unmet.length === 1 ? "it" : "them"}, or say why ${unmet.length === 1 ? "it is" : "they are"} out of scope.`;
+  return { decision: "block", reason };
+}
 function autopilotEnabled() {
   const cfg = readJson(configFile(), {});
   return cfg.coach?.autopilot !== false;
@@ -214,8 +310,8 @@ function lastReceipt(cwd) {
   if (!cwd) return "";
   const key = repoKey(cwd);
   const file = historyFile();
-  if (!fs2.existsSync(file)) return "";
-  const lines = fs2.readFileSync(file, "utf8").trim().split("\n").slice(-300);
+  if (!fs3.existsSync(file)) return "";
+  const lines = fs3.readFileSync(file, "utf8").trim().split("\n").slice(-300);
   for (const line of lines.reverse()) {
     try {
       const h = JSON.parse(line);
@@ -231,8 +327,8 @@ function historyLessons(cwd) {
   if (!cwd) return "";
   const key = repoKey(cwd);
   const file = historyFile();
-  if (!fs2.existsSync(file)) return "";
-  const lines = fs2.readFileSync(file, "utf8").trim().split("\n").slice(-200);
+  if (!fs3.existsSync(file)) return "";
+  const lines = fs3.readFileSync(file, "utf8").trim().split("\n").slice(-200);
   const lessons = [];
   for (const line of lines.reverse()) {
     try {
@@ -251,9 +347,9 @@ function historyLessons(cwd) {
 - ${lessons.join("\n- ")}` : "";
 }
 function deliverInjects(session) {
-  const file = path2.join(sessionDir(session), "inject.jsonl");
-  if (!fs2.existsSync(file)) return "";
-  const lines = fs2.readFileSync(file, "utf8").split("\n").filter((l) => l.trim());
+  const file = path3.join(sessionDir(session), "inject.jsonl");
+  if (!fs3.existsSync(file)) return "";
+  const lines = fs3.readFileSync(file, "utf8").split("\n").filter((l) => l.trim());
   const pending = [];
   const kept = [];
   for (const line of lines) {
@@ -268,11 +364,11 @@ function deliverInjects(session) {
     }
   }
   if (!pending.length) return "";
-  fs2.writeFileSync(file, kept.join("\n") + "\n");
+  fs3.writeFileSync(file, kept.join("\n") + "\n");
   return pending.map((n) => `Tally: ${n}`).join("\n");
 }
 function followupDue() {
-  const state = readJson(path2.join(tallyHome(), "followup-state.json"), {});
+  const state = readJson(path3.join(tallyHome(), "followup-state.json"), {});
   const last = state.last_run ? Date.parse(state.last_run) : 0;
   return Date.now() - last > 24 * 3600 * 1e3;
 }
@@ -309,18 +405,18 @@ function main() {
     }
     case "UserPromptSubmit": {
       const prompt = String(input.prompt ?? "");
-      const isFirst = !fs2.existsSync(path2.join(sessionDir(session), "task.json")) && !fs2.existsSync(path2.join(sessionDir(session), "task.pending"));
+      const isFirst = !fs3.existsSync(path3.join(sessionDir(session), "task.json")) && !fs3.existsSync(path3.join(sessionDir(session), "task.pending"));
       record(session, "prompt", cwd, { prompt: truncate(prompt), chars: prompt.length });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
       if (isFirst) {
         const url = TASK_URL_RE.exec(prompt)?.[0];
         const md = !url ? TASK_MD_RE.exec(prompt)?.[1] : void 0;
-        const ref = url ?? (md && cwd && fs2.existsSync(path2.resolve(cwd, md)) ? path2.resolve(cwd, md) : void 0);
+        const ref = url ?? (md && cwd && fs3.existsSync(path3.resolve(cwd, md)) ? path3.resolve(cwd, md) : void 0);
         if (ref) {
-          fs2.writeFileSync(path2.join(sessionDir(session), "task.pending"), ref);
+          fs3.writeFileSync(path3.join(sessionDir(session), "task.pending"), ref);
           spawnDetached(["task", ref, "--session", session, "--cwd", cwd ?? "", "--auto"]);
         } else if (prompt.trim().length > 0) {
-          fs2.writeFileSync(path2.join(sessionDir(session), "task.pending"), "text");
+          fs3.writeFileSync(path3.join(sessionDir(session), "task.pending"), "text");
           spawnDetached(["task", "--text", truncate(prompt, 4e3), "--session", session, "--cwd", cwd ?? "", "--auto"]);
         }
       }
@@ -330,9 +426,9 @@ function main() {
     }
     case "PreToolUse": {
       if (alreadySeen(session, event, input.tool_use_id)) break;
-      const stopFile = path2.join(sessionDir(session), "hard-stop.json");
+      const stopFile = path3.join(sessionDir(session), "hard-stop.json");
       const cmd0 = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
-      if (fs2.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
+      if (fs3.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
         const stop = readJson(stopFile, {});
         out = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` } };
         record(session, "hard_stop_denied", cwd, { tool_name: input.tool_name, tool_use_id: input.tool_use_id });
@@ -373,6 +469,8 @@ function main() {
     case "Stop": {
       record(session, "stop", cwd, { last_assistant_message: truncate(input.last_assistant_message, 800) });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
+      const gate = dodGate(session, cwd, input.stop_hook_active === true);
+      if (gate) out = gate;
       if (autopilotEnabled()) spawnDetached(["coach", "--tick", "--session", session, "--cwd", cwd ?? "", "--auto"]);
       break;
     }
