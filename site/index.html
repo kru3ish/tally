@@ -142,7 +142,7 @@ footer a:hover{color:var(--text)}
 <body>
 <div class="wrap">
 <nav>
-  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.2.0</span></a>
+  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.3.0</span></a>
   <div class="links"><a href="#how">How it judges</a><a href="#accuracy">Accuracy</a><a href="#install">Install</a><a href="#privacy">Privacy</a><a href="https://github.com/kru3ish/tally">GitHub</a></div>
 </nav>
 
@@ -208,7 +208,7 @@ footer a:hover{color:var(--text)}
     <div>
       <div class="k">02 · THE COACH, ON ITS OWN</div>
       <h3>Runs after every turn.</h3>
-      <p>No pane to open. After each of Claude's turns the hooks run thirteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Decisions only you can make show as flags in the status line.</p>
+      <p>No pane to open. After each of Claude's turns the hooks run fifteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget, a usage limit at 80%, a credential read or a write outside the repo. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Claude can ask Tally itself over MCP (<code>tally_unmet</code>) before it says done, and the Stop hook blocks once when the quick checks say a criterion is still unmet. Decisions only you can make show as flags in the status line.</p>
     </div>
     <div>
       <div class="k">03 · THE FOLLOW-UP, AND THE RECORD</div>
@@ -216,6 +216,14 @@ footer a:hover{color:var(--text)}
       <p>Seven days later Tally checks the PR: merged, reverted, reopened, review rounds, CI on the merge commit. Every criterion can be opened to its evidence (<code>--explain</code>), contested on the record (<code>tally dispute</code>), and a repo <code>tally.json</code> adds standing criteria and a budget with a real hard stop. When Tally cannot check enough, it says <em>insufficient evidence</em> instead of guessing.</p>
     </div>
   </div>
+</section>
+
+<section id="solo">
+  <div class="sec-head">
+    <div class="eyebrow">For one person</div>
+    <h2>Your numbers on day one, no model calls.</h2>
+  </div>
+  <p class="mute" style="max-width:820px">The moment Tally is installed it reads the transcripts already on the machine and prints a one-page report: spend over 30 days, the three biggest sessions, where money bought nothing (retry loops, repeated reads, first-turn load, compactions), the one habit that would have saved the most, and what the same usage costs on each Claude plan at list price. Then <code>tally replay &lt;session&gt;</code> shows the timeline with the moment it went off track, <code>tally prompts</code> shows what your best opening prompts had in common, <code>tally ask</code> answers a question over your receipts citing sessions, and <code>tally export --invoice</code> turns receipts into invoice lines.</p>
 </section>
 
 <section id="how">
@@ -302,7 +310,7 @@ tally doctor</code></pre>
     <div>
       <div class="eyebrow">Privacy</div>
       <h2 style="margin-top:10px">Nothing leaves your machine.</h2>
-      <p class="mute" style="margin-top:14px">Hooks make no network calls and finish in under 150 ms. Model calls go through <code>claude -p</code> on your own login, isolated from your MCP servers, hooks and skills. Events are redacted (keys, tokens, bearer headers, passwords in URLs) and truncated before they are written. Write-back to an issue or PR is off by default and never includes prompts or code. Everything lives in <code>~/.tally</code>; delete the folder and it is gone.</p>
+      <p class="mute" style="margin-top:14px">Hooks make no network calls and finish in under 150 ms. Model calls go through <code>claude -p</code> on your own login, isolated from your MCP servers, hooks and skills, or through any OpenAI-compatible local model (Ollama, vLLM, LM Studio) when <code>models.provider</code> says so: air-gapped, zero outbound traffic. Events are redacted (keys, tokens, bearer headers, passwords in URLs) and truncated before they are written. Write-back to an issue or PR is off by default and never includes prompts or code. Everything lives in <code>~/.tally</code>; delete the folder and it is gone.</p>
     </div>
     <div>
       <div class="eyebrow">Next to the built-ins</div>

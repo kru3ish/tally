@@ -6,7 +6,7 @@ Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coachi
 
 Everything runs locally. No server, no database, no API key: Tally talks to Claude through `claude -p` on your existing login.
 
-This is a **preview** (v0.2.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
+This is a **preview** (v0.3.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
 
 ## See it run
 
