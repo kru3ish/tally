@@ -55,6 +55,7 @@ What each path gives you:
 | Experiments, `tally undo`, `tally doctor`, `tally followup` on demand | no | yes |
 | Evidence explorer, disputes, hard-stop approval (`/tally:explain`, `/tally:dispute`, `/tally:budget`) | yes | yes |
 | Repo policy in `tally.json`: standing criteria, budget, hard stop | yes | yes |
+| Other agents (`tally install --agent codex|gemini|cursor`) | no | yes |
 | Playbook and numbers-only export (`tally playbook`, `tally export`) | no | yes |
 
 Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional: GitHub issue intake works without it through the public REST API (set `GITHUB_TOKEN` for private repos); write-back and follow-up still need `gh`. Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
@@ -257,6 +258,24 @@ Tally keeps its data in `~/.tally` rather than the plugin's data dir on purpose:
 - Test re-runs execute your project's test command with a scrubbed environment and a timeout, only after you consent once per repo.
 
 Details, threat model and how to report a problem: [`SECURITY.md`](SECURITY.md).
+
+## Other agents: Codex CLI, Gemini CLI, Cursor
+
+Tally is not tied to Claude Code. The hooks, rules, Judge and Coach speak Claude Code's hook vocabulary; an adapter per agent maps the others onto it. One command installs Tally into another agent's hook file (backed up first; `tally uninstall --agent <id>` removes only Tally's entries):
+
+```bash
+tally install --agent codex      # ~/.codex/hooks.json      (PreToolUse / PostToolUse / Stop / SessionStart / SessionEnd, same schema as Claude Code)
+tally install --agent gemini     # ~/.gemini/settings.json  (BeforeTool / AfterTool / BeforeAgent / AfterAgent / SessionStart / SessionEnd)
+tally install --agent cursor     # ~/.cursor/hooks.json     (beforeShellExecution / afterShellExecution / afterFileEdit / preToolUse / postToolUse / stop)
+```
+
+What you get is the same: the task frozen from the first prompt or a ticket link, the Coach after every turn (observations reach the agent as extra context; hard stops deny tool calls in each agent's own permission format; the definition-of-done gate blocks a Stop, or in Cursor's case sends a follow-up message), the receipt at session end, replay, calibration. Tool names are normalised on the way in (`run_shell_command` and `shell` become `Bash`, `apply_patch` and `replace` become `Edit`), so every rule and check works unchanged.
+
+**Cost.** Claude Code and Codex CLI expose token usage in their transcripts, so receipts carry dollars (Codex rollouts under `~/.codex/sessions` are read; OpenAI prices are in `pricing.json`, verified 2026-09-26). Gemini CLI and Cursor do not, so their receipts show criteria, tests, waste in tool calls and time, and no dollar figure rather than a guess; `tally onboard` and `backfill` cover Codex sessions too.
+
+**Which model judges.** By default Tally judges and coaches through `claude -p` on your Claude login. With `tally config models.provider openai-compatible` and `models.base_url` (OpenAI's API, Ollama, vLLM, LM Studio), the Judge and Coach use any model with a chat-completions endpoint, so a Codex user with no Claude account can run the whole thing on GPT, and an air-gapped team on a local model.
+
+Verified against each agent's hook documentation on 2026-09-26 (`docs/PLATFORM_NOTES.md`); the Codex rollout parser was written from the public descriptions of the format and reads tolerantly, so a session it cannot price is labelled, not guessed. Adapters for other agents are one file each in `src/agents/`; contributions welcome.
 
 ## Compared with the built-ins and ccusage
 

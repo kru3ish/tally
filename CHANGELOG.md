@@ -2,6 +2,13 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [Unreleased]
+
+### Added
+
+- **Other agents.** `tally install --agent codex|gemini|cursor` writes Tally's hooks into Codex CLI's `~/.codex/hooks.json`, Gemini CLI's `~/.gemini/settings.json` or Cursor's `~/.cursor/hooks.json` (backed up; `uninstall --agent` removes only Tally's entries). One hook binary with `--agent <id>` maps each agent's events and payloads onto Claude Code's vocabulary, normalises tool names (`run_shell_command`, `shell` → `Bash`; `apply_patch`, `replace` → `Edit`) and answers in each agent's dialect (permission deny, additional context, Cursor's `followup_message` for the definition-of-done gate). Session ids are also taken from `GEMINI_SESSION_ID`.
+- **Codex CLI transcripts.** Rollouts under `~/.codex/sessions` are parsed for prompts, tool calls, outputs and token counts, so Codex receipts, `onboard` and `backfill` carry cost. OpenAI prices (gpt-5 family, gpt-4.1, o3, o4-mini, gpt-5.3-codex) added to `pricing.json` with codex aliases, verified 2026-09-26.
+
 ## [0.3.1] - 2026-09-26
 
 ### Fixed

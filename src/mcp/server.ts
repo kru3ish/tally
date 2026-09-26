@@ -40,7 +40,7 @@ function text(s: string): Json {
 }
 
 export function callTool(name: string, cwd: string): Json {
-  const session = process.env.CLAUDE_SESSION_ID || resolveSession(undefined, cwd);
+  const session = resolveSession(undefined, cwd);
   if (!session) return text('Tally: no active session for this directory (hooks not installed, or no prompt yet).');
   if (name === 'tally_task' || name === 'tally_unmet') {
     const task = loadTask(session);

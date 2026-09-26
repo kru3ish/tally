@@ -132,6 +132,12 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## Other agents (2026-09-26)
+
+- A1: Tally's internal vocabulary stays Claude Code's hook schema. Codex CLI adopted the same schema outright, Gemini CLI and Cursor differ only in names and a few payload keys, so an adapter per agent (event map, payload normalisation, output shaping) costs one file and leaves rules, Judge, Coach and tests untouched. The alternative, a neutral internal schema, would have meant rewriting every consumer for no user-visible gain.
+- A2: No guessing on cost. Gemini CLI and Cursor do not document a transcript format with token usage, so their receipts carry no dollar figure rather than an estimate. Codex rollouts are parsed from public descriptions; a file without recognisable token counts is labelled `partial`. The README says which agents get dollars and why.
+- A3: The Judge's model is independent of the agent's. The `openai-compatible` provider already existed for air-gapped use; with `base_url` pointing at OpenAI it makes Tally usable by someone with no Claude account at all. Nothing in the pipeline assumes the judging model is Claude except the default.
+
 ## Real-issue eval (2026-09-26)
 
 - V11: Six open bugs from public repos, fixed locally by `claude -p` under Tally, graded blind by an independent model from the repo alone: 28 of 29 criteria, 4 of 6 verdicts, $15.14 of agent spend. Nothing went upstream; the clones live in the author's workspace with a committed task.md and, where needed, a `tally.json`.

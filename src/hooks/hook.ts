@@ -1,6 +1,7 @@
 /* Tally hook entry. Hard rules: finish under 150ms, always exit 0, no network, redact before writing.
    Only node builtins + src/paths + src/redact are imported so startup stays cheap. */
 import fs from 'node:fs';
+import { agentFromArgv, type CanonicalOutput } from '../agents/index.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -273,18 +274,22 @@ function main(): void {
   /* Tally's own claude -p calls set TALLY_INTERNAL=1; never record them as sessions. */
   if (process.env.TALLY_INTERNAL) return;
   const raw = readStdin();
-  let input: HookInput = {};
+  let parsed: Record<string, unknown> = {};
   try {
-    input = JSON.parse(raw) as HookInput;
+    parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    input = {};
+    parsed = {};
   }
-  if (!input || typeof input !== 'object') input = {};
-  const event = process.argv[2] || input.hook_event_name || 'Unknown';
+  if (!parsed || typeof parsed !== 'object') parsed = {};
+  /* which agent is calling: `--agent codex|gemini|cursor` (or TALLY_AGENT); Claude Code needs nothing */
+  const { adapter, rest } = agentFromArgv(process.argv.slice(2));
+  const agentEvent = rest[0] || String(parsed.hook_event_name ?? 'Unknown');
+  const input = adapter.normalize(parsed, agentEvent) as HookInput;
+  const event = adapter.event(agentEvent);
   const session = String(input.session_id || 'unknown');
   const cwd = input.cwd;
   ensureDir(sessionDir(session));
-  let out: { hookSpecificOutput: { hookEventName: string; additionalContext: string } } | undefined;
+  let out: CanonicalOutput | undefined;
 
   switch (event) {
     case 'SessionStart': {
@@ -292,13 +297,14 @@ function main(): void {
       record(session, 'session_start', cwd, {
         source: input.source,
         model: input.model,
+        agent: adapter.id,
         transcript_path: input.transcript_path,
         git_head: gitHead(cwd),
         loaded,
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
       const ctx = [handoffNote(cwd), lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join('\n');
-      if (ctx) out = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } };
+      if (ctx) out = { kind: 'context', event: 'SessionStart', text: ctx };
       if (followupDue()) spawnDetached(['followup', '--auto']);
       break;
     }
@@ -320,7 +326,7 @@ function main(): void {
         }
       }
       const ctx = deliverInjects(session);
-      if (ctx) out = { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: ctx } };
+      if (ctx) out = { kind: 'context', event: 'UserPromptSubmit', text: ctx };
       break;
     }
     case 'PreToolUse': {
@@ -331,7 +337,7 @@ function main(): void {
       const cmd0 = typeof input.tool_input?.command === 'string' ? input.tool_input.command : '';
       if (fs.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
         const stop = readJson<{ spend_usd?: number; budget_usd?: number }>(stopFile, {});
-        out = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` } } as unknown as typeof out;
+        out = { kind: 'deny', reason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` };
         record(session, 'hard_stop_denied', cwd, { tool_name: input.tool_name, tool_use_id: input.tool_use_id });
         break;
       }
@@ -376,7 +382,7 @@ function main(): void {
       /* definition-of-done gate: a task is linked, mechanical checks still fail, and this stop is not already a
          re-run of a blocked one → block once (capped by coach.dod_max_blocks) with the exact list */
       const gate = dodGate(session, cwd, input.stop_hook_active === true);
-      if (gate) out = gate as unknown as typeof out;
+      if (gate) out = { kind: 'block', reason: String(gate.reason ?? '') };
       /* autopilot: the Coach runs in a detached process and queues its observations for the next prompt */
       if (autopilotEnabled()) spawnDetached(['coach', '--tick', '--session', session, '--cwd', cwd ?? '', '--auto']);
       break;
@@ -399,7 +405,10 @@ function main(): void {
       record(session, 'note', cwd, { event, keys: Object.keys(input) });
     }
   }
-  if (out) process.stdout.write(JSON.stringify(out));
+  if (out) {
+    const shaped = adapter.output(out);
+    if (shaped) process.stdout.write(JSON.stringify(shaped));
+  }
 }
 
 function shrinkInput(input: Record<string, unknown> | undefined): Record<string, unknown> {

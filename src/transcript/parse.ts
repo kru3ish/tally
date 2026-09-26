@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { addUsage, canonicalModel, costOf, emptyUsage, loadPricing, type Pricing, type Usage } from '../cost/pricing.js';
 import { isInternalCwd } from '../paths.js';
+import { isCodexRollout, parseCodexRollout } from './codex.js';
 
 export interface ToolCall {
   id: string;
@@ -158,6 +159,8 @@ export function readTranscriptLines(file: string): { lines: RawLine[]; unparseab
 }
 
 export function parseTranscriptFile(file: string, pricing: Pricing = loadPricing()): Transcript {
+  /* Codex CLI rollouts have their own shape */
+  if (isCodexRollout(file)) return parseCodexRollout(file, pricing);
   const main = readTranscriptLines(file);
   const lines = main.lines;
   let unparseable = main.unparseable;

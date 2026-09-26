@@ -83,7 +83,8 @@ Usage: tally <command> [options]
 
 Setup
   install [--project]         Add Tally hooks + status line to Claude Code settings (backs up first)
-  uninstall [--project]       Remove hooks; settings return byte-identical
+  install --agent <id>        Same for another agent: codex | gemini | cursor (writes its hook file, backed up)
+  uninstall [--project|--agent <id>]  Remove hooks; settings return byte-identical
   doctor                      Check claude, gh, hooks, pricing, config
   config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
 

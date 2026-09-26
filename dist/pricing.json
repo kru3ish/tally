@@ -121,13 +121,88 @@
       "cache_write_5m": 1,
       "cache_write_1h": 1.6,
       "cache_read": 0.08
+    },
+    "gpt-5": {
+      "input": 1.25,
+      "output": 10,
+      "cache_write_5m": 1.25,
+      "cache_write_1h": 1.25,
+      "cache_read": 0.125
+    },
+    "gpt-5-mini": {
+      "input": 0.25,
+      "output": 2,
+      "cache_write_5m": 0.25,
+      "cache_write_1h": 0.25,
+      "cache_read": 0.025
+    },
+    "gpt-5-nano": {
+      "input": 0.05,
+      "output": 0.4,
+      "cache_write_5m": 0.05,
+      "cache_write_1h": 0.05,
+      "cache_read": 0.005
+    },
+    "gpt-5.1": {
+      "input": 1.25,
+      "output": 10,
+      "cache_write_5m": 1.25,
+      "cache_write_1h": 1.25,
+      "cache_read": 0.125
+    },
+    "gpt-5.2": {
+      "input": 1.75,
+      "output": 14,
+      "cache_write_5m": 1.75,
+      "cache_write_1h": 1.75,
+      "cache_read": 0.175
+    },
+    "gpt-5.3-codex": {
+      "input": 1.75,
+      "output": 14,
+      "cache_write_5m": 1.75,
+      "cache_write_1h": 1.75,
+      "cache_read": 0.175
+    },
+    "gpt-4.1": {
+      "input": 2,
+      "output": 8,
+      "cache_write_5m": 2,
+      "cache_write_1h": 2,
+      "cache_read": 0.5
+    },
+    "gpt-4.1-mini": {
+      "input": 0.4,
+      "output": 1.6,
+      "cache_write_5m": 0.4,
+      "cache_write_1h": 0.4,
+      "cache_read": 0.1
+    },
+    "o3": {
+      "input": 2,
+      "output": 8,
+      "cache_write_5m": 2,
+      "cache_write_1h": 2,
+      "cache_read": 0.5
+    },
+    "o4-mini": {
+      "input": 1.1,
+      "output": 4.4,
+      "cache_write_5m": 1.1,
+      "cache_write_1h": 1.1,
+      "cache_read": 0.275
     }
   },
   "aliases": {
     "opus": "claude-opus-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5",
-    "fable": "claude-fable-5-1"
+    "fable": "claude-fable-5-1",
+    "gpt-5-codex": "gpt-5",
+    "gpt-5.1-codex": "gpt-5.1",
+    "gpt-5.1-codex-mini": "gpt-5-mini",
+    "gpt-5.2-codex": "gpt-5.2",
+    "codex-mini-latest": "o4-mini"
   },
   "fallback": "claude-sonnet-5",
   "plans": {
@@ -137,12 +212,15 @@
     },
     "Max 5x": {
       "usd_month": 100,
-      "note": "5\u00d7 Pro usage"
+      "note": "5× Pro usage"
     },
     "Max 20x": {
       "usd_month": 200,
-      "note": "20\u00d7 Pro usage"
+      "note": "20× Pro usage"
     }
   },
-  "plans_last_verified": "2026-09-23"
+  "plans_last_verified": "2026-09-23",
+  "openai_last_verified": "2026-09-26",
+  "openai_source": "https://developers.openai.com/api/docs/pricing",
+  "openai_note": "OpenAI has no separate cache-write price; cache_write is set to the input price. gpt-5-codex / gpt-5.1-codex are not on the public price page and are aliased to their base models."
 }

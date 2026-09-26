@@ -1,5 +1,6 @@
 /* Enumerates past Claude Code sessions from ~/.claude/projects and summarises each cheaply enough to list. */
 import fs from 'node:fs';
+import { agent } from '../agents/index.js';
 import path from 'node:path';
 import { claudeHome, isInternalCwd, tallyHome, readJson, writeJson, repoKey } from '../paths.js';
 import { parseTranscriptFile } from '../transcript/parse.js';
@@ -67,15 +68,38 @@ export function summarize(transcript: string): SessionCandidate | null {
   };
 }
 
-export function listTranscripts(projectsDir = path.join(claudeHome(), 'projects')): string[] {
-  if (!fs.existsSync(projectsDir)) return [];
+export function listTranscripts(projectsDir = path.join(claudeHome(), 'projects'), extraRoots: string[] = defaultExtraRoots()): string[] {
   const out: string[] = [];
-  for (const d of fs.readdirSync(projectsDir)) {
-    const dir = path.join(projectsDir, d);
-    if (isInternalCwd(d) || !fs.statSync(dir).isDirectory()) continue;
-    for (const f of fs.readdirSync(dir)) if (f.endsWith('.jsonl')) out.push(path.join(dir, f));
+  if (fs.existsSync(projectsDir)) {
+    for (const d of fs.readdirSync(projectsDir)) {
+      const dir = path.join(projectsDir, d);
+      if (isInternalCwd(d) || !fs.statSync(dir).isDirectory()) continue;
+      for (const f of fs.readdirSync(dir)) if (f.endsWith('.jsonl')) out.push(path.join(dir, f));
+    }
+  }
+  /* other agents' transcript roots (Codex rollouts live in dated subfolders) */
+  for (const root of extraRoots) {
+    if (!fs.existsSync(root)) continue;
+    const walk = (dir: string, depth: number): void => {
+      if (depth > 4) return;
+      for (const f of fs.readdirSync(dir)) {
+        const p = path.join(dir, f);
+        try {
+          if (fs.statSync(p).isDirectory()) walk(p, depth + 1);
+          else if (/^rollout-.*\.jsonl$/.test(f)) out.push(p);
+        } catch {
+          /* unreadable entry */
+        }
+      }
+    };
+    walk(root, 0);
   }
   return out;
+}
+
+function defaultExtraRoots(): string[] {
+  /* only when the default Claude projects dir is in use; tests relocate CLAUDE_CONFIG_DIR and expect isolation */
+  return process.env.CLAUDE_CONFIG_DIR ? [] : agent('codex').transcriptRoots?.() ?? [];
 }
 
 export function scanSessions(opts: { since?: string; repo?: string; projectsDir?: string; now?: number; useIndex?: boolean } = {}): SessionCandidate[] {

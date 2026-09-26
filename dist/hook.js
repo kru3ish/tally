@@ -4,25 +4,235 @@ const require = __tallyCreateRequire(import.meta.url);
 
 // src/hooks/hook.ts
 import fs3 from "node:fs";
-import path3 from "node:path";
+
+// src/agents/index.ts
+import os from "node:os";
+import path from "node:path";
+var ALL_CANONICAL = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "PreCompact", "Notification", "SessionEnd"];
+function home() {
+  return process.env.USERPROFILE || process.env.HOME || os.homedir();
+}
+function asRecord(v) {
+  return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+}
+function isTally(cmd) {
+  return typeof cmd === "string" && /hook\.js["']?\s|tally/.test(cmd) && /--agent|tally/.test(cmd);
+}
+var claudeCode = {
+  id: "claude-code",
+  label: "Claude Code",
+  sessionEnv: "CLAUDE_SESSION_ID",
+  subscribed: ALL_CANONICAL,
+  event: (name) => ALL_CANONICAL.includes(name) ? name : "Unknown",
+  normalize: (raw) => raw,
+  output(out) {
+    if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
+    if (out.kind === "deny") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: out.reason } };
+    return { decision: "block", reason: out.reason };
+  },
+  hooksFile: () => path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), "settings.json"),
+  writeHooks: (existing) => existing,
+  removeHooks: (existing) => existing,
+  transcriptRoots: () => [path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home(), ".claude"), "projects")]
+};
+function codexTool(raw) {
+  const name = typeof raw.tool_name === "string" ? raw.tool_name : void 0;
+  const input = asRecord(raw.tool_input);
+  if (name === "apply_patch") {
+    const patch = typeof input.input === "string" ? input.input : typeof input.patch === "string" ? input.patch : JSON.stringify(input);
+    const m = /\*\*\* (?:Update|Add|Delete) File: (.+)/.exec(patch);
+    return { tool_name: /\*\*\* Add File/.test(patch) && !/\*\*\* Update File/.test(patch) ? "Write" : "Edit", tool_input: { file_path: m?.[1]?.trim() ?? "", patch: patch.slice(0, 600) } };
+  }
+  if (name === "shell" || name === "exec_command" || name === "local_shell") {
+    const cmd = Array.isArray(input.command) ? input.command.map(String).join(" ") : typeof input.cmd === "string" ? input.cmd : input.command;
+    return { tool_name: "Bash", tool_input: { ...input, command: typeof cmd === "string" ? cmd : String(cmd ?? "") } };
+  }
+  return { tool_name: name, tool_input: input };
+}
+var codex = {
+  id: "codex",
+  label: "Codex CLI",
+  subscribed: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "PreCompact", "SessionEnd"],
+  event: (name) => ALL_CANONICAL.includes(name) ? name : "Unknown",
+  normalize: (raw) => ({ ...raw, ...codexTool(raw) }),
+  output(out) {
+    if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
+    if (out.kind === "deny") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: out.reason } };
+    return { decision: "block", reason: out.reason };
+  },
+  hooksFile: () => path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "hooks.json"),
+  writeHooks(existing, command) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of this.subscribed) {
+      const groups = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.some((h) => isTally(h.command))));
+      kept.push({ hooks: [{ type: "command", command: command(ev), timeout: 5 }] });
+      hooks[ev] = kept;
+    }
+    return { ...doc, hooks };
+  },
+  removeHooks(existing) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of Object.keys(hooks)) {
+      const groups = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.some((h) => isTally(h.command))));
+      if (kept.length) hooks[ev] = kept;
+      else delete hooks[ev];
+    }
+    return { ...doc, hooks };
+  },
+  transcriptRoots: () => [path.join(process.env.CODEX_HOME || path.join(home(), ".codex"), "sessions")]
+};
+var GEMINI_EVENTS = { SessionStart: "SessionStart", SessionEnd: "SessionEnd", BeforeAgent: "UserPromptSubmit", AfterAgent: "Stop", BeforeTool: "PreToolUse", AfterTool: "PostToolUse", PreCompress: "PreCompact", Notification: "Notification" };
+var GEMINI_TOOLS = { run_shell_command: "Bash", write_file: "Write", replace: "Edit", edit: "Edit", read_file: "Read", read_many_files: "Read", glob: "Glob", grep_search: "Grep", search_file_content: "Grep", web_fetch: "WebFetch", google_web_search: "WebSearch" };
+var gemini = {
+  id: "gemini",
+  label: "Gemini CLI",
+  sessionEnv: "GEMINI_SESSION_ID",
+  subscribed: ["SessionStart", "BeforeAgent", "BeforeTool", "AfterTool", "AfterAgent", "PreCompress", "SessionEnd"],
+  event: (name) => GEMINI_EVENTS[name] ?? "Unknown",
+  normalize(raw, agentEvent) {
+    const name = typeof raw.tool_name === "string" ? raw.tool_name : void 0;
+    const out = { ...raw, hook_event_name: this.event(agentEvent) };
+    if (name) out.tool_name = GEMINI_TOOLS[name] ?? (name.startsWith("mcp__") ? name : `mcp__gemini__${name}`);
+    if (agentEvent === "AfterAgent" && typeof raw.prompt_response === "string") out.last_assistant_message = raw.prompt_response;
+    return out;
+  },
+  output(out) {
+    if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
+    if (out.kind === "deny") return { decision: "deny", reason: out.reason, systemMessage: out.reason };
+    return { decision: "block", reason: out.reason };
+  },
+  hooksFile: () => path.join(home(), ".gemini", "settings.json"),
+  writeHooks(existing, command) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of this.subscribed) {
+      const groups = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.some((h) => h.name === "tally" || isTally(h.command))));
+      kept.push({ matcher: "*", hooks: [{ name: "tally", type: "command", command: command(this.event(ev)), timeout: 5e3 }] });
+      hooks[ev] = kept;
+    }
+    return { ...doc, hooks };
+  },
+  removeHooks(existing) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of Object.keys(hooks)) {
+      const groups = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.some((h) => h.name === "tally" || isTally(h.command))));
+      if (kept.length) hooks[ev] = kept;
+      else delete hooks[ev];
+    }
+    return { ...doc, hooks };
+  }
+};
+var CURSOR_EVENTS = { sessionStart: "SessionStart", sessionEnd: "SessionEnd", beforeSubmitPrompt: "UserPromptSubmit", preToolUse: "PreToolUse", postToolUse: "PostToolUse", postToolUseFailure: "PostToolUseFailure", beforeShellExecution: "PreToolUse", afterShellExecution: "PostToolUse", afterFileEdit: "PostToolUse", stop: "Stop", preCompact: "PreCompact" };
+var cursor = {
+  id: "cursor",
+  label: "Cursor",
+  subscribed: ["sessionStart", "beforeSubmitPrompt", "beforeShellExecution", "afterShellExecution", "afterFileEdit", "preToolUse", "postToolUse", "stop", "sessionEnd"],
+  event: (name) => CURSOR_EVENTS[name] ?? "Unknown",
+  normalize(raw, agentEvent) {
+    const roots = Array.isArray(raw.workspace_roots) ? raw.workspace_roots.map(String) : [];
+    const out = {
+      ...raw,
+      hook_event_name: this.event(agentEvent),
+      session_id: typeof raw.conversation_id === "string" ? raw.conversation_id : typeof raw.session_id === "string" ? raw.session_id : void 0,
+      cwd: typeof raw.cwd === "string" ? raw.cwd : roots[0],
+      transcript_path: typeof raw.transcript_path === "string" ? raw.transcript_path : void 0
+    };
+    if (agentEvent === "beforeShellExecution" || agentEvent === "afterShellExecution") {
+      out.tool_name = "Bash";
+      out.tool_input = { command: String(raw.command ?? "") };
+      if (agentEvent === "afterShellExecution") out.tool_response = raw.output ?? raw.result ?? "";
+    } else if (agentEvent === "afterFileEdit") {
+      out.tool_name = "Edit";
+      out.tool_input = { file_path: String(raw.file_path ?? ""), edits: raw.edits };
+      out.tool_response = "";
+    } else if (agentEvent === "postToolUse") {
+      out.tool_response = raw.tool_output;
+    } else if (agentEvent === "beforeSubmitPrompt") {
+      out.prompt = typeof raw.prompt === "string" ? raw.prompt : typeof raw.text === "string" ? raw.text : "";
+    } else if (agentEvent === "stop") {
+      out.stop_hook_active = typeof raw.loop_count === "number" && raw.loop_count > 0;
+    }
+    return out;
+  },
+  output(out) {
+    if (out.kind === "context") return out.event === "SessionStart" ? { additional_context: out.text } : { additional_context: out.text };
+    if (out.kind === "deny") return { permission: "deny", user_message: out.reason, agent_message: out.reason };
+    return { followup_message: out.reason };
+  },
+  hooksFile: () => path.join(home(), ".cursor", "hooks.json"),
+  writeHooks(existing, command) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of this.subscribed) {
+      const list = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = list.filter((h) => !isTally(h.command));
+      kept.push({ type: "command", command: command(this.event(ev)), timeout: 5 });
+      hooks[ev] = kept;
+    }
+    return { version: 1, ...doc, hooks };
+  },
+  removeHooks(existing) {
+    const doc = asRecord(existing);
+    const hooks = asRecord(doc.hooks);
+    for (const ev of Object.keys(hooks)) {
+      const list = Array.isArray(hooks[ev]) ? hooks[ev] : [];
+      const kept = list.filter((h) => !isTally(h.command));
+      if (kept.length) hooks[ev] = kept;
+      else delete hooks[ev];
+    }
+    return { ...doc, hooks };
+  }
+};
+var ADAPTERS = { "claude-code": claudeCode, codex, gemini, cursor };
+function agent(id) {
+  return ADAPTERS[id ?? "claude-code"] ?? claudeCode;
+}
+function agentFromArgv(argv) {
+  const rest = [];
+  let id = process.env.TALLY_AGENT;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--agent" && argv[i + 1]) {
+      id = argv[++i];
+      continue;
+    }
+    const m = /^--agent=(.+)$/.exec(a);
+    if (m) {
+      id = m[1];
+      continue;
+    }
+    rest.push(a);
+  }
+  return { adapter: agent(id), rest };
+}
+
+// src/hooks/hook.ts
+import path4 from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 // src/paths.ts
-import os from "node:os";
-import path from "node:path";
+import os2 from "node:os";
+import path2 from "node:path";
 import fs from "node:fs";
 function tallyHome() {
-  return process.env.TALLY_HOME || path.join(os.homedir(), ".tally");
+  return process.env.TALLY_HOME || path2.join(os2.homedir(), ".tally");
 }
 function claudeHome() {
-  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+  return process.env.CLAUDE_CONFIG_DIR || path2.join(os2.homedir(), ".claude");
 }
 function sessionsDir() {
-  return path.join(tallyHome(), "sessions");
+  return path2.join(tallyHome(), "sessions");
 }
 function sessionDir(id) {
-  return path.join(sessionsDir(), safeId(id));
+  return path2.join(sessionsDir(), safeId(id));
 }
 function safeId(id) {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
@@ -31,13 +241,13 @@ function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
 function historyFile() {
-  return path.join(tallyHome(), "history.jsonl");
+  return path2.join(tallyHome(), "history.jsonl");
 }
 function configFile() {
-  return path.join(tallyHome(), "config.json");
+  return path2.join(tallyHome(), "config.json");
 }
 function activeFile() {
-  return path.join(tallyHome(), "active.json");
+  return path2.join(tallyHome(), "active.json");
 }
 function readJson(file, fallback) {
   try {
@@ -47,13 +257,13 @@ function readJson(file, fallback) {
   }
 }
 function writeJson(file, value) {
-  ensureDir(path.dirname(file));
+  ensureDir(path2.dirname(file));
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n");
   fs.renameSync(tmp, file);
 }
 function appendLine(file, line) {
-  ensureDir(path.dirname(file));
+  ensureDir(path2.dirname(file));
   fs.appendFileSync(file, line.endsWith("\n") ? line : line + "\n");
 }
 function repoKey(cwd) {
@@ -92,7 +302,7 @@ function redactDeep(value) {
 
 // src/judge/quickcheck.ts
 import fs2 from "node:fs";
-import path2 from "node:path";
+import path3 from "node:path";
 import { spawnSync } from "node:child_process";
 function safeRegex(p) {
   try {
@@ -102,7 +312,7 @@ function safeRegex(p) {
   }
 }
 function baseHead(session) {
-  const f = path2.join(sessionDir(session), "events.jsonl");
+  const f = path3.join(sessionDir(session), "events.jsonl");
   if (!fs2.existsSync(f)) return void 0;
   for (const line of fs2.readFileSync(f, "utf8").split("\n")) {
     if (!line.includes('"session_start"')) continue;
@@ -115,7 +325,7 @@ function baseHead(session) {
   return void 0;
 }
 function gitDiff(cwd, base) {
-  if (!fs2.existsSync(path2.join(cwd, ".git"))) return { files: [], text: "" };
+  if (!fs2.existsSync(path3.join(cwd, ".git"))) return { files: [], text: "" };
   const range = base ? [base] : ["HEAD"];
   const names = spawnSync("git", ["diff", "--name-only", ...range], { cwd, encoding: "utf8", windowsHide: true, timeout: 3e3 });
   const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], { cwd, encoding: "utf8", windowsHide: true, timeout: 3e3 });
@@ -125,7 +335,7 @@ function gitDiff(cwd, base) {
 }
 var norm = (p) => p.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 function quickChecks(session, cwd) {
-  const task = readJson(path2.join(sessionDir(session), "task.json"), null);
+  const task = readJson(path3.join(sessionDir(session), "task.json"), null);
   const criteria = task?.criteria ?? [];
   const items = [];
   let diff = null;
@@ -137,12 +347,12 @@ function quickChecks(session, cwd) {
       continue;
     }
     if (ch.kind === "file_exists" && ch.path && cwd) {
-      const ok = fs2.existsSync(path2.join(cwd, ch.path));
+      const ok = fs2.existsSync(path3.join(cwd, ch.path));
       items.push({ id: c.id, text: c.text, kind: ch.kind, status: ok ? "met" : "unmet", why: `${ch.path} ${ok ? "exists" : "does not exist"}` });
     } else if (ch.kind === "file_contains" && ch.path && ch.pattern && cwd) {
-      const p = path2.join(cwd, ch.path);
+      const p = path3.join(cwd, ch.path);
       const re = safeRegex(ch.pattern);
-      if (!fs2.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: fs2.existsSync(path2.dirname(p)) ? "unmet" : "unknown", why: `${ch.path} does not exist${fs2.existsSync(path2.dirname(p)) ? "" : " (nor its directory; the path may be a guess)"}` });
+      if (!fs2.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: fs2.existsSync(path3.dirname(p)) ? "unmet" : "unknown", why: `${ch.path} does not exist${fs2.existsSync(path3.dirname(p)) ? "" : " (nor its directory; the path may be a guess)"}` });
       else if (!re) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unknown", why: "invalid pattern" });
       else {
         const ok = re.test(fs2.readFileSync(p, "utf8"));
@@ -165,15 +375,15 @@ function quickChecks(session, cwd) {
   const checked = items.filter((i) => i.status !== "unknown").length;
   const progress = { ts: (/* @__PURE__ */ new Date()).toISOString(), met: items.filter((i) => i.status === "met").length, checked, total: items.length, items };
   try {
-    writeJson(path2.join(sessionDir(session), "progress.json"), progress);
+    writeJson(path3.join(sessionDir(session), "progress.json"), progress);
   } catch {
   }
   return progress;
 }
 
 // src/hooks/hook.ts
-var here = path3.dirname(fileURLToPath(import.meta.url));
-var CLI = process.env.TALLY_HOOK_CLI || [path3.join(here, "cli.js"), path3.join(here, "..", "cli.js")].find((p) => fs3.existsSync(p)) || path3.join(here, "cli.js");
+var here = path4.dirname(fileURLToPath(import.meta.url));
+var CLI = process.env.TALLY_HOOK_CLI || [path4.join(here, "cli.js"), path4.join(here, "..", "cli.js")].find((p) => fs3.existsSync(p)) || path4.join(here, "cli.js");
 var SHIP_RE = /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b|\bnpm\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/;
 var TASK_URL_RE = /https?:\/\/(github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/\d+|[^\s]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+|linear\.app\/[^\s]+\/issue\/[A-Z0-9]+-\d+[^\s]*)/;
 var TASK_MD_RE = /(?:^|\s)((?:[A-Za-z]:)?[^\s"']+\.md)(?=\s|$)/;
@@ -194,11 +404,11 @@ function nowIso() {
 }
 function record(session, type, cwd, data) {
   const ev = { ts: nowIso(), type, session, cwd, data: redactDeep(data) };
-  appendLine(path3.join(sessionDir(session), "events.jsonl"), JSON.stringify(ev));
+  appendLine(path4.join(sessionDir(session), "events.jsonl"), JSON.stringify(ev));
 }
 function alreadySeen(session, event, toolUseId) {
   if (!toolUseId) return false;
-  const file = path3.join(sessionDir(session), "seen.txt");
+  const file = path4.join(sessionDir(session), "seen.txt");
   const key = `${event}:${toolUseId}
 `;
   try {
@@ -210,7 +420,7 @@ function alreadySeen(session, event, toolUseId) {
 }
 function spawnDetached(args) {
   if (process.env.TALLY_NO_SPAWN) {
-    appendLine(path3.join(tallyHome(), "spawn.log"), JSON.stringify({ ts: nowIso(), args }));
+    appendLine(path4.join(tallyHome(), "spawn.log"), JSON.stringify({ ts: nowIso(), args }));
     return;
   }
   try {
@@ -224,20 +434,20 @@ function gitHead(cwd) {
   try {
     let dir = cwd;
     for (let i = 0; i < 6; i++) {
-      const gitPath = path3.join(dir, ".git");
+      const gitPath = path4.join(dir, ".git");
       if (fs3.existsSync(gitPath)) {
         let gitDir = gitPath;
         if (fs3.statSync(gitPath).isFile()) {
           const m = /gitdir:\s*(.+)/.exec(fs3.readFileSync(gitPath, "utf8"));
           if (!m) return void 0;
-          gitDir = path3.resolve(dir, m[1].trim());
+          gitDir = path4.resolve(dir, m[1].trim());
         }
-        const head = fs3.readFileSync(path3.join(gitDir, "HEAD"), "utf8").trim();
+        const head = fs3.readFileSync(path4.join(gitDir, "HEAD"), "utf8").trim();
         const ref = /^ref:\s*(.+)$/.exec(head);
         if (!ref) return head;
-        const refFile = path3.join(gitDir, ref[1]);
+        const refFile = path4.join(gitDir, ref[1]);
         if (fs3.existsSync(refFile)) return fs3.readFileSync(refFile, "utf8").trim();
-        const packed = path3.join(gitDir, "packed-refs");
+        const packed = path4.join(gitDir, "packed-refs");
         if (fs3.existsSync(packed)) {
           for (const line of fs3.readFileSync(packed, "utf8").split("\n")) {
             const [sha, name] = line.split(" ");
@@ -246,7 +456,7 @@ function gitHead(cwd) {
         }
         return void 0;
       }
-      const parent = path3.dirname(dir);
+      const parent = path4.dirname(dir);
       if (parent === dir) break;
       dir = parent;
     }
@@ -259,20 +469,20 @@ function loadedInventory(cwd) {
   const skills = /* @__PURE__ */ new Set();
   const plugins = /* @__PURE__ */ new Set();
   try {
-    const home = claudeHome();
-    const global = readJson(path3.join(path3.dirname(home), ".claude.json"), {});
+    const home2 = claudeHome();
+    const global = readJson(path4.join(path4.dirname(home2), ".claude.json"), {});
     for (const k of Object.keys(global.mcpServers ?? {})) mcp.add(k);
     if (cwd) for (const k of Object.keys(global.projects?.[cwd]?.mcpServers ?? {})) mcp.add(k);
     if (cwd) {
-      const proj = readJson(path3.join(cwd, ".mcp.json"), {});
+      const proj = readJson(path4.join(cwd, ".mcp.json"), {});
       for (const k of Object.keys(proj.mcpServers ?? {})) mcp.add(k);
     }
-    const settings = readJson(path3.join(home, "settings.json"), {});
+    const settings = readJson(path4.join(home2, "settings.json"), {});
     for (const [k, v] of Object.entries(settings.enabledPlugins ?? {})) if (v) plugins.add(k.split("@")[0]);
-    const skillDirs = [path3.join(home, "skills"), cwd ? path3.join(cwd, ".claude", "skills") : ""].filter(Boolean);
+    const skillDirs = [path4.join(home2, "skills"), cwd ? path4.join(cwd, ".claude", "skills") : ""].filter(Boolean);
     for (const d of skillDirs) {
       if (!fs3.existsSync(d)) continue;
-      for (const s of fs3.readdirSync(d)) if (fs3.existsSync(path3.join(d, s, "SKILL.md"))) skills.add(s);
+      for (const s of fs3.readdirSync(d)) if (fs3.existsSync(path4.join(d, s, "SKILL.md"))) skills.add(s);
     }
   } catch {
   }
@@ -288,11 +498,11 @@ function updateActive(session, patch, remove = false) {
   writeJson(file, active);
 }
 function dodGate(session, cwd, stopHookActive) {
-  if (stopHookActive || !fs3.existsSync(path3.join(sessionDir(session), "task.json"))) return void 0;
+  if (stopHookActive || !fs3.existsSync(path4.join(sessionDir(session), "task.json"))) return void 0;
   const cfg = readJson(configFile(), {});
   if (cfg.coach?.dod_gate === false) return void 0;
   const max = cfg.coach?.dod_max_blocks ?? 1;
-  const marker = path3.join(sessionDir(session), "dod-gate.json");
+  const marker = path4.join(sessionDir(session), "dod-gate.json");
   const state = readJson(marker, { blocks: 0 });
   const progress = quickChecks(session, cwd);
   const unmet = progress.items.filter((i) => i.status === "unmet");
@@ -308,7 +518,7 @@ function autopilotEnabled() {
 }
 function handoffNote(cwd) {
   if (!cwd) return "";
-  const f = path3.join(cwd, "HANDOFF.md");
+  const f = path4.join(cwd, "HANDOFF.md");
   if (!fs3.existsSync(f)) return "";
   const age = Date.now() - fs3.statSync(f).mtimeMs;
   if (age > 24 * 3600 * 1e3) return "";
@@ -357,7 +567,7 @@ function historyLessons(cwd) {
 - ${lessons.join("\n- ")}` : "";
 }
 function deliverInjects(session) {
-  const file = path3.join(sessionDir(session), "inject.jsonl");
+  const file = path4.join(sessionDir(session), "inject.jsonl");
   if (!fs3.existsSync(file)) return "";
   const lines = fs3.readFileSync(file, "utf8").split("\n").filter((l) => l.trim());
   const pending = [];
@@ -378,21 +588,24 @@ function deliverInjects(session) {
   return pending.map((n) => `Tally: ${n}`).join("\n");
 }
 function followupDue() {
-  const state = readJson(path3.join(tallyHome(), "followup-state.json"), {});
+  const state = readJson(path4.join(tallyHome(), "followup-state.json"), {});
   const last = state.last_run ? Date.parse(state.last_run) : 0;
   return Date.now() - last > 24 * 3600 * 1e3;
 }
 function main() {
   if (process.env.TALLY_INTERNAL) return;
   const raw = readStdin();
-  let input = {};
+  let parsed = {};
   try {
-    input = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
-    input = {};
+    parsed = {};
   }
-  if (!input || typeof input !== "object") input = {};
-  const event = process.argv[2] || input.hook_event_name || "Unknown";
+  if (!parsed || typeof parsed !== "object") parsed = {};
+  const { adapter, rest } = agentFromArgv(process.argv.slice(2));
+  const agentEvent = rest[0] || String(parsed.hook_event_name ?? "Unknown");
+  const input = adapter.normalize(parsed, agentEvent);
+  const event = adapter.event(agentEvent);
   const session = String(input.session_id || "unknown");
   const cwd = input.cwd;
   ensureDir(sessionDir(session));
@@ -403,44 +616,45 @@ function main() {
       record(session, "session_start", cwd, {
         source: input.source,
         model: input.model,
+        agent: adapter.id,
         transcript_path: input.transcript_path,
         git_head: gitHead(cwd),
         loaded
       });
       updateActive(session, { cwd, transcript_path: input.transcript_path, model: input.model, started: nowIso() });
       const ctx = [handoffNote(cwd), lastReceipt(cwd), historyLessons(cwd), deliverInjects(session)].filter(Boolean).join("\n");
-      if (ctx) out = { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: ctx } };
+      if (ctx) out = { kind: "context", event: "SessionStart", text: ctx };
       if (followupDue()) spawnDetached(["followup", "--auto"]);
       break;
     }
     case "UserPromptSubmit": {
       const prompt = String(input.prompt ?? "");
-      const isFirst = !fs3.existsSync(path3.join(sessionDir(session), "task.json")) && !fs3.existsSync(path3.join(sessionDir(session), "task.pending"));
+      const isFirst = !fs3.existsSync(path4.join(sessionDir(session), "task.json")) && !fs3.existsSync(path4.join(sessionDir(session), "task.pending"));
       record(session, "prompt", cwd, { prompt: truncate(prompt), chars: prompt.length });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
       if (isFirst) {
         const url = TASK_URL_RE.exec(prompt)?.[0];
         const md = !url ? TASK_MD_RE.exec(prompt)?.[1] : void 0;
-        const ref = url ?? (md && cwd && fs3.existsSync(path3.resolve(cwd, md)) ? path3.resolve(cwd, md) : void 0);
+        const ref = url ?? (md && cwd && fs3.existsSync(path4.resolve(cwd, md)) ? path4.resolve(cwd, md) : void 0);
         if (ref) {
-          fs3.writeFileSync(path3.join(sessionDir(session), "task.pending"), ref);
+          fs3.writeFileSync(path4.join(sessionDir(session), "task.pending"), ref);
           spawnDetached(["task", ref, "--session", session, "--cwd", cwd ?? "", "--auto"]);
         } else if (prompt.trim().length > 0) {
-          fs3.writeFileSync(path3.join(sessionDir(session), "task.pending"), "text");
+          fs3.writeFileSync(path4.join(sessionDir(session), "task.pending"), "text");
           spawnDetached(["task", "--text", truncate(prompt, 4e3), "--session", session, "--cwd", cwd ?? "", "--auto"]);
         }
       }
       const ctx = deliverInjects(session);
-      if (ctx) out = { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: ctx } };
+      if (ctx) out = { kind: "context", event: "UserPromptSubmit", text: ctx };
       break;
     }
     case "PreToolUse": {
       if (alreadySeen(session, event, input.tool_use_id)) break;
-      const stopFile = path3.join(sessionDir(session), "hard-stop.json");
+      const stopFile = path4.join(sessionDir(session), "hard-stop.json");
       const cmd0 = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
       if (fs3.existsSync(stopFile) && !/budget\s+approve/.test(cmd0)) {
         const stop = readJson(stopFile, {});
-        out = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` } };
+        out = { kind: "deny", reason: `Tally: this session has spent $${(stop.spend_usd ?? 0).toFixed(2)} against the repo policy's $${(stop.budget_usd ?? 0).toFixed(2)} budget (hard stop). A human can lift it with: tally budget approve --note "<why>"` };
         record(session, "hard_stop_denied", cwd, { tool_name: input.tool_name, tool_use_id: input.tool_use_id });
         break;
       }
@@ -480,7 +694,7 @@ function main() {
       record(session, "stop", cwd, { last_assistant_message: truncate(input.last_assistant_message, 800) });
       updateActive(session, { cwd, transcript_path: input.transcript_path });
       const gate = dodGate(session, cwd, input.stop_hook_active === true);
-      if (gate) out = gate;
+      if (gate) out = { kind: "block", reason: String(gate.reason ?? "") };
       if (autopilotEnabled()) spawnDetached(["coach", "--tick", "--session", session, "--cwd", cwd ?? "", "--auto"]);
       break;
     }
@@ -502,7 +716,10 @@ function main() {
       record(session, "note", cwd, { event, keys: Object.keys(input) });
     }
   }
-  if (out) process.stdout.write(JSON.stringify(out));
+  if (out) {
+    const shaped = adapter.output(out);
+    if (shaped) process.stdout.write(JSON.stringify(shaped));
+  }
 }
 function shrinkInput(input) {
   const out = {};

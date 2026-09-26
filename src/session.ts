@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { sessionFromEnv } from './agents/index.js';
 import path from 'node:path';
 import { activeFile, readJson, projectTranscriptsDir, sessionDir } from './paths.js';
 import { listSessions, readEvents } from './store/events.js';
@@ -20,7 +21,8 @@ export function activeSessions(): ActiveSession[] {
 
 export function resolveSession(explicit?: string, cwd?: string): string | undefined {
   if (explicit) return explicit;
-  if (process.env.CLAUDE_SESSION_ID) return process.env.CLAUDE_SESSION_ID;
+  const fromEnv = sessionFromEnv();
+  if (fromEnv) return fromEnv;
   const active = activeSessions();
   const norm = (p?: string) => (p ?? '').replace(/\\/g, '/').toLowerCase();
   const byCwd = cwd ? active.find((s) => norm(s.cwd) === norm(cwd)) : undefined;
