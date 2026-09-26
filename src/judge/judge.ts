@@ -11,6 +11,7 @@ import { loadTask, type Task } from '../task/intake.js';
 import { collectEvidence, type Evidence, type Exec } from './evidence.js';
 import { runVerification, NO_CONSENT_REASON, type VerificationResult } from './verify.js';
 import { loadPolicy } from '../policy.js';
+import { maintainerReview, reviewCaps, shouldReview, type Review } from './review.js';
 import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
@@ -19,6 +20,13 @@ import { scanSecurity } from '../coach/rules/security-watch.js';
 import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, ESCALATION_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, guardedConfidence, verdictSensitive, type Tier1Result, type Status } from './tiers.js';
 
 const TEST_CRITERION_RE = /\b(test|tests|tested|testing|spec|specs|coverage|passes|passing|green|ci)\b/i;
+
+/* "existing behaviour unchanged", "still passes", "no regressions": a green suite proves only the covered behaviour held, so
+   these never resolve mechanically; the judgment tier has to name what changed that no test exercises */
+export function isRegressionCriterion(text: string): boolean {
+  /* deliberately not "the suite still passes": that criterion is about the run, and the run is the right evidence */
+  return /\b(unchanged|no regressions?|not (be )?broken|still works?|remains? (the same|intact|unchanged)|preserv|backwards?[- ]compat|existing (behaviou?r|functionality) (is|are|still|remain))/i.test(text);
+}
 
 export function isTestCriterion(text: string): boolean {
   return TEST_CRITERION_RE.test(text);
@@ -111,8 +119,11 @@ export function scoreCounts(counts: Counts, humanValue: number, costUsd: number)
   return { completion_pct, credited, roi, verifiable, total };
 }
 
-export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean; verifiable?: number; unverifiable?: number }): Verdict {
+export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean; verifiable?: number; unverifiable?: number; specCapped?: boolean; reviewCapped?: boolean; qualitySource?: 'mechanical' | 'tier1' | 'tier2' }): Verdict {
   const { completion_pct, roi, quality, testsFailed } = input;
+  /* a quality score the small model reported on its own is the weakest number on the receipt: it can hold a verdict at
+     borderline but cannot, by itself, say "not worth it"; the strong model's score, or a failed run, can */
+  const qualityBad = quality < 4 && (input.qualitySource !== 'tier1' || testsFailed);
   const verifiable = input.verifiable ?? 1;
   const unverifiable = input.unverifiable ?? 0;
   /* nothing could be checked, or most could not: say so instead of guessing (0.2: abstention) */
@@ -121,8 +132,10 @@ export function computeVerdict(input: { completion_pct: number; roi: number | nu
   const roiOk = roi === null ? true : roi >= 2;
   const roiBad = roi !== null && roi < 1;
   let verdict: Verdict = 'borderline';
-  if (completion_pct < 40 || roiBad || quality < 4) verdict = 'not worth it';
+  if (completion_pct < 40 || roiBad || qualityBad) verdict = 'not worth it';
   else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = 'worth it';
+  /* caps, never lifts: a spec that needed clarification and was never confirmed, or a maintainer who would send it back */
+  if (verdict === 'worth it' && (input.specCapped || input.reviewCapped)) verdict = 'borderline';
   return verdict;
 }
 
@@ -140,7 +153,7 @@ export function rescoreJudge(j: Judge, why: string): Judge {
   for (const c of j.criteria) counts[effectiveStatus(c)] += 1;
   const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
   const testsFailed = j.verification.ran && j.verification.passed === false;
-  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped: j.task.spec_capped, reviewCapped: reviewCaps(j.review as Review | undefined), qualitySource: j.quality.source });
   const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
   const next: Judge = {
     ...j,
@@ -245,6 +258,10 @@ export async function judgeSession(opts: {
   /* Tier 0: mechanical checks, no model */
   for (const c of task.criteria) {
     if (c.kind !== 'mechanical' || !c.check) continue;
+    if ((c.check.kind === 'tests_pass' || c.check.kind === 'command') && isRegressionCriterion(c.text)) {
+      patternMisses.set(c.id, `the suite ${ver.ran ? (ver.passed ? 'passed' : 'FAILED') : 'was not run'}; a green run only proves the covered behaviour held. Name what this diff changes that no test exercises, or mark unverifiable`);
+      continue;
+    }
     const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
     /* a pattern the intake model wrote can miss what a human would accept (the eval's one disagreement was
        /spawn.*wc2/ against `spawnSync(process.execPath, [binPath` ), so a content-pattern miss is a hint for the
@@ -267,6 +284,7 @@ export async function judgeSession(opts: {
   const judgmentIds = task.criteria.filter((c) => !resolved.has(c.id)).map((c) => c.id);
   const tierCosts: Judge['tiers']['calls'] = [];
   let prose: { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null = null;
+  let proseTier: 'mechanical' | 'tier1' | 'tier2' = 'mechanical';
   let tier1: Tier1Result[] = [];
   let decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor });
 
@@ -280,6 +298,7 @@ export async function judgeSession(opts: {
       resolved.set(id, { id, text: c.text, status, evidence: j?.evidence ?? 'No assessment returned by the model.', files: (j?.files ?? []).map(String), resolved_by: tier, confidence: conf });
     }
     prose = { quality_score: Number(data.quality_score ?? 0), quality_reason: String(data.quality_reason ?? ''), verdict_reason: String(data.verdict_reason ?? ''), recommendations: (data.recommendations ?? []).map(String).filter(Boolean) };
+    proseTier = tier;
   };
 
   /* Tier 1: small model, trimmed evidence pack, judgment criteria only */
@@ -302,7 +321,7 @@ export async function judgeSession(opts: {
       const unmet = vals.filter((s) => s === 'unmet').length;
       const unverifiable = vals.length - met - partial - unmet;
       const sc = scoreCounts({ met, partial, unmet, unverifiable }, humanValue, t.cost);
-      return computeVerdict({ completion_pct: sc.completion_pct, roi: sc.roi, quality: tier1Quality, testsFailed: testsFailedNow, verifiable: sc.verifiable, unverifiable });
+      return computeVerdict({ completion_pct: sc.completion_pct, roi: sc.roi, quality: tier1Quality, testsFailed: testsFailedNow, verifiable: sc.verifiable, unverifiable, qualitySource: 'tier1' });
     };
     tier1 = judgmentIds.map((id) => {
       const r = resolved.get(id)!;
@@ -311,20 +330,26 @@ export async function judgeSession(opts: {
       const adjusted = guardedConfidence(c.text, r.status, confidence);
       return { id, status: r.status, confidence, adjusted_confidence: adjusted !== confidence ? adjusted : undefined, verdict_sensitive: verdictSensitive({ statuses, id, verdictOf }) };
     });
-    decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor, tier1 });
+    decision = selectTiers({ judgmentIds, sessionCostUsd: t.cost, deep: !!opts.deep, deepThreshold: opts.cfg.judge.deepThreshold, confidenceFloor: opts.cfg.judge.tier1_confidence_floor, tier1, tier1Quality, testsFailed: testsFailedNow });
   }
 
   /* Tier 2: the strong model with full evidence when the session is expensive or --deep; otherwise the escalation
      model on a trimmed pack, only for the escalated criteria, so small sessions stay under the 5% self-share target */
   if (decision.run_tier2) {
     const ids = decision.tier2_criteria;
-    const fullStrength = !!opts.deep || t.cost >= opts.cfg.judge.deepThreshold;
-    const model = fullStrength ? opts.cfg.models.judge : t.cost >= opts.cfg.judge.escalation_model_from_usd ? opts.cfg.models.tier2_escalation : opts.cfg.models.tier1;
+    const fullStrength = !!opts.deep || t.cost >= opts.cfg.judge.deepThreshold || !!decision.low_quality;
+    /* confirming a pessimistic quality score on a cheap session uses the escalation model, not the strongest one, so the
+       self-share stays near 5%; --deep and expensive sessions still get the strong model */
+    const qualityOnly = !!decision.low_quality && !opts.deep && t.cost < opts.cfg.judge.deepThreshold;
+    const model = fullStrength ? (qualityOnly ? opts.cfg.models.tier2_escalation : opts.cfg.models.judge) : t.cost >= opts.cfg.judge.escalation_model_from_usd ? opts.cfg.models.tier2_escalation : opts.cfg.models.tier1;
     const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens, patternMisses).prompt;
     const r2 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 2, model, system: fullStrength ? JUDGE_SYSTEM : ESCALATION_SYSTEM, prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
     const keepProse = !fullStrength && prose;
     const out2 = redactDeep(r2.data);
-    applyModel(out2, ids, 'tier2');
+    /* a low-quality escalation asks the strong model to confirm the quality score (its prose); statuses are re-judged only
+       for criteria that escalated on their own account, so one pessimistic number does not re-open every criterion */
+    const onlyForQuality = !!decision.low_quality && !opts.deep && t.cost < opts.cfg.judge.deepThreshold;
+    applyModel(out2, onlyForQuality ? [...new Set(decision.escalations.map((e) => e.id))] : ids, 'tier2');
     /* an escalation re-judges statuses only; tier 1's prose stays unless the strong model produced its own */
     if (keepProse && !(out2.verdict_reason && out2.quality_score)) prose = keepProse;
     tierCosts.push({ tier: 'tier2', model: r2.model, cost_usd: round(r2.cost_usd), criteria: ids, prompt_tokens: approxTokens(prompt) });
@@ -346,7 +371,17 @@ export async function judgeSession(opts: {
   const finalProse = prose as { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null;
   const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };
   const quality = Math.max(0, Math.min(10, Number(out.quality_score ?? 0)));
-  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable });
+  /* maintainer review: reads the diff for layer, blast radius and untested surface; can only cap */
+  let review: Review | undefined;
+  if (shouldReview(opts.cfg.judge.maintainer_review, opts.cwd, ev)) {
+    review = await maintainerReview({ task, ev, ver, cwd: opts.cwd, llm: opts.llm, model: opts.cfg.models.judge, tokenBudget: opts.cfg.judge.review_tokens });
+    if (review.ran && review.cost_usd) tierCosts.push({ tier: 'tier2', model: review.model ?? opts.cfg.models.judge, cost_usd: round(review.cost_usd), criteria: [], prompt_tokens: 0 });
+  }
+  const specCapped = task.needs_clarification === true && task.confirmed !== true;
+  const qualitySource = finalProse ? proseTier : 'mechanical';
+  const uncapped = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, qualitySource });
+  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped, reviewCapped: reviewCaps(review), qualitySource });
+  const capNote = verdict !== uncapped ? (reviewCaps(review) ? ` Held at borderline: the maintainer review would request changes (${review?.layer === 'workaround' ? 'fix is a workaround, ' : ''}${review?.blast_radius === 'wide' ? 'wide blast radius, ' : ''}${review?.untested_surface?.length ? `${review.untested_surface.length} changed behaviour(s) without a test` : ''}).`.replace(/, \)\./, ').') : ` Held at borderline: spec quality ${task.spec_quality.score}/10 needed clarification and the task was never confirmed (tally task --confirm lifts this).`) : '';
   const tiersRan: Array<'tier0' | 'tier1' | 'tier2'> = ['tier0', ...tierCosts.map((c) => c.tier)];
   const tiers: Judge['tiers'] = {
     ran: tiersRan,
@@ -376,12 +411,12 @@ export async function judgeSession(opts: {
     head: ev.git.current_head,
     tiers,
     reason: opts.reason,
-    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked) },
+    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked), needs_clarification: task.needs_clarification, confirmed: task.confirmed, spec_capped: specCapped },
     criteria,
     completion_pct,
     completion_basis: { verifiable: scored.verifiable, total: scored.total },
     counts,
-    quality: { score: quality, reason: String(out.quality_reason ?? '') },
+    quality: { score: quality, reason: String(out.quality_reason ?? ''), source: qualitySource },
     verification: ver,
     evidence: {
       files_changed: ev.git.files_changed,
@@ -428,7 +463,8 @@ export async function judgeSession(opts: {
     value: { estimate_hours: task.estimate.hours, hourly_rate: task.hourly_rate, human_value_usd: round(humanValue, 2), credited_value_usd: credited, roi_multiple: roi },
     attribution: { label: 'correlational', note: 'Whether a skill or MCP call touched a met criterion is a correlation, not a cause. Run `tally experiment start <skill|mcp> <name> --tasks N` for a controlled answer.', rows },
     safety: { flags: scanSecurity(events, opts.repoCwd ?? opts.cwd) },
-    verdict: { verdict, reason: String(out.verdict_reason ?? '') },
+    verdict: { verdict, reason: String(out.verdict_reason ?? '') + capNote },
+    review,
     recommendations: (out.recommendations ?? []).map(String).filter(Boolean).slice(0, 3),
     judge_model: r.model,
   };

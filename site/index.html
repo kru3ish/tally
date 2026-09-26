@@ -142,13 +142,13 @@ footer a:hover{color:var(--text)}
 <body>
 <div class="wrap">
 <nav>
-  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.3.1</span></a>
+  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.4.0</span></a>
   <div class="links"><a href="#how">How it judges</a><a href="#accuracy">Accuracy</a><a href="#install">Install</a><a href="#privacy">Privacy</a><a href="https://github.com/kru3ish/tally">GitHub</a></div>
 </nav>
 
 <div class="hero">
   <div>
-    <div class="eyebrow">For Claude Code · local · open source</div>
+    <div class="eyebrow">For Claude Code, Codex CLI, Gemini CLI and Cursor · local · open source</div>
     <h1 style="margin-top:14px">A receipt for every Claude Code task.</h1>
     <p class="lede">Claude Code tells you what a session cost. Tally tells you what the task returned: the ticket's acceptance criteria <b>frozen before any code exists</b>, what actually shipped, what it cost, what was wasted, and whether it held up after merge. A coach runs on its own beside every session.</p>
     <div class="cta">
@@ -213,7 +213,7 @@ footer a:hover{color:var(--text)}
     <div>
       <div class="k">03 · THE FOLLOW-UP, AND THE RECORD</div>
       <h3>Did it hold up? Audit it. Dispute it.</h3>
-      <p>Seven days later Tally checks the PR: merged, reverted, reopened, review rounds, CI on the merge commit. Every criterion can be opened to its evidence (<code>--explain</code>), contested on the record (<code>tally dispute</code>), and a repo <code>tally.json</code> adds standing criteria and a budget with a real hard stop. When Tally cannot check enough, it says <em>insufficient evidence</em> instead of guessing.</p>
+      <p>Seven days later Tally checks the PR: merged, reverted, reopened, review rounds, CI on the merge commit. Every criterion can be opened to its evidence (<code>--explain</code>), contested on the record (<code>tally dispute</code>), and a repo <code>tally.json</code> adds standing criteria and a budget with a real hard stop. When Tally cannot check enough, it says <em>insufficient evidence</em> instead of guessing. On library-shaped repos a maintainer-review tier reads the diff for layer, blast radius and untested surface, and can hold a verdict at borderline; it never raises one.</p>
     </div>
   </div>
 </section>
@@ -223,6 +223,7 @@ footer a:hover{color:var(--text)}
     <div class="eyebrow">For one person</div>
     <h2>Your numbers on day one, no model calls.</h2>
   </div>
+  <p class="mute" style="max-width:820px"><b>Not only Claude Code.</b> <code>tally install --agent codex</code>, <code>--agent gemini</code> or <code>--agent cursor</code> writes the same hooks into that agent, the Coach and Judge run unchanged, and the Judge itself can use any OpenAI-compatible model. Codex sessions carry cost from their rollouts; agents that do not expose token usage get receipts without a dollar figure rather than a guess.</p>
   <p class="mute" style="max-width:820px">The moment Tally is installed it reads the transcripts already on the machine and prints a one-page report: spend over 30 days, the three biggest sessions, where money bought nothing (retry loops, repeated reads, first-turn load, compactions), the one habit that would have saved the most, and what the same usage costs on each Claude plan at list price. Then <code>tally replay &lt;session&gt;</code> shows the timeline with the moment it went off track, <code>tally prompts</code> shows what your best opening prompts had in common, <code>tally ask</code> answers a question over your receipts citing sessions, and <code>tally export --invoice</code> turns receipts into invoice lines.</p>
 </section>
 

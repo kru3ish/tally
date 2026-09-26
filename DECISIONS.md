@@ -132,6 +132,14 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## 0.4 Judge (2026-09-26)
+
+- V15: The maintainer-review tier exists because the two real-issue verdict misses were invisible to criteria and tests. It can only cap. A reviewer that could raise a verdict would let prose override evidence, which is the failure mode the whole design avoids.
+- V16: Regression claims are judgment, not arithmetic. A green suite proves the covered behaviour held; "unchanged" is a claim about the uncovered part. "The suite still passes" is the exception on purpose: the run is that criterion's evidence.
+- V17: A small-model quality score under 4 escalates rather than decides. Re-recording one fixture twice gave quality 3/10 both times against an authored borderline; the number was consistent and wrong. Escalation costs one strong-model call only when the small model is pessimistic with a green run, so the self-share stays low.
+- V18: A spec the intake flagged for clarification caps `worth it` at `borderline` until confirmed. Receipts and flags must not contradict each other on the same session.
+- V19: Dead weight leaves the waste total. It is real money and stays on the receipt as setup cost, but a per-session tax on the environment is not the session's waste, and on short sessions it drowned the signal (75% of "waste" on one-minute tasks).
+
 ## Other agents (2026-09-26)
 
 - A1: Tally's internal vocabulary stays Claude Code's hook schema. Codex CLI adopted the same schema outright, Gemini CLI and Cursor differ only in names and a few payload keys, so an adapter per agent (event map, payload normalisation, output shaping) costs one file and leaves rules, Judge, Coach and tests untouched. The alternative, a neutral internal schema, would have meant rewriting every consumer for no user-visible gain.

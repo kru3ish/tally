@@ -16,6 +16,8 @@ export interface TierDecision {
   tier2_criteria: string[];
   escalations: Array<{ id: string; reason: 'low-confidence' | 'verdict-sensitive' | 'correctness' }>;
   explanation: string;
+  /* tier 1 rated quality below 4 with a green run: the strong model must confirm before that score can decide the verdict */
+  low_quality?: boolean;
 }
 
 export interface Tier1Result {
@@ -54,12 +56,13 @@ export function verdictSensitive(input: { statuses: Record<string, Status>; id: 
 }
 
 /* Which tiers run. Pure so it can be unit-tested. */
-export function selectTiers(input: { judgmentIds: string[]; sessionCostUsd: number; deep: boolean; deepThreshold: number; confidenceFloor: number; tier1?: Tier1Result[] }): TierDecision {
+export function selectTiers(input: { judgmentIds: string[]; sessionCostUsd: number; deep: boolean; deepThreshold: number; confidenceFloor: number; tier1?: Tier1Result[]; tier1Quality?: number; testsFailed?: boolean }): TierDecision {
   const { judgmentIds, sessionCostUsd, deep, deepThreshold, confidenceFloor } = input;
   const run_tier1 = judgmentIds.length > 0;
   const reasons: string[] = [];
   const escalations: TierDecision['escalations'] = [];
   let tier2Criteria: string[] = [];
+  const lowQuality = input.tier1 !== undefined && typeof input.tier1Quality === 'number' && input.tier1Quality < 4 && !input.testsFailed;
   if (judgmentIds.length) {
     if (deep) reasons.push('--deep');
     if (sessionCostUsd >= deepThreshold) reasons.push(`session cost $${sessionCostUsd.toFixed(2)} ≥ deepThreshold $${deepThreshold.toFixed(2)}`);
@@ -73,7 +76,8 @@ export function selectTiers(input: { judgmentIds: string[]; sessionCostUsd: numb
     if (byReason('verdict-sensitive').length) reasons.push(`verdict-sensitive: ${byReason('verdict-sensitive').join(', ')}`);
     if (byReason('correctness').length) reasons.push(`partial/unmet on correctness criteria (confidence capped at 0.5): ${byReason('correctness').join(', ')}`);
     if (byReason('low-confidence').length) reasons.push(`tier 1 confidence below ${confidenceFloor} on ${byReason('low-confidence').join(', ')}`);
-    if (reasons.length) tier2Criteria = deep || sessionCostUsd >= deepThreshold ? judgmentIds : [...new Set(escalations.map((e) => e.id))];
+    if (lowQuality) reasons.push(`tier 1 rated quality ${input.tier1Quality}/10 with a green run; the strong model confirms before that decides the verdict`);
+    if (reasons.length) tier2Criteria = deep || sessionCostUsd >= deepThreshold || lowQuality ? judgmentIds : [...new Set(escalations.map((e) => e.id))];
   }
   const run_tier2 = tier2Criteria.length > 0;
   const explanation = !judgmentIds.length
@@ -81,7 +85,7 @@ export function selectTiers(input: { judgmentIds: string[]; sessionCostUsd: numb
     : run_tier2
       ? `tier 2 on ${tier2Criteria.length} criteria: ${reasons.join('; ')}`
       : `tier 2 skipped: session cost $${sessionCostUsd.toFixed(2)} < $${deepThreshold.toFixed(2)}, no --deep, tier 1 confident (≥ ${confidenceFloor}) and no verdict-sensitive criterion`;
-  return { run_tier1, run_tier2, tier2_reasons: reasons, tier2_criteria: tier2Criteria, escalations, explanation };
+  return { run_tier1, run_tier2, tier2_reasons: reasons, tier2_criteria: tier2Criteria, escalations, explanation, low_quality: lowQuality };
 }
 
 export const TIER1_SYSTEM = `You are a skeptical auditor deciding a few acceptance criteria of a coding session from a short evidence pack.

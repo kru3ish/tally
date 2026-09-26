@@ -6,7 +6,7 @@ Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coachi
 
 Everything runs locally. No server, no database, no API key: Tally talks to Claude through `claude -p` on your existing login.
 
-This is a **preview** (v0.3.1): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
+This is a **preview** (v0.4.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
 
 ## See it run
 
@@ -137,10 +137,11 @@ The full `report.md` adds the evidence table, the waste breakdown (failed loops,
 |---|---|---|
 | 0 | Mechanical checks the intake model attached to each criterion (`tests_pass`, `file_exists`, `file_changed`, `file_contains`, `diff_contains`, `command`, `pr`); cost, waste, ship events, test results | Always, no model |
 | 1 | A small model (`models.tier1`, haiku) on the remaining `judgment` criteria, with an evidence pack trimmed to ~6k tokens; returns a confidence per criterion | Whenever judgment criteria remain |
-| 2 | A stronger model on only the criteria that need it: the small model again under $1 of session spend, sonnet up to `judge.deepThreshold` ($3), opus above | Session cost ≥ $3, `--deep`, a tier-1 confidence below 0.6, a partial/unmet call on a correctness criterion, or a criterion whose one-step change would flip the verdict |
+| 2 | A stronger model on only the criteria that need it: the small model again under $1 of session spend, sonnet up to `judge.deepThreshold` ($3), opus above | Session cost ≥ $3, `--deep`, a tier-1 confidence below 0.6, a partial/unmet call on a correctness criterion, a criterion whose one-step change would flip the verdict, or a tier-1 quality score below 4 with a green run |
+| review | The strong model reads the diff as the repo's maintainer: is the fix where the bug lives, what else does the touched code serve, what changed that no test exercises. Can hold the verdict at borderline, never raise it | Library-shaped repos (`judge.maintainer_review: auto`), or always with `on` |
 
 5. **Abstention**: when nothing could be checked, or most criteria were unverifiable, the verdict is `insufficient evidence` rather than a guess. `tally report` shows how often that happens.
-6. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run; `not worth it` is <40%, ROI <1 or quality <4).
+6. **Numbers** are computed, not asked for: completion %, cost by phase, by subagent and by model, cost per met criterion, spend vs budget, waste in dollars, value = hours × `hourly_rate` credited at completion %, ROI, and a deterministic verdict (`worth it` needs ≥70% completion, ROI ≥2×, quality ≥6 and a green independent test run; `not worth it` is <40%, ROI <1 or quality <4). Three things cap a verdict and never lift one: a maintainer review that would request changes, a spec the intake flagged for clarification that nobody confirmed (`tally task --confirm` lifts it), and a quality score under 4 that came from the small model alone (it escalates to the strong model first). Regression claims ("existing behaviour unchanged") are always judged, never resolved from a green suite. Dead-weight first-turn context is reported as setup cost, separate from the session's waste.
 7. **Follow-up** runs on the next session start after 7 days (or `tally followup`): PR merged or closed, reverted (git log), issue reopened, review comments and change requests, CI after merge. It stamps **held up / needed rework / reverted**, records the review burden (review rounds, hours from open to merge) and shows both the original and the adjusted verdict.
 
 All dollar figures are **API-equivalent** at list price from `pricing.json` (with a `last_verified` date), since most people are on subscriptions. Tally's own calls are counted separately and shown on every receipt.
@@ -174,17 +175,17 @@ All dollar figures are **API-equivalent** at list price from `pricing.json` (wit
 
 Early, and measured two ways. Neither is a benchmark.
 
-**Fixture regression (n = 5 sessions, 19 criteria).** Five authored sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-16 with haiku as tier 1:
+**Fixture regression (n = 5 sessions, 19 criteria).** Five authored sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-26 with haiku as tier 1 (recorded outputs replayed in CI):
 
 | Measure | Result |
 |---|---|
 | Criterion agreement (exact) | 19 / 19 |
 | Verdict agreement | 5 / 5 |
 | Criteria resolved mechanically, at $0 | 9 of 19 |
-| Escalated to tier 2 | 7 criteria on 4 sessions (verdict-sensitive or correctness) |
-| Tally's own spend, share of session spend | 2.1–5.1%, average 4.1% |
+| Escalated to tier 2 | 8 criteria on 4 sessions (verdict-sensitive, correctness, or a tier-1 quality score below 4) |
+| Tally's own spend, share of session spend | 2.1–13.6%, average 6.1% (the high case is a pessimistic tier-1 quality score being confirmed by the strong model on a $0.73 session) |
 
-Across six live runs the same fixtures scored between 18/19 and 19/19; CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the self-share exceeds 5%.
+Across seven live runs the same fixtures scored between 17/19 and 19/19 (the 17 was one run of the strong model disagreeing with the author on the rate-limit fixture, which is why a low quality score now confirms prose only and does not re-open statuses); CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the average self-share exceeds 8%.
 
 **Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22; re-scored under 0.2.0's rules on 2026-09-23).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (61% within one step); the Judge abstains on 3 of 11 (insufficient evidence), and on the other 8 the verdict is exact on 1 and within one step on 6; Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
 
@@ -308,7 +309,6 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 - Real-session calibration with outside graders, and a published agreement table that updates per release.
 - Plugin evals in CI.
-- A maintainer-review tier: reads the diff for layer (is the fix where the bug lives), blast radius and untested surface before a library change can be `worth it`; both verdict misses in the real-issue eval were of that kind.
 - Receipts as a PR check (GitHub Action) for teams.
 - OTel cross-check on by default when Claude Code telemetry is enabled.
 

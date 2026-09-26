@@ -1,6 +1,6 @@
 {
   "name": "@kru3ish/tally",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Per-task receipts and live coaching for Claude Code (preview): acceptance criteria in, what shipped / what it cost / whether it held up out.",
   "type": "module",
   "bin": {

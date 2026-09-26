@@ -195,10 +195,11 @@ export async function runEval(opts: { live?: boolean; record?: boolean; cfg?: Co
   if (opts.record) {
     /* the baseline is a floor: it is only rewritten when agreement holds or improves, never lowered by a worse run */
     const old = loadBaseline();
+    /* a subset run (--only) records its fixtures' model output but never rewrites the shared baseline, which describes the full set */
     if (!old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
       /* model outputs and baseline are written together so a replay always reproduces the recorded agreement */
       for (const r of results) fs.writeFileSync(path.join(cases.find((c) => c.name === r.name)!.dir, 'model-output.json'), JSON.stringify({ recorded_at: new Date().toISOString(), calls: r.calls }, null, 2) + '\n');
-      fs.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: new Date().toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + '\n');
+      if (!opts.only?.length) fs.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: new Date().toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + '\n');
       summary.baseline_updated = true;
     } else summary.baseline_updated = false;
   }

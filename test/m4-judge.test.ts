@@ -257,3 +257,79 @@ describe('a guessed file path is not evidence of absence', () => {
     expect(c2.resolved_by).not.toBe('tier0');
   });
 });
+
+describe('what criteria cannot see (0.4)', () => {
+  const deps = { exec: () => ({ ok: false, stdout: '', stderr: '' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false } as FetchDeps;
+
+  it('a regression criterion never resolves from a green suite alone', async () => {
+    const { isRegressionCriterion } = await import('../src/judge/judge.js');
+    expect(isRegressionCriterion('Existing behaviour is unchanged for other patterns')).toBe(true);
+    /* "the suite still passes" is about the run itself, and the run is the right evidence: not a regression claim */
+    expect(isRegressionCriterion('The full existing test suite still passes')).toBe(false);
+    expect(isRegressionCriterion('No regressions in the parser')).toBe(true);
+    expect(isRegressionCriterion('A test covers the 429 path')).toBe(false);
+    const { cwd, base } = makeRepo({ testPasses: true });
+    const stub = judgeStub(['met', 'unverifiable', 'met']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), criteria: [{ text: 'Login returns 429 after 5 failed attempts', source: 'explicit' }, { text: 'Existing login behaviour is unchanged below the limit', source: 'explicit', check: { kind: 'tests_pass' } }, { text: 'The test suite passes', source: 'explicit', check: { kind: 'tests_pass' } }] }) }, 'fxreg');
+    const cfg = loadConfig();
+    await intake({ session: 'fxreg', cwd, text: 'Rate limit', cfg, llm, deps });
+    const j = await judgeSession({ session: 'fxreg', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const c2 = j.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.resolved_by).not.toBe('tier0');
+    expect(c2.status).toBe('unverifiable');
+    expect(j.criteria.find((c) => c.id === 'c3')!.resolved_by).toBe('tier0');
+  });
+
+  it('a spec that needed clarification and was never confirmed holds the verdict at borderline', async () => {
+    const { computeVerdict } = await import('../src/judge/judge.js');
+    expect(computeVerdict({ completion_pct: 100, roi: 50, quality: 8, testsFailed: false, verifiable: 3 })).toBe('worth it');
+    expect(computeVerdict({ completion_pct: 100, roi: 50, quality: 8, testsFailed: false, verifiable: 3, specCapped: true })).toBe('borderline');
+    expect(computeVerdict({ completion_pct: 30, roi: 50, quality: 8, testsFailed: false, verifiable: 3, specCapped: true })).toBe('not worth it');
+    const { cwd, base } = makeRepo({ testPasses: true });
+    const stub = judgeStub(['met', 'met', 'met']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), spec_quality: { score: 2, missing: ['what better means'], questions: ['Which log levels?'] } }) }, 'fxvague');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'fxvague', cwd, text: 'make the logger better', cfg, llm, deps });
+    const j = await judgeSession({ session: 'fxvague', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j.completion_pct).toBe(100);
+    expect(j.task.spec_capped).toBe(true);
+    expect(j.verdict.verdict).toBe('borderline');
+    expect(j.verdict.reason).toContain('never confirmed');
+  });
+
+  it('the maintainer review can hold a fully met change at borderline, and says why', async () => {
+    const { cwd, base } = makeRepo({ testPasses: true });
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'acme-lib', main: 'src/login.js', scripts: { test: JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')).scripts.test } }));
+    const stub = judgeStub(['met', 'met', 'met']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), spec_quality: { score: 8, missing: [], questions: [] } }), review: () => ({ layer: 'workaround', layer_note: 'patches around the router dependency', blast_radius: 'contained', blast_note: '', untested_surface: ['array mount paths'], merge: 'request_changes', note: 'fix belongs upstream' }) }, 'fxrev');
+    const cfg = loadConfig();
+    await intake({ session: 'fxrev', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'fxrev', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j.review?.ran).toBe(true);
+    expect(j.review?.merge).toBe('request_changes');
+    expect(j.completion_pct).toBe(100);
+    expect(j.verdict.verdict).toBe('borderline');
+    expect(j.verdict.reason).toContain('maintainer review');
+    expect(renderReport(j)).toContain('REQUEST CHANGES');
+    /* a stub without a review responder degrades to "not run", never to a crash */
+    const llm2 = new StubLlm(stub, 'fxrev2');
+    await intake({ session: 'fxrev2', cwd, text: 'Rate limit the login endpoint', cfg, llm: llm2, deps });
+    const j2 = await judgeSession({ session: 'fxrev2', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm: llm2, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j2.review?.ran).toBe(false);
+    expect(j2.verdict.verdict).toBe('worth it');
+  });
+
+  it('dead-weight context is reported as setup cost, not counted in waste', async () => {
+    const { cwd, base } = makeRepo({ testPasses: true });
+    const llm = new StubLlm(judgeStub(['met', 'met', 'met']), 'fxdw');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'fxdw', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'fxdw', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const parts = j.waste.failed_loops.reduce((s, x) => s + x.usd, 0) + j.waste.repeated_reads.reduce((s, x) => s + x.usd, 0) + j.waste.compaction_churn.usd;
+    expect(j.waste.total_usd).toBeCloseTo(parts, 3);
+    expect(j.waste.dead_weight.usd).toBeGreaterThan(0);
+    expect(renderReport(j)).toContain('Setup cost');
+  });
+});

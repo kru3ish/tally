@@ -227,10 +227,14 @@ describe('escalation guard', () => {
     expect(calls[1]!.prompt).toContain('c1:');
     expect(Math.ceil(calls[1]!.prompt.length / 4)).toBeLessThanOrEqual(cfg.judge.tier2_escalation_tokens + 300);
     expect(j.criteria[0]).toMatchObject({ status: 'partial', resolved_by: 'tier2' });
-    expect(j.tiers.escalations).toEqual([{ id: 'c1', reason: 'correctness' }]);
-    expect(j.tiers.reason).toContain('correctness');
+    /* c4 ("behaviour unchanged") is a regression claim and now reaches tier 1 too, so c1 may be flagged as verdict-sensitive
+       rather than by the correctness guard; either way it is c1 that escalates */
+    expect(j.tiers.escalations!.map((e) => e.id)).toContain('c1');
+    expect(['correctness', 'verdict-sensitive']).toContain(j.tiers.escalations!.find((e) => e.id === 'c1')!.reason);
+    expect(j.tiers.reason).toContain('c1');
     expect(j.tiers.calls.map((c) => c.tier)).toEqual(['tier1', 'tier2']);
-    expect(j.completion_pct).toBe(62.5);
+    /* c4 is unverifiable here (the stub never rates it), so completion is over the three checkable criteria: 1.5 / 3 */
+    expect(j.completion_pct).toBe(50);
   });
 });
 

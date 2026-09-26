@@ -101,7 +101,9 @@ export function computeWaste(t: Transcript, opts: { baselineTokens: number; pric
 
   return {
     items,
-    total_usd: items.reduce((s, i) => s + i.usd, 0),
+    /* dead weight is the cost of the environment (global CLAUDE.md, plugins, skills), paid on every session before any
+       work; it is reported on the receipt as setup cost, not counted as the session's waste */
+    total_usd: items.filter((i) => i.kind !== 'dead_weight').reduce((s, i) => s + i.usd, 0),
     failed_loops,
     repeated_reads,
     dead_weight: { first_turn_tokens: t.firstTurnContextTokens, baseline_tokens: opts.baselineTokens, overhead_tokens: overhead, usd: deadUsd },

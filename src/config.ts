@@ -45,6 +45,10 @@ export const ConfigSchema = z.object({
       intake_wait_ms: z.number().int().nonnegative().default(180000),
       run_tests: z.boolean().default(true),
       deepThreshold: z.number().nonnegative().default(3),
+      /* the maintainer-review tier: 'auto' runs on library-shaped repos (non-private package with an entry point, crate,
+         Python package) when source files changed; 'on' always; 'off' never. It can only cap a verdict, never raise it. */
+      maintainer_review: z.enum(['auto', 'on', 'off']).default('auto'),
+      review_tokens: z.number().int().positive().default(12000),
       tier1_confidence_floor: z.number().min(0).max(1).default(0.6),
       tier1_evidence_tokens: z.number().int().positive().default(6000),
       tier2_escalation_tokens: z.number().int().positive().default(3000),

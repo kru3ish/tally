@@ -19,6 +19,10 @@ export const JudgeSchema = z.object({
     budget_usd: z.number(),
     linked: z.boolean(),
     task_source: z.enum(['linked', 'inferred', 'confirmed']).default('linked'),
+    needs_clarification: z.boolean().optional(),
+    confirmed: z.boolean().optional(),
+    /* true when the verdict was held at borderline because the spec needed clarification and nobody confirmed the task */
+    spec_capped: z.boolean().optional(),
   }),
   head: z.string().optional(),
   historical: z.object({ start_head: z.string().optional(), end_head: z.string().optional(), notes: z.array(z.string()) }).optional(),
@@ -39,7 +43,7 @@ export const JudgeSchema = z.object({
   /* 0.1.1: completion is over the criteria that could be checked; the basis says how many that was */
   completion_basis: z.object({ verifiable: z.number().int().nonnegative(), total: z.number().int().nonnegative() }).optional(),
   counts: z.object({ met: z.number(), partial: z.number(), unmet: z.number(), unverifiable: z.number() }),
-  quality: z.object({ score: z.number().min(0).max(10), reason: z.string() }),
+  quality: z.object({ score: z.number().min(0).max(10), reason: z.string(), source: z.enum(['mechanical', 'tier1', 'tier2']).optional() }),
   verification: z.object({
     ran: z.boolean(),
     command: z.string().optional(),
@@ -110,6 +114,21 @@ export const JudgeSchema = z.object({
   /* risky agent behaviour seen in the session's events (security-watch rule) */
   safety: z.object({ flags: z.array(z.object({ ts: z.string(), kind: z.string(), detail: z.string() })) }).optional(),
   verdict: z.object({ verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']), reason: z.string() }),
+  review: z
+    .object({
+      ran: z.boolean(),
+      reason: z.string().optional(),
+      layer: z.enum(['at_root_cause', 'workaround', 'unclear']).optional(),
+      layer_note: z.string().optional(),
+      blast_radius: z.enum(['none', 'contained', 'wide', 'unclear']).optional(),
+      blast_note: z.string().optional(),
+      untested_surface: z.array(z.string()).optional(),
+      merge: z.enum(['merge', 'request_changes', 'unclear']).optional(),
+      note: z.string().optional(),
+      model: z.string().optional(),
+      cost_usd: z.number().optional(),
+    })
+    .optional(),
   recommendations: z.array(z.string()).max(3),
   judge_model: z.string(),
   followup: z

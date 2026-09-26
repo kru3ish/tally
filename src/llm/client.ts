@@ -8,7 +8,7 @@ import { loadConfig } from '../config.js';
 import { OpenAICompatible } from './openai.js';
 
 export interface LlmRequest {
-  kind: 'intake' | 'judge' | 'coach';
+  kind: 'intake' | 'judge' | 'coach' | 'review';
   tier?: 1 | 2;
   model: string;
   system: string;
@@ -248,5 +248,6 @@ export function defaultStubs(): Record<LlmRequest['kind'], StubResponder> {
       recommendations: ['stub'],
     }),
     coach: () => ({ suggestions: [] }),
+    review: () => ({ layer: 'at_root_cause', layer_note: 'stub', blast_radius: 'contained', blast_note: 'stub', untested_surface: [], merge: 'merge', note: 'stub' }),
   };
 }

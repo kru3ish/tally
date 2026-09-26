@@ -1,4 +1,5 @@
 import type { Judge } from './schema.js';
+import { renderReview, type Review } from './review.js';
 import { fmtUsd } from '../cost/pricing.js';
 
 const STATUS_ICON: Record<string, string> = { met: '✔', partial: '◐', unmet: '✘', unverifiable: '?' };
@@ -67,11 +68,16 @@ export function renderReport(j: Judge): string {
   L.push('|---|---|---|');
   for (const [k, v] of Object.entries(j.cost.by_subagent)) L.push(`| ${k} | ${fmtUsd(v.usd)} | ${v.messages} |`);
   L.push('');
+  if (j.review) {
+    L.push('## Maintainer review');
+    for (const line of renderReview(j.review as Review)) L.push(line.startsWith('  ') ? `- ${line.trim()}` : line);
+    L.push('');
+  }
   L.push(`## Waste — ${fmtUsd(j.waste.total_usd)}`);
   L.push('');
   L.push(`- Failed loops: ${fmtUsd(j.waste.failed_loops.reduce((s, x) => s + x.usd, 0))}${j.waste.failed_loops.length ? ' — ' + j.waste.failed_loops.map((l) => `\`${l.command}\` ×${l.repeats}`).join(', ') : ''}`);
   L.push(`- Repeated reads: ${fmtUsd(j.waste.repeated_reads.reduce((s, x) => s + x.usd, 0))}${j.waste.repeated_reads.length ? ' — ' + j.waste.repeated_reads.map((r) => `${r.file} ×${r.reads}`).join(', ') : ''}`);
-  L.push(`- Dead-weight context: ${fmtUsd(j.waste.dead_weight.usd)} — first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString('en-US')} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString('en-US')} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString('en-US')} baseline`);
+  L.push(`- Setup cost (your environment, not this session's waste): ${fmtUsd(j.waste.dead_weight.usd)} — first turn loaded ${j.waste.dead_weight.first_turn_tokens.toLocaleString('en-US')} tokens, ${j.waste.dead_weight.overhead_tokens.toLocaleString('en-US')} above the ${j.waste.dead_weight.baseline_tokens.toLocaleString('en-US')} baseline; global CLAUDE.md, plugins and skills are paid for on every turn of every session`);
   L.push(`- Compaction churn: ${fmtUsd(j.waste.compaction_churn.usd)} — ${j.waste.compaction_churn.compactions} compaction(s), ${j.waste.compaction_churn.recache_tokens.toLocaleString('en-US')} tokens re-cached`);
   L.push('');
   L.push('## Value');
@@ -123,6 +129,7 @@ export function renderSummary(j: Judge, color = true): string {
   }
   L.push(`Judged by: ${j.tiers.ran.map((t) => t.replace('tier', 'tier ')).join(' → ')} · ${j.tiers.reason}${j.tiers.calls.length ? ` · model spend ${fmtUsd(j.tiers.llm_cost_usd)}` : ' · $0 in model calls'}`);
   L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')}` : c('90', `not run (${j.verification.reason})`)}`);
+  if (j.review) for (const line of renderReview(j.review as Review)) L.push(line);
   L.push(`Cost (API-equivalent${j.cost.confidence === 'partial' ? ', PARTIAL: transcript not fully parsed' : ''}): ${fmtUsd(j.cost.total_usd)} / budget ${fmtUsd(j.cost.budget_usd)} (${j.cost.budget_used_pct}%) · per met criterion ${j.cost.per_completed_criterion_usd === null ? 'n/a' : fmtUsd(j.cost.per_completed_criterion_usd)} · waste ${fmtUsd(j.waste.total_usd)}`);
   L.push(`  Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (${j.cost.tally_share_pct}% of session spend, separate)${j.cost.otel?.available ? ` · OTel cross-check ${fmtUsd(j.cost.otel.total_usd ?? 0)}` : ''}`);
   const phases = Object.entries(j.cost.by_phase)

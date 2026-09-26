@@ -2,12 +2,23 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
-## [Unreleased]
+## [0.4.0] - 2026-09-26
+
+Tally for every coding agent, and a Judge that knows what criteria cannot see.
 
 ### Added
 
 - **Other agents.** `tally install --agent codex|gemini|cursor` writes Tally's hooks into Codex CLI's `~/.codex/hooks.json`, Gemini CLI's `~/.gemini/settings.json` or Cursor's `~/.cursor/hooks.json` (backed up; `uninstall --agent` removes only Tally's entries). One hook binary with `--agent <id>` maps each agent's events and payloads onto Claude Code's vocabulary, normalises tool names (`run_shell_command`, `shell` → `Bash`; `apply_patch`, `replace` → `Edit`) and answers in each agent's dialect (permission deny, additional context, Cursor's `followup_message` for the definition-of-done gate). Session ids are also taken from `GEMINI_SESSION_ID`.
 - **Codex CLI transcripts.** Rollouts under `~/.codex/sessions` are parsed for prompts, tool calls, outputs and token counts, so Codex receipts, `onboard` and `backfill` carry cost. OpenAI prices (gpt-5 family, gpt-4.1, o3, o4-mini, gpt-5.3-codex) added to `pricing.json` with codex aliases, verified 2026-09-26.
+
+### Changed (the Judge, from the real-issue eval)
+
+- **Maintainer review tier.** On library-shaped repos (a non-private package with an entry point, a crate, a Python package; `judge.maintainer_review: auto|on|off`) the strong model reads the diff as a maintainer: is the fix where the bug lives, what else does the touched code serve, what changed that no test exercises. A "would request changes" holds the verdict at borderline with the reason on the receipt; it never raises one. Both verdict misses in the real-issue eval were of this kind.
+- **Regression claims need judgment.** A criterion like "existing behaviour unchanged" or "no regressions" no longer resolves from a green suite; it goes to the judgment tier with the instruction to name what changed that no test covers, or say unverifiable. "The suite still passes" stays mechanical: the run is the right evidence for that.
+- **A vague spec caps the verdict.** When intake flagged the spec for clarification and nobody confirmed the task, `worth it` becomes `borderline` with the reason; `tally task --confirm` lifts it. The "make the logger better" session in the eval scored 100% and worth it on inferred criteria; it now reads borderline.
+- **A lone small-model quality score cannot say "not worth it".** The tier-1 quality number is the weakest figure on the receipt (it rated the same fixture 3/10 twice where the author said borderline). Below 4 with a green run it now escalates to the strong model, whose score can decide; with a failed run it still counts. `quality.source` on the receipt says which tier produced the score.
+- **Dead-weight context is setup cost, not waste.** The first-turn overhead of global CLAUDE.md, plugins and skills is paid on every session before any work; the receipt now reports it as setup cost and keeps waste for what the session itself did (loops, re-reads, compaction churn). On the one-minute eval sessions this was 75% of the old waste figure.
+- `calibrate eval --record --only <fixture>` records that fixture's model output without rewriting the shared baseline.
 
 ## [0.3.1] - 2026-09-26
 
