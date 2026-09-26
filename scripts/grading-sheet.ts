@@ -15,12 +15,14 @@ import { readCalibration } from '../src/calibrate/calibrate.js';
 import type { CoachReplay } from '../src/backfill/events.js';
 
 const grader = process.argv.find((a, i) => process.argv[i - 1] === '--grader') ?? 'krish';
+/* --sessions a1b2c3d4,e5f6... limits the sheet to those session prefixes */
+const onlyPrefixes = (process.argv.find((a, i) => process.argv[i - 1] === '--sessions') ?? '').split(',').filter(Boolean);
 const sheet = path.join(tallyHome(), 'grading-sheet.md');
 const revealFile = path.join(tallyHome(), 'grading-reveal.md');
 const graded = new Set(readCalibration().filter((e) => e.source === 'backfill' && (e.grader ?? '') === grader).map((e) => e.session));
 const sessions = fs
   .readdirSync(path.join(tallyHome(), 'sessions'))
-  .filter((s) => fs.existsSync(path.join(sessionDir(s), 'judge.json')) && loadJudge(s) && loadTask(s) && !graded.has(s))
+  .filter((s) => fs.existsSync(path.join(sessionDir(s), 'judge.json')) && loadJudge(s) && loadTask(s) && !graded.has(s) && (!onlyPrefixes.length || onlyPrefixes.some((p) => s.startsWith(p))))
   .sort();
 
 function replayOf(session: string): CoachReplay | null {

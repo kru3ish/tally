@@ -186,3 +186,37 @@ describe('handoff resume', () => {
     expect(r.stdout).not.toContain('HANDOFF.md');
   });
 });
+
+describe('session-end judging waits for intake', () => {
+  it('waitForIntake returns once task.json lands and gives up after maxMs', async () => {
+    const { waitForIntake, receiptPredatesTask } = await import('../src/commands/finalize.js');
+    const { sessionDir, writeJson } = await import('../src/paths.js');
+    const session = 'race-0001';
+    const dir = sessionDir(session);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'task.pending'), 'task.md');
+    setTimeout(() => writeJson(path.join(dir, 'task.json'), { criteria: [] }), 60);
+    const waited = await waitForIntake(session, 5000, 10);
+    expect(waited).toBeGreaterThanOrEqual(50);
+    expect(waited).toBeLessThan(3000);
+    fs.unlinkSync(path.join(dir, 'task.json'));
+    const gaveUp = await waitForIntake(session, 40, 10);
+    expect(gaveUp).toBeGreaterThanOrEqual(40);
+    expect(receiptPredatesTask(session)).toBe(false);
+  });
+
+  it('receiptPredatesTask is true when the frozen task is newer than the receipt', async () => {
+    const { receiptPredatesTask } = await import('../src/commands/finalize.js');
+    const { sessionDir, writeJson } = await import('../src/paths.js');
+    const session = 'race-0002';
+    const dir = sessionDir(session);
+    fs.mkdirSync(dir, { recursive: true });
+    const judge = { judged_at: new Date(Date.now() - 60000).toISOString() };
+    writeJson(path.join(dir, 'judge.json'), judge);
+    writeJson(path.join(dir, 'task.json'), { criteria: [] });
+    expect(receiptPredatesTask(session)).toBe(true);
+    judge.judged_at = new Date(Date.now() + 60000).toISOString();
+    writeJson(path.join(dir, 'judge.json'), judge);
+    expect(receiptPredatesTask(session)).toBe(false);
+  });
+});

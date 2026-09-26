@@ -41,6 +41,8 @@ export const ConfigSchema = z.object({
   judge: z
     .object({
       test_timeout_ms: z.number().int().positive().default(300000),
+      /* how long session-end judging waits for a task intake that is still running */
+      intake_wait_ms: z.number().int().nonnegative().default(180000),
       run_tests: z.boolean().default(true),
       deepThreshold: z.number().nonnegative().default(3),
       tier1_confidence_floor: z.number().min(0).max(1).default(0.6),

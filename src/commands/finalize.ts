@@ -11,6 +11,30 @@ import { sessionCwd, transcriptPathFor } from '../session.js';
 import { historyFile, appendLine, repoKey, sessionDir, log, writeJson, isInternalCwd } from '../paths.js';
 import { restoreExperimentConfig, prepareNextArm } from '../experiment/experiment.js';
 
+/* Resolves once task.json exists or task.pending is gone, or after maxMs. Returns the time waited. */
+export async function waitForIntake(session: string, maxMs: number, pollMs = 2000): Promise<number> {
+  const dir = sessionDir(session);
+  const started = Date.now();
+  while (fs.existsSync(path.join(dir, 'task.pending')) && !fs.existsSync(path.join(dir, 'task.json')) && Date.now() - started < maxMs) {
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return Date.now() - started;
+}
+
+/* True when the frozen task landed after the receipt was written, so the receipt scored something else. */
+export function receiptPredatesTask(session: string): boolean {
+  const dir = sessionDir(session);
+  const jf = path.join(dir, 'judge.json');
+  const tf = path.join(dir, 'task.json');
+  if (!fs.existsSync(jf) || !fs.existsSync(tf)) return false;
+  try {
+    const judgedAt = Date.parse((JSON.parse(fs.readFileSync(jf, 'utf8')) as { judged_at?: string }).judged_at ?? '');
+    return Number.isFinite(judgedAt) && fs.statSync(tf).mtimeMs > judgedAt;
+  } catch {
+    return false;
+  }
+}
+
 export async function run(args: Args): Promise<void> {
   const session = args._[0] ?? flag(args, 'session');
   if (!session) return;
@@ -51,10 +75,17 @@ export async function run(args: Args): Promise<void> {
     log(`finalize: experiment restore failed: ${String(err)}`);
   }
 
+  /* a short session can end while the intake spawned by its first prompt is still running; judging before the task is
+     frozen would score the prompt instead of the criteria, so wait for it (bounded) */
+  const waited = await waitForIntake(session, cfg.judge.intake_wait_ms);
+  if (waited > 0) log(`finalize: ${session} waited ${Math.round(waited / 1000)}s for task intake`);
+
   const existing = loadJudge(session);
   const headNow = currentHead(cwd);
-  const alreadyJudged = !!existing && (!headNow || !existing.head || existing.head === headNow);
-  if (existing && !alreadyJudged) log(`finalize: ${session} HEAD moved since the last receipt (${existing.head?.slice(0, 8)} → ${headNow?.slice(0, 8)}); re-judging`);
+  const stale = !!existing && receiptPredatesTask(session);
+  const alreadyJudged = !!existing && !stale && (!headNow || !existing.head || existing.head === headNow);
+  if (existing && stale) log(`finalize: ${session} receipt predates the frozen task; re-judging`);
+  else if (existing && !alreadyJudged) log(`finalize: ${session} HEAD moved since the last receipt (${existing.head?.slice(0, 8)} → ${headNow?.slice(0, 8)}); re-judging`);
   if (!alreadyJudged && transcriptPath && fs.existsSync(transcriptPath) && events.some((e) => e.type === 'prompt')) {
     try {
       await judgeSession({ session, cwd, transcriptPath, cfg, llm: makeLlm({ session }), reason: 'session_end' });
