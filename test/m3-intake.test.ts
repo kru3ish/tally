@@ -58,6 +58,22 @@ describe('fetchers', () => {
     expect(t.fetch_error).toBeUndefined();
   });
 
+  it('uses the GitHub REST API when gh is missing', async () => {
+    const calls: string[] = [];
+    const d = deps({
+      fetch: async (url) => {
+        calls.push(String(url));
+        return { ok: true, status: 200, text: async () => JSON.stringify({ title: 'Rate limit login', body: 'Return 429 after 5 tries.', labels: [{ name: 'bug' }, { name: 'sp-3' }], state: 'open' }) };
+      },
+    });
+    const t = await fetchTask('https://github.com/acme/app/issues/42', { cwd: 'C:/x', cfg: loadConfig(), deps: d });
+    expect(calls[0]).toBe('https://api.github.com/repos/acme/app/issues/42');
+    expect(t.fetch_error).toBeUndefined();
+    expect(t.title).toBe('Rate limit login');
+    expect(t.labels).toEqual(['bug', 'sp-3']);
+    expect(t.story_points).toBe(3);
+  });
+
   it('falls back to prompt text when gh fails', async () => {
     const t = await fetchTask('https://github.com/acme/app/issues/42', { cwd: 'C:/x', cfg: loadConfig(), deps: deps(), promptText: 'Fix https://github.com/acme/app/issues/42 the login limiter' });
     expect(t.fetch_error).toContain('gh issue view failed');

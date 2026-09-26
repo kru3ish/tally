@@ -5713,8 +5713,14 @@ async function fetchTask(ref, opts) {
       case "github": {
         const sub = source.is_pr ? "pr" : "issue";
         const r = deps.exec("gh", [sub, "view", source.url, "--json", "title,body,labels,number,url,state"]);
-        if (!r.ok) return fallback(`gh ${sub} view failed: ${r.stderr.trim().slice(0, 200)}`);
-        const j = JSON.parse(r.stdout);
+        let j;
+        if (r.ok) j = JSON.parse(r.stdout);
+        else {
+          const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+          const api = await deps.fetch(`https://api.github.com/repos/${source.owner}/${source.repo}/${source.is_pr ? "pulls" : "issues"}/${source.number}`, { headers: { Accept: "application/vnd.github+json", "User-Agent": "tally", ...token ? { Authorization: `Bearer ${token}` } : {} } });
+          if (!api.ok) return fallback(`gh ${sub} view failed (${r.stderr.trim().slice(0, 120) || "gh not available"}) and api.github.com answered ${api.status}`);
+          j = JSON.parse(await api.text());
+        }
         const labels = (j.labels ?? []).map((l) => l.name);
         const sp = labels.map((l) => /^(?:sp|points?)[:\s-]*(\d+)$/i.exec(l)?.[1]).find(Boolean);
         return { source, title: j.title, body: j.body ?? "", labels, state: j.state, story_points: sp ? Number(sp) : void 0 };

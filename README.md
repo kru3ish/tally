@@ -57,7 +57,7 @@ What each path gives you:
 | Repo policy in `tally.json`: standing criteria, budget, hard stop | yes | yes |
 | Playbook and numbers-only export (`tally playbook`, `tally export`) | no | yes |
 
-Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional (GitHub intake, write-back, follow-up). Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
+Requirements: Node 18+, the Claude Code CLI (`claude`) on your PATH, `git`. `gh` is optional: GitHub issue intake works without it through the public REST API (set `GITHUB_TOKEN` for private repos); write-back and follow-up still need `gh`. Jira and Linear read `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` from the environment.
 
 Uninstall: `/plugin uninstall tally` or `tally uninstall` (settings come back byte-identical, checked in CI), then `rm -rf ~/.tally` if you want the receipts gone too.
 
