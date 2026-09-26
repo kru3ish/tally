@@ -230,3 +230,30 @@ describe('pattern checks are hints, not verdicts', () => {
     expect(c3.resolved_by).toBe('tier0');
   });
 });
+
+describe('a guessed file path is not evidence of absence', () => {
+  it('sends a file_contains check on a missing file to the judgment tier when the session has a diff', async () => {
+    const { cwd, base } = makeRepo({ testPasses: true });
+    const stub = judgeStub(['met', 'met', 'met']);
+    const llm = new StubLlm(
+      {
+        ...stub,
+        intake: () => ({
+          ...stub.intake(),
+          criteria: [
+            { text: 'Login returns 429 after 5 failed attempts', source: 'explicit' },
+            { text: 'A test covers the 429 path', source: 'explicit', check: { kind: 'file_contains', path: 'test/login.test.js', pattern: '429' } },
+            { text: 'src/login.js is changed', source: 'explicit', check: { kind: 'file_changed', path: 'src/login.js' } },
+          ],
+        }),
+      },
+      'fxguess',
+    );
+    const cfg = loadConfig();
+    await intake({ session: 'fxguess', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps: { exec: () => ({ ok: false, stdout: '', stderr: '' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false } as FetchDeps });
+    const j = await judgeSession({ session: 'fxguess', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const c2 = j.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.status).toBe('met');
+    expect(c2.resolved_by).not.toBe('tier0');
+  });
+});

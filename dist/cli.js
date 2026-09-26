@@ -7258,7 +7258,10 @@ async function judgeSession(opts) {
     const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
     const touched = new Set([...ev.git.files_changed, ...ev.edited_files].map((f) => f.replace(/\\/g, "/")));
     const chk = c.check;
-    const patternMiss = r0.status === "unmet" && (chk.kind === "diff_contains" && !!(ev.git.diff_excerpt || ev.reconstruction.diff_text) || chk.kind === "file_contains" && fs16.existsSync(path15.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, "/"))));
+    const hasDiff = !!(ev.git.diff_excerpt || ev.reconstruction.diff_text);
+    const fileGuessMissed = chk.kind === "file_contains" && !fs16.existsSync(path15.join(opts.cwd, chk.path)) && hasDiff;
+    const fileTouchedButNoMatch = chk.kind === "file_contains" && fs16.existsSync(path15.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, "/")));
+    const patternMiss = r0.status === "unmet" && (chk.kind === "diff_contains" && hasDiff || fileGuessMissed || fileTouchedButNoMatch);
     if (patternMiss) {
       patternMisses.set(c.id, `[${c.check.kind}] ${r0.evidence}`);
       continue;
@@ -9987,7 +9990,7 @@ function quickChecks(session, cwd) {
     } else if (ch.kind === "file_contains" && ch.path && ch.pattern && cwd) {
       const p = path29.join(cwd, ch.path);
       const re = safeRegex2(ch.pattern);
-      if (!fs29.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unmet", why: `${ch.path} does not exist` });
+      if (!fs29.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: fs29.existsSync(path29.dirname(p)) ? "unmet" : "unknown", why: `${ch.path} does not exist${fs29.existsSync(path29.dirname(p)) ? "" : " (nor its directory; the path may be a guess)"}` });
       else if (!re) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unknown", why: "invalid pattern" });
       else {
         const ok = re.test(fs29.readFileSync(p, "utf8"));

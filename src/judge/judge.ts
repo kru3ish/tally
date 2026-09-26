@@ -251,7 +251,12 @@ export async function judgeSession(opts: {
        judgment tiers, not a verdict; existence, diff-membership and test results stay conclusive */
     const touched = new Set([...ev.git.files_changed, ...ev.edited_files].map((f) => f.replace(/\\/g, '/')));
     const chk = c.check;
-    const patternMiss = r0.status === 'unmet' && ((chk.kind === 'diff_contains' && !!(ev.git.diff_excerpt || ev.reconstruction.diff_text)) || (chk.kind === 'file_contains' && fs.existsSync(path.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, '/')))));
+    const hasDiff = !!(ev.git.diff_excerpt || ev.reconstruction.diff_text);
+    /* file_contains: the intake model also guesses the path (it wrote test/command.test.js for a repo whose tests live in
+       tests/), so a missing file is a guess that failed, not proof the work is missing */
+    const fileGuessMissed = chk.kind === 'file_contains' && !fs.existsSync(path.join(opts.cwd, chk.path)) && hasDiff;
+    const fileTouchedButNoMatch = chk.kind === 'file_contains' && fs.existsSync(path.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, '/')));
+    const patternMiss = r0.status === 'unmet' && ((chk.kind === 'diff_contains' && hasDiff) || fileGuessMissed || fileTouchedButNoMatch);
     if (patternMiss) {
       /* the file was worked on (or the diff exists) and only the phrasing failed: let a model read it */
       patternMisses.set(c.id, `[${c.check.kind}] ${r0.evidence}`);

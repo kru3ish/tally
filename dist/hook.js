@@ -142,7 +142,7 @@ function quickChecks(session, cwd) {
     } else if (ch.kind === "file_contains" && ch.path && ch.pattern && cwd) {
       const p = path2.join(cwd, ch.path);
       const re = safeRegex(ch.pattern);
-      if (!fs2.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unmet", why: `${ch.path} does not exist` });
+      if (!fs2.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: fs2.existsSync(path2.dirname(p)) ? "unmet" : "unknown", why: `${ch.path} does not exist${fs2.existsSync(path2.dirname(p)) ? "" : " (nor its directory; the path may be a guess)"}` });
       else if (!re) items.push({ id: c.id, text: c.text, kind: ch.kind, status: "unknown", why: "invalid pattern" });
       else {
         const ok = re.test(fs2.readFileSync(p, "utf8"));

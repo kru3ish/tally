@@ -154,3 +154,20 @@ describe('security watch', () => {
     }
   });
 });
+
+describe('quick checks and guessed paths', () => {
+  it('reports a file_contains check on a path whose directory does not exist as unknown, not unmet', () => {
+    const cwd = tmpDir('tally-guess-');
+    fs.mkdirSync(path.join(cwd, 'tests'));
+    const session = 'guess-0001';
+    writeJson(path.join(sessionDir(session), 'task.json'), {
+      criteria: [
+        { id: 'c1', text: 'a test exists', kind: 'mechanical', check: { kind: 'file_contains', path: 'test/x.test.js', pattern: 'x' } },
+        { id: 'c2', text: 'a test exists here', kind: 'mechanical', check: { kind: 'file_contains', path: 'tests/y.test.js', pattern: 'y' } },
+      ],
+    });
+    const p = quickChecks(session, cwd);
+    expect(p.items.find((i) => i.id === 'c1')!.status).toBe('unknown');
+    expect(p.items.find((i) => i.id === 'c2')!.status).toBe('unmet');
+  });
+});

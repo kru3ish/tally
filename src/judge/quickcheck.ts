@@ -80,7 +80,9 @@ export function quickChecks(session: string, cwd: string | undefined): Progress 
     } else if (ch.kind === 'file_contains' && ch.path && ch.pattern && cwd) {
       const p = path.join(cwd, ch.path);
       const re = safeRegex(ch.pattern);
-      if (!fs.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: 'unmet', why: `${ch.path} does not exist` });
+      /* a path whose directory does not exist in the repo was guessed by the intake model (test/ vs tests/); that is
+         "needs the Judge", not a failed criterion the Stop gate should hold the agent on */
+      if (!fs.existsSync(p)) items.push({ id: c.id, text: c.text, kind: ch.kind, status: fs.existsSync(path.dirname(p)) ? 'unmet' : 'unknown', why: `${ch.path} does not exist${fs.existsSync(path.dirname(p)) ? '' : ' (nor its directory; the path may be a guess)'}` });
       else if (!re) items.push({ id: c.id, text: c.text, kind: ch.kind, status: 'unknown', why: 'invalid pattern' });
       else {
         const ok = re.test(fs.readFileSync(p, 'utf8'));
