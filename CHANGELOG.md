@@ -17,7 +17,7 @@ All notable changes to Tally. The format follows [Keep a Changelog](https://keep
 - **Repo policy `test_command`.** `tally.json` can name the command the Judge runs for independent verification when the detected runner is wrong for the repo or the platform.
 - **GitHub intake without `gh`.** Issue and PR links resolve through the public REST API when `gh` is missing or not logged in; `GITHUB_TOKEN` / `GH_TOKEN` is used when present.
 - `scripts/grading-sheet.ts --sessions a1b2c3d4,…` limits the blind grading sheet to given sessions.
-- Calibration entry: eight headless sessions blind-graded by an independent model, 49 of 50 criteria and 8 of 8 verdicts (README, "How accurate is the Judge?").
+- Calibration entries: eight headless sessions blind-graded by an independent model, 50 of 50 criteria and 8 of 8 verdicts after the fixes above; six real open-source issues fixed under Tally and blind-graded, 28 of 29 criteria and 4 of 6 verdicts (README, "How accurate is the Judge?").
 
 ## [0.3.0] - 2026-09-23
 
