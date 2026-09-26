@@ -239,11 +239,23 @@ export async function judgeSession(opts: {
   const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
   type Resolved = { id: string; text: string; status: 'met' | 'partial' | 'unmet' | 'unverifiable'; evidence: string; files: string[]; resolved_by: 'tier0' | 'tier1' | 'tier2' | 'rule'; confidence?: number };
   const resolved = new Map<string, Resolved>();
+  const patternMisses = new Map<string, string>();
 
   /* Tier 0: mechanical checks, no model */
   for (const c of task.criteria) {
     if (c.kind !== 'mechanical' || !c.check) continue;
     const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    /* a pattern the intake model wrote can miss what a human would accept (the eval's one disagreement was
+       /spawn.*wc2/ against `spawnSync(process.execPath, [binPath` ), so a content-pattern miss is a hint for the
+       judgment tiers, not a verdict; existence, diff-membership and test results stay conclusive */
+    const touched = new Set([...ev.git.files_changed, ...ev.edited_files].map((f) => f.replace(/\\/g, '/')));
+    const chk = c.check;
+    const patternMiss = r0.status === 'unmet' && ((chk.kind === 'diff_contains' && !!(ev.git.diff_excerpt || ev.reconstruction.diff_text)) || (chk.kind === 'file_contains' && fs.existsSync(path.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, '/')))));
+    if (patternMiss) {
+      /* the file was worked on (or the diff exists) and only the phrasing failed: let a model read it */
+      patternMisses.set(c.id, `[${c.check.kind}] ${r0.evidence}`);
+      continue;
+    }
     resolved.set(c.id, { id: c.id, text: c.text, status: r0.status, evidence: `[${c.check.kind}] ${r0.evidence}`, files: r0.files, resolved_by: 'tier0' });
   }
   const judgmentIds = task.criteria.filter((c) => !resolved.has(c.id)).map((c) => c.id);
@@ -267,7 +279,7 @@ export async function judgeSession(opts: {
   /* Tier 1: small model, trimmed evidence pack, judgment criteria only */
   let tier1Pack: { tokens: number; truncated: boolean } | undefined;
   if (decision.run_tier1 && !(opts.deep || t.cost >= opts.cfg.judge.deepThreshold)) {
-    const pack = buildTier1Prompt(task, judgmentIds, ev, ver, numbers, opts.cfg.judge.tier1_evidence_tokens);
+    const pack = buildTier1Prompt(task, judgmentIds, ev, ver, numbers, opts.cfg.judge.tier1_evidence_tokens, patternMisses);
     tier1Pack = { tokens: pack.tokens, truncated: pack.truncated };
     const r1 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 1, model: opts.cfg.models.tier1, system: TIER1_SYSTEM, prompt: pack.prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 180000 });
     const out1 = redactDeep(r1.data);
@@ -302,7 +314,7 @@ export async function judgeSession(opts: {
     const ids = decision.tier2_criteria;
     const fullStrength = !!opts.deep || t.cost >= opts.cfg.judge.deepThreshold;
     const model = fullStrength ? opts.cfg.models.judge : t.cost >= opts.cfg.judge.escalation_model_from_usd ? opts.cfg.models.tier2_escalation : opts.cfg.models.tier1;
-    const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens).prompt;
+    const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens, patternMisses).prompt;
     const r2 = await opts.llm.complete<JudgeOut>({ kind: 'judge', tier: 2, model, system: fullStrength ? JUDGE_SYSTEM : ESCALATION_SYSTEM, prompt, schema: TIER_SCHEMA as unknown as Record<string, unknown>, timeoutMs: 300000 });
     const keepProse = !fullStrength && prose;
     const out2 = redactDeep(r2.data);

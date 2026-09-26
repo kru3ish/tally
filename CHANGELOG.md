@@ -2,6 +2,19 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [Unreleased]
+
+### Fixed
+
+- **Session-end judging raced the task intake.** A session that ends within a minute or two of its first prompt (common in headless `claude -p` runs) was judged against the prompt while the intake spawned by that prompt was still freezing the task: receipts showed 1 criterion where the task had 5–8. Session end now waits for a running intake (`judge.intake_wait_ms`, default 3 min), and an intake that finishes after a receipt exists re-judges it. Found by running eight headless sessions under Tally.
+- **A content-pattern miss is a hint, not a verdict.** `diff_contains` and `file_contains` checks whose pattern does not match now send the criterion to the judgment tier with the miss noted, instead of resolving it `unmet` at tier 0, when the checked file was worked on in the session (or, for a diff pattern, the diff is non-empty). A pattern miss on a file the session never touched stays `unmet`; existence, diff-membership and test checks remain conclusive. The eval's one disagreement was such a pattern.
+- Security watch: `.env` matches only as a path (not `process.env.X`); writes are flagged only when they leave the home directory or target a dot path under it, and once per file.
+
+### Added
+
+- `scripts/grading-sheet.ts --sessions a1b2c3d4,…` limits the blind grading sheet to given sessions.
+- Calibration entry: eight headless sessions blind-graded by an independent model, 49 of 50 criteria and 8 of 8 verdicts (README, "How accurate is the Judge?").
+
 ## [0.3.0] - 2026-09-23
 
 The agent asks Tally before it says done; one person gets the numbers on day one; air-gapped runs.

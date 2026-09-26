@@ -132,6 +132,13 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## Headless eval (2026-09-26)
+
+- V7: Tally was tested on itself the way a user would meet it: eight small tasks in fresh repos, each run as a real `claude -p` session (sonnet, hooks active, no MCP), then blind-graded by a separate Claude model from the repository alone. Result 49 of 50 criteria, 8 of 8 verdicts. The README states plainly that this is a model grading a model on purpose-written tasks; the human-graded number stays the headline.
+- V8: The eval found a race, not a scoring problem: session-end judging ran before intake finished, so short sessions were scored against the prompt. Session end now waits for intake (bounded) and a late intake re-judges. Long interactive sessions never hit this, which is why eleven graded real sessions did not show it.
+- V9: A pattern the intake model writes is a guess about the diff, so a miss cannot be an `unmet`. It is now a hint to the judgment tier. Existence and test checks are still conclusive because they test the thing itself, not a phrasing of it.
+- V10: Two things the eval surfaced and left alone, on purpose: dead-weight first-turn context (54k tokens of global CLAUDE.md, plugins and skills) is labelled waste on every one-minute session and dominates it; that is true and the user's to fix. And the vague "make the logger better" task scored spec quality 2 with a clarification flag, yet 100% on its three inferred criteria and `worth it`: the receipt is right about the criteria and the flag is right about the spec; the verdict rule does not yet discount for a spec that could not be checked against intent.
+
 ## 0.3.0 (2026-09-23)
 
 - S1: The agent checks itself through MCP, not through prose. `tally_unmet` returns the unmet criteria with the mechanical status; the Stop gate blocks once when quick checks say a criterion is unmet. Both use only file and git checks (no model), so they are fast and cannot be argued with; anything needing judgment waits for the Judge.

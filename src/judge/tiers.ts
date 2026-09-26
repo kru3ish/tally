@@ -152,8 +152,8 @@ export function trimDiff(diff: string, prioritizedFiles: string[], maxChars: num
   return { text: out, truncated };
 }
 
-export function buildTier1Prompt(task: Task, ids: string[], ev: Evidence, ver: VerificationResult, numbers: { cost: number; waste: number; value: number; budget: number }, tokenBudget: number): { prompt: string; tokens: number; truncated: boolean } {
-  const criteria = task.criteria.filter((c) => ids.includes(c.id));
+export function buildTier1Prompt(task: Task, ids: string[], ev: Evidence, ver: VerificationResult, numbers: { cost: number; waste: number; value: number; budget: number }, tokenBudget: number, hints?: Map<string, string>): { prompt: string; tokens: number; truncated: boolean } {
+  const criteria = task.criteria.filter((c) => ids.includes(c.id)).map((c) => (hints?.has(c.id) ? { ...c, text: `${c.text}  (a mechanical pattern check did not match: ${hints.get(c.id)}; decide from the diff and tests, the pattern may simply be too narrow)` } : c));
   const prioritized = [...new Set([...ev.edited_files, ...criteria.flatMap((c) => (c.text.match(/[\w./-]+\.[a-z]{1,5}\b/g) ?? []))])];
   const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
   const verLine = ver.ran

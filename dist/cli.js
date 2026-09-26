@@ -6714,8 +6714,8 @@ function trimDiff(diff, prioritizedFiles, maxChars) {
   }
   return { text: out, truncated };
 }
-function buildTier1Prompt(task, ids, ev, ver, numbers, tokenBudget) {
-  const criteria = task.criteria.filter((c) => ids.includes(c.id));
+function buildTier1Prompt(task, ids, ev, ver, numbers, tokenBudget, hints) {
+  const criteria = task.criteria.filter((c) => ids.includes(c.id)).map((c) => hints?.has(c.id) ? { ...c, text: `${c.text}  (a mechanical pattern check did not match: ${hints.get(c.id)}; decide from the diff and tests, the pattern may simply be too narrow)` } : c);
   const prioritized = [.../* @__PURE__ */ new Set([...ev.edited_files, ...criteria.flatMap((c) => c.text.match(/[\w./-]+\.[a-z]{1,5}\b/g) ?? [])])];
   const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
   const verLine = ver.ran ? `\`${ver.command}\` \u2192 ${ver.passed ? "PASSED" : ver.timed_out ? "TIMED OUT" : `FAILED (exit ${ver.exit_code})`}
@@ -7249,9 +7249,17 @@ async function judgeSession(opts) {
   const numbers = { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd };
   const noConsent = !ver.ran && ver.reason === NO_CONSENT_REASON;
   const resolved = /* @__PURE__ */ new Map();
+  const patternMisses = /* @__PURE__ */ new Map();
   for (const c of task.criteria) {
     if (c.kind !== "mechanical" || !c.check) continue;
     const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    const touched = new Set([...ev.git.files_changed, ...ev.edited_files].map((f) => f.replace(/\\/g, "/")));
+    const chk = c.check;
+    const patternMiss = r0.status === "unmet" && (chk.kind === "diff_contains" && !!(ev.git.diff_excerpt || ev.reconstruction.diff_text) || chk.kind === "file_contains" && fs16.existsSync(path15.join(opts.cwd, chk.path)) && [...touched].some((f) => f.endsWith(chk.path.replace(/\\/g, "/"))));
+    if (patternMiss) {
+      patternMisses.set(c.id, `[${c.check.kind}] ${r0.evidence}`);
+      continue;
+    }
     resolved.set(c.id, { id: c.id, text: c.text, status: r0.status, evidence: `[${c.check.kind}] ${r0.evidence}`, files: r0.files, resolved_by: "tier0" });
   }
   const judgmentIds = task.criteria.filter((c) => !resolved.has(c.id)).map((c) => c.id);
@@ -7272,7 +7280,7 @@ async function judgeSession(opts) {
   };
   let tier1Pack;
   if (decision.run_tier1 && !(opts.deep || t.cost >= opts.cfg.judge.deepThreshold)) {
-    const pack = buildTier1Prompt(task, judgmentIds, ev, ver, numbers, opts.cfg.judge.tier1_evidence_tokens);
+    const pack = buildTier1Prompt(task, judgmentIds, ev, ver, numbers, opts.cfg.judge.tier1_evidence_tokens, patternMisses);
     tier1Pack = { tokens: pack.tokens, truncated: pack.truncated };
     const r1 = await opts.llm.complete({ kind: "judge", tier: 1, model: opts.cfg.models.tier1, system: TIER1_SYSTEM, prompt: pack.prompt, schema: TIER_SCHEMA, timeoutMs: 18e4 });
     const out1 = redactDeep(r1.data);
@@ -7303,7 +7311,7 @@ async function judgeSession(opts) {
     const ids = decision.tier2_criteria;
     const fullStrength = !!opts.deep || t.cost >= opts.cfg.judge.deepThreshold;
     const model = fullStrength ? opts.cfg.models.judge : t.cost >= opts.cfg.judge.escalation_model_from_usd ? opts.cfg.models.tier2_escalation : opts.cfg.models.tier1;
-    const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens).prompt;
+    const prompt = fullStrength ? buildPrompt({ ...task, criteria: task.criteria.filter((c) => ids.includes(c.id)) }, t, ev, ver, numbers) : buildTier1Prompt(task, ids, ev, ver, numbers, opts.cfg.judge.tier2_escalation_tokens, patternMisses).prompt;
     const r2 = await opts.llm.complete({ kind: "judge", tier: 2, model, system: fullStrength ? JUDGE_SYSTEM : ESCALATION_SYSTEM, prompt, schema: TIER_SCHEMA, timeoutMs: 3e5 });
     const keepProse = !fullStrength && prose;
     const out2 = redactDeep(r2.data);

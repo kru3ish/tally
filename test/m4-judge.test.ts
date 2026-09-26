@@ -201,3 +201,32 @@ describe('write-back', () => {
     expect(calls.some((c) => c[1] === 'pr' && c[2] === 'comment')).toBe(true);
   });
 });
+
+describe('pattern checks are hints, not verdicts', () => {
+  it('sends a diff_contains miss to the judgment tier instead of marking it unmet', async () => {
+    const { cwd, base } = makeRepo({ testPasses: true });
+    const stub = judgeStub(['met', 'met', 'met']);
+    const llm = new StubLlm(
+      {
+        ...stub,
+        intake: () => ({
+          ...stub.intake(),
+          criteria: [
+            { text: 'Login returns 429 after 5 failed attempts', source: 'explicit' },
+            { text: 'Tests spawn the CLI end to end', source: 'explicit', check: { kind: 'diff_contains', pattern: 'spawn.*wc2' } },
+            { text: 'src/login.js is changed', source: 'explicit', check: { kind: 'file_changed', path: 'src/login.js' } },
+          ],
+        }),
+      },
+      'fxpat',
+    );
+    const cfg = loadConfig();
+    await intake({ session: 'fxpat', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps: { exec: () => ({ ok: false, stdout: '', stderr: '' }), fetch: async () => ({ ok: false, status: 0, text: async () => '' }), readFile: () => '', exists: () => false } as FetchDeps });
+    const j = await judgeSession({ session: 'fxpat', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const c2 = j.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.status).toBe('met');
+    expect(c2.resolved_by).not.toBe('tier0');
+    const c3 = j.criteria.find((c) => c.id === 'c3')!;
+    expect(c3.resolved_by).toBe('tier0');
+  });
+});
