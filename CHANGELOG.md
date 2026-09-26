@@ -2,7 +2,7 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
-## [Unreleased]
+## [0.3.1] - 2026-09-26
 
 ### Fixed
 
