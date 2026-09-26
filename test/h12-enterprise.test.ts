@@ -222,5 +222,10 @@ describe('policy test_command', () => {
     expect(v.ran).toBe(true);
     expect(v.passed).toBe(true);
     expect(v.basis).toBe('configured');
+    /* an intake-written `npm test` command check defers to that configured run instead of running the broken script */
+    const { resolveCheck } = await import('../src/judge/checks.js');
+    const r = await resolveCheck({ kind: 'command', command: 'npm test', expect_exit: 0 }, { cwd, evidence: { git: { files_changed: [], diff_excerpt: '' }, reconstruction: { diff_text: '' }, edited_files: [] } as never, verification: v, consent: true, timeoutMs: 20000 });
+    expect(r.status).toBe('met');
+    expect(r.evidence).toContain('repo policy test_command');
   });
 });

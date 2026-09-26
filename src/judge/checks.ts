@@ -147,7 +147,9 @@ export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidenc
     case 'command': {
       if (!commandAllowed(check.command, ctx.cwd, ver.command)) return { status: 'unverifiable', evidence: `command not in the repo's own scripts, not run: ${check.command}`, files: [] };
       if (ctx.consent !== true) return { status: 'unverifiable', evidence: `${NO_CONSENT_REASON}: ${check.command}`, files: [] };
-      if (ver.ran && ver.command === check.command) return ver.passed ? { status: 'met', evidence: `\`${check.command}\` exited 0 (independent run)`, files: [] } : { status: 'unmet', evidence: `\`${check.command}\` failed (exit ${ver.exit_code})`, files: [] };
+      /* when the repo policy names the test command, a generic "npm test" check means "the tests": use the independent run */
+      const genericTest = /^(npm|pnpm|yarn|bun)(\s+run)?\s+test$/.test(check.command.trim());
+      if (ver.ran && (ver.command === check.command || (ver.basis === 'configured' && genericTest))) return ver.passed ? { status: 'met', evidence: `\`${ver.command}\` exited 0 (independent run${ver.basis === 'configured' ? ', repo policy test_command' : ''})`, files: [] } : { status: 'unmet', evidence: `\`${ver.command}\` failed (exit ${ver.exit_code})`, files: [] };
       const isWin = process.platform === 'win32';
       const r = await runProcess(isWin ? 'cmd.exe' : 'sh', isWin ? ['/d', '/s', '/c', `"${check.command}"`] : ['-c', check.command], { cwd: ctx.cwd, timeoutMs: ctx.timeoutMs, env: scrubEnv(), replaceEnv: true });
       const ok = !r.timedOut && r.code === check.expect_exit;
