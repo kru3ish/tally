@@ -208,3 +208,19 @@ describe('playbook and export', () => {
     expect(exportRow(h, true).task_title).toBe('Rate limit the login endpoint');
   });
 });
+
+describe('policy test_command', () => {
+  it('the Judge runs the configured command instead of the detected runner', async () => {
+    const { runVerification } = await import('../src/judge/verify.js');
+    const { loadPolicy } = await import('../src/policy.js');
+    const cwd = tmpDir('tally-testcmd-');
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node -e "process.exit(1)"' } }));
+    fs.writeFileSync(path.join(cwd, 'tally.json'), JSON.stringify({ test_command: 'node -e "process.exit(0)"' }));
+    const pol = loadPolicy(cwd);
+    expect(pol.policy.test_command).toBe('node -e "process.exit(0)"');
+    const v = await runVerification(cwd, { timeoutMs: 20000, enabled: true, consent: true, command: pol.policy.test_command });
+    expect(v.ran).toBe(true);
+    expect(v.passed).toBe(true);
+    expect(v.basis).toBe('configured');
+  });
+});

@@ -158,11 +158,12 @@ All dollar figures are **API-equivalent** at list price from `pricing.json` (wit
     { "text": "New code has tests", "check": { "kind": "tests_pass" } },
     { "text": "No changes under /billing without a CODEOWNERS review" }
   ],
-  "budget": { "hourly_rate": 120, "fraction": 0.25, "hard_stop": true }
+  "budget": { "hourly_rate": 120, "fraction": 0.25, "hard_stop": true },
+  "test_command": "npm run tests-only"
 }
 ```
 
-Standing criteria are appended to every task's frozen checklist (mechanical where a check is given, judged otherwise). The budget block sets the rate, the fraction of human-equivalent value, or a fixed `usd`. With `hard_stop`, once a session passes its budget the PreToolUse hook denies every tool call, the status line says `HARD STOP`, and a human lifts it with `tally budget approve --note "why"` (or `/tally:budget`), which is recorded on the receipt.
+`test_command` is what the Judge runs for independent verification when the detected runner is wrong for the repo (a `pretest` step that needs the network or breaks on one platform, a monorepo, a suite that only works in CI). Standing criteria are appended to every task's frozen checklist (mechanical where a check is given, judged otherwise). The budget block sets the rate, the fraction of human-equivalent value, or a fixed `usd`. With `hard_stop`, once a session passes its budget the PreToolUse hook denies every tool call, the status line says `HARD STOP`, and a human lifts it with `tally budget approve --note "why"` (or `/tally:budget`), which is recorded on the receipt.
 
 **Reviewer brief.** `tally judge --post` (or `writeback: true`) now posts a brief for the reviewer rather than a score: what was verified independently, what the model rated, what needs a manual look, where the agent struggled, and what was not verified against disk.
 

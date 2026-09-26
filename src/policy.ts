@@ -18,6 +18,9 @@ export const PolicySchema = z.object({
     })
     .default({}),
   consent: z.boolean().optional(),
+  /* the command the Judge runs for independent verification when `npm test` (or the detected runner) is not the right
+     one for this repo: a pretest step that needs network, a monorepo, a suite that only works in CI */
+  test_command: z.string().min(1).optional(),
   note: z.string().optional(),
 });
 export type Policy = z.infer<typeof PolicySchema>;

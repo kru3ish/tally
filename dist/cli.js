@@ -6037,6 +6037,9 @@ var init_policy = __esm({
         hard_stop: external_exports.boolean().default(false)
       }).default({}),
       consent: external_exports.boolean().optional(),
+      /* the command the Judge runs for independent verification when `npm test` (or the detected runner) is not the right
+         one for this repo: a pretest step that needs network, a monorepo, a suite that only works in CI */
+      test_command: external_exports.string().min(1).optional(),
       note: external_exports.string().optional()
     });
     POLICY_FILES = ["tally.json", ".tally.json"];
@@ -7243,7 +7246,7 @@ async function judgeSession(opts) {
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
   const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec, skipGit: opts.skipGit });
   const consent = opts.consent ?? testRerunConsent(opts.cfg, opts.cwd);
-  const ver = opts.verification ?? await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent });
+  const ver = opts.verification ?? await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent, command: loadPolicy(opts.cwd).policy.test_command });
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
   const humanValue = task.estimate.hours * task.hourly_rate;
   const numbers = { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd };
@@ -7510,6 +7513,7 @@ var init_judge = __esm({
     init_intake();
     init_evidence();
     init_verify();
+    init_policy();
     init_redact();
     init_otel();
     init_config();
