@@ -198,7 +198,7 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
      get, so wait for it rather than judging a second time: two receipts for one session cost twice and, because the
      maintainer review is a model read, can disagree with each other (yargs-2423: borderline from the runner's judge,
      worth it from the hook's, thirty seconds apart). A fake agent (tests) triggers no hooks, so there is nothing to wait for. */
-  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent ? 0 : 10 * 60 * 1000);
+  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent || opts.resume ? 0 : 10 * 60 * 1000);
   const hookJudged = (): boolean => {
     const j = loadJudge(session);
     return !!j && j.head === head && j.reason === 'session_end';

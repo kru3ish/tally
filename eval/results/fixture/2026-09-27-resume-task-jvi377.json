@@ -1,0 +1,129 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "jvi377",
+  "date": "2026-09-27T16:16:57.030Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "016d027"
+  },
+  "task": {
+    "id": "resume-task",
+    "class": "fixture",
+    "repo": "C:\\Users\\Mehta\\AppData\\Local\\Temp\\tally-eval-resume-KxdQoD\\src",
+    "base": "51defb71ce0b22296dbe46003ca262d8eae74968",
+    "head": "8d18a259662c5aa7a2f7186599567246bf8f245a",
+    "tags": [],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "stub:haiku",
+    "duration_s": 0,
+    "cost_usd": 0
+  },
+  "config": {
+    "agent_model": "sonnet",
+    "max_turns": 80,
+    "timeout_min": 45,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "8d18a25 greet"
+    ],
+    "files": [
+      {
+        "file": "README.md",
+        "added": 1,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-resume-task-jvi377.patch",
+    "patch_bytes": 123
+  },
+  "grader": {
+    "product": "claude-code",
+    "cost_usd": null,
+    "blind": true
+  },
+  "session": "resume-session-1",
+  "tally_summary": {
+    "verified": 0,
+    "supported": 0,
+    "unverified": 1,
+    "unmet": 0,
+    "total": 1,
+    "sufficient": 0,
+    "verdict": "insufficient evidence",
+    "completion_pct": 0
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 1,
+    "preexisting_files": null,
+    "agent_added_files": 0,
+    "agent_cases_added": 0
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "The requested change is implemented",
+      "tally": {
+        "status": "unverifiable",
+        "assurance": "UNVERIFIED",
+        "resolved_by": "tier2",
+        "evidence": [
+          "[model] No assessment returned by the model."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "README says hello"
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 0,
+    "total": 1,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 0
+  },
+  "timings": {
+    "agent_s": 0,
+    "judge_s": 1,
+    "grader_s": 0
+  },
+  "notes": [
+    "resumed from C:\\Users\\Mehta\\AppData\\Local\\Temp\\tally-eval-resume-root-S1Ty13\\resume-task with session resume-s; agent turns and duration are not known, cost is taken from the receipt",
+    "no transcript found for the session; cost and turns come from the agent envelope only"
+  ]
+}

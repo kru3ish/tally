@@ -10230,7 +10230,7 @@ async function runEvalTask(opts) {
     out(`[${opts.task.id}] intake`);
     await intake({ session, cwd: dir, ref: path32.join(dir, "task.md"), cfg, llm: makeLlm({ session }) });
   }
-  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent ? 0 : 10 * 60 * 1e3);
+  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent || opts.resume ? 0 : 10 * 60 * 1e3);
   const hookJudged = () => {
     const j = loadJudge(session);
     return !!j && j.head === head && j.reason === "session_end";
