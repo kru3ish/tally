@@ -1,12 +1,66 @@
-# Tally (preview)
+# Tally
 
-**A receipt for every Claude Code task, and a coach that runs on its own.**
+**The reliability layer for AI coding agents.** Tally knows what the agent was asked to do, records what it did, independently verifies what it can, and hands you a receipt where every claim traces to evidence. The agent is replaceable; Tally keeps the truth.
 
-Cost tracking is solved (`/cost`, `/usage`, ccusage). Retrospective habit coaching is built in (`/insights`). What nobody gives you is a receipt for **one task**: the ticket's acceptance criteria frozen at intake, what actually shipped, what it cost, what was wasted, whether it held up after merge, and whether it was worth it. Tally's Judge writes that receipt. The Coach is the live feedback loop those receipts drive.
+Every agent tells you what a session cost. None of them tell you whether the task got done, what was actually proven, and what was skipped. Cost dashboards (`/cost`, ccusage) count tokens; retrospectives (`/insights`) find habits. Neither freezes the acceptance criteria before the work starts, re-runs the tests itself, or notices that the README item was quietly dropped. Tally does those things, locally, for Claude Code, Codex CLI, Gemini CLI and Cursor.
 
-Everything runs locally. No server, no database, no API key: Tally talks to Claude through `claude -p` on your existing login.
+Tally answers five questions about an agent's work:
 
-This is a **preview** (v0.4.0): the pipeline is tested end to end on Linux, macOS and Windows, but the Judge has been calibrated against five authored sessions and a first handful of real ones, not a benchmark. Read [How accurate is the Judge?](#how-accurate-is-the-judge) before trusting a verdict.
+| | Question | Today |
+|---|---|---|
+| **VERIFY** | Did the agent complete the requested task? | Task Contract frozen at intake; Evidence Map per criterion; `tally verify` |
+| **OBSERVE** | How did it behave while doing so? | Loops, re-reads, context pressure, test runs, security-relevant actions; the Coach in autopilot |
+| **REMEMBER** | What should future agents know about this repository? | Lessons on receipts, `tally playbook`; repository memory is roadmap v0.7 |
+| **COMPARE** | Which agent, model or configuration works best here? | Agent and model recorded separately on every receipt; experiments; comparison views are roadmap v0.8 |
+| **GOVERN** | What must be true before work counts as complete? | `tally.json`: standing criteria, budget with a hard stop, verification command; more policies in v0.6 |
+
+This is a **preview** (v0.5.0). The pipeline is tested end to end on Linux, macOS and Windows; the Judge's agreement with humans is measured and small ([How accurate is the Judge?](#how-accurate-is-the-judge), [`docs/EVALUATION.md`](docs/EVALUATION.md)). Read the evidence lines before trusting a status.
+
+## What Tally can prove
+
+`tally verify` is the flagship. Every criterion gets one of four statuses, and the evidence under it is what decided:
+
+```
+Tally Verify
+
+Task: Rate limit the login endpoint
+Agent: claude-code   Model: claude-opus-5 (anthropic)
+
+Acceptance criteria
+✓ VERIFIED    POST /api/login returns 429 after 5 failed attempts from one IP within 15 minutes
+  ├─ src/login.js changed
+  ├─ src/rateLimit.js changed
+  ├─ test.js mentions 429
+  ├─ independent run of `npm test` passed
+  └─ src/rateLimit.js returns true above 5 attempts and src/login.js maps it to 429 (1.00) [model]
+✓ VERIFIED    A test covers the 429 path
+  ├─ test.js mentions 429
+  ├─ independent run of `npm test` passed
+  └─ test.js asserts 429 after 6 attempts; the auditor ran it and it passed. (1.00) [model]
+✗ UNMET       README documents the limit
+  └─ README.md is unchanged in the diff; the assistant said "I did not update the README". (1.00) [model]
+? UNVERIFIED  Existing login behaviour is unchanged below the limit
+  ├─ independent run of `npm test` passed
+  └─ No test exercises attempts below the limit; nothing in the diff contradicts it. (1.00) [model]
+
+Verification
+✓ npm test  independent run
+  pre-existing tests: 1 file(s) at session start
+  agent-created tests: 0 file(s) added, 0 modified, 0 case(s) added
+  agent's own runs: 4 (1 green)  claims, not evidence
+
+Result
+2/4 criteria have sufficient evidence (2 verified, 0 supported).
+1 criterion is unmet.
+1 could not be verified from the evidence.
+```
+
+- **VERIFIED**: deterministic evidence demonstrates it: an independent run, a file check, a diff match, or a test that names the behaviour plus a green run made by Tally.
+- **SUPPORTED**: the evidence supports it but needs interpretation or is incomplete. A model's reading of the diff lands here on its own; it can never lift a criterion higher.
+- **UNVERIFIED**: not enough evidence to say. Tally says so instead of guessing.
+- **UNMET**: the evidence shows it was not done.
+
+`tally verify --json` emits the same as a `tally.verify.v1` document for CI and tools; `tally verify --ci` exits non-zero on any UNMET criterion. Verdicts, a 0–10 quality score and ROI still exist on the receipt, labelled experimental and placed after the evidence: they rest on an estimated human value and a model's opinion.
 
 ## See it run
 
@@ -79,6 +133,11 @@ tally task --edit "add rate limiting to login, with a test and a README note"
 ```
 
 When Claude runs `git push` or `gh pr create`, the Judge runs in the background and the receipt lands in `~/.tally/sessions/<id>/report.md`. `tally judge` runs it on demand; `tally judge --post` also comments a compact receipt on the issue or PR. Seven days later, `tally followup` (or the next session start) checks whether it held up.
+
+```bash
+tally task --show        # the Task Contract: goal, criteria, constraints, verification commands, unknowns, status, revisions
+tally verify             # the Evidence Map for this session; --json for tools, --ci to gate, --deep for the strong model
+```
 
 Inside Claude Code the plugin adds `/tally:task <ref>`, `/tally:judge [--post]`, `/tally:coach`, `/tally:report` and `/tally:tally` (status).
 
@@ -307,10 +366,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## Roadmap
 
-- Real-session calibration with outside graders, and a published agreement table that updates per release.
-- Plugin evals in CI.
-- Receipts as a PR check (GitHub Action) for teams.
-- OTel cross-check on by default when Claude Code telemetry is enabled.
+The plan to v1.0 is in [`docs/ROADMAP_RELIABILITY_LAYER.md`](docs/ROADMAP_RELIABILITY_LAYER.md): ship readiness and scope and risk analysis (v0.6), repository and mistake memory that survives switching agents (v0.7), a stable adapter SDK and comparison views with sample sizes (v0.8), mutation verification in an isolated worktree (v0.9). Architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md); adding an agent in [`docs/ADAPTER_SDK.md`](docs/ADAPTER_SDK.md); how the numbers are measured in [`docs/EVALUATION.md`](docs/EVALUATION.md); how to help in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Development
 

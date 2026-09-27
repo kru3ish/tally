@@ -132,6 +132,15 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## 0.5 Assurance (2026-09-27)
+
+- L1: Evidence is the source of truth; a model's judgment is one labelled item in an Evidence Map and can reach SUPPORTED at most on its own. This inverts the 0.1–0.4 receipt, which led with a verdict and a quality score. Both remain, labelled experimental, after the evidence.
+- L2: The raw event store keeps Claude Code's vocabulary and the normalised stream is derived from it. Rewriting the store would have broken every existing receipt and the plugin's hook command for no user-visible gain; engines migrate onto the stream as they are touched.
+- L3: Agent and model are separate identities on every normalised event and every receipt. A product runs many models and a model runs under many products; comparisons in v0.8 need the two axes recorded now.
+- L4: A test the agent wrote is weaker evidence than a pre-existing one, so provenance (pre-existing, agent-created, independent) is on the receipt. A test that names the behaviour plus a green run Tally made itself is what turns a model's "met" into VERIFIED; the run alone is not enough, and the test alone is not enough.
+- L5: `tally verify --ci` fails only on UNMET. UNVERIFIED is a gap in evidence, not a failure, and gating on it would push users to write criteria Tally can check rather than criteria that matter. Policies in v0.6 can tighten this per repo.
+- L6: Scope is compared against the contract only when the contract names files or areas. Flagging `src` as unexplained on a task that says "add rate limiting" is noise, and noise is how an assurance tool gets ignored.
+
 ## 0.4 Judge (2026-09-26)
 
 - V15: The maintainer-review tier exists because the two real-issue verdict misses were invisible to criteria and tests. It can only cap. A reviewer that could raise a verdict would let prose override evidence, which is the failure mode the whole design avoids.

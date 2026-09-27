@@ -2,6 +2,25 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.5.0] - 2026-09-27
+
+Tally becomes the reliability layer for AI coding agents: evidence first, model judgment labelled, any agent.
+
+### Added
+
+- **Normalised event stream** (`src/core/events.ts`). Raw hook events and the transcript project into one vendor-neutral stream (`session_started`, `user_prompt`, `file_edit`, `command_finished`, `test_finished`, `model_usage`, …) with the agent and the model as separate identities and a pointer back to the raw line. Engines read the stream; adapters own the edges.
+- **Task Contract** (`src/core/contract.ts`, `tally task --show`). The frozen definition of done as a first-class object: goal, acceptance criteria, constraints (now extracted at intake), verification commands, unknowns, a status (`NEEDS CONFIRMATION` / `CONFIRMED`) and the revision history; `--confirm` and `--edit` record revisions in `contract.json`.
+- **Assurance Engine and `tally verify`** (`src/assurance/`). An Evidence Map per criterion: changed files, matching diff hunks, tests added or modified by the agent, tests in the tree that name the behaviour, the independent run, the agent's own runs (claims), the model's reading (labelled), disputes. Statuses VERIFIED / SUPPORTED / UNVERIFIED / UNMET, where a model's judgment alone reaches SUPPORTED at most. `--json` emits `tally.verify.v1`; `--ci` exits 1 on UNMET; `--deep` judges with the strong model first. The map is stored on every new receipt and derived by rule for old ones.
+- **Test provenance.** Pre-existing test files at the session's base, test files and cases the agent added or modified, the independent run's passed count, and the agent's own test runs, on the receipt and in `tally verify`.
+- **Adapter capabilities and `tally adapters`.** Every adapter declares what its agent can and cannot expose (tool calls, shell, reads, edits, deny, stop, context, subagents, transcript, tokens, model, cost); `tally adapters` shows detection, install state and capabilities, and receipts say "unavailable" instead of estimating.
+- Docs: `ARCHITECTURE.md`, `CONTRIBUTING.md`, `docs/ROADMAP_RELIABILITY_LAYER.md`, `docs/ADAPTER_SDK.md`, `docs/EVALUATION.md`; README restructured around the five questions; `SECURITY.md` states exactly what leaves the machine and when.
+
+### Changed
+
+- **Receipt redesign.** The summary leads with the Evidence Map ("3/4 criteria have sufficient evidence"), names the agent and model, shows verification provenance and potentially avoidable work itemised, and places the verdict, quality and ROI last, labelled experimental. The markdown report gains an Assurance section with the evidence under each criterion.
+- `tally demo` now shows `tally verify` on the session, then the forgotten README criterion being fixed and verification becoming complete.
+- Scope: changed areas are compared against the contract only when the contract names files or areas.
+
 ## [0.4.0] - 2026-09-26
 
 Tally for every coding agent, and a Judge that knows what criteria cannot see.

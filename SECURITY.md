@@ -28,4 +28,10 @@ Things to know:
 
 ## Privacy
 
-See the "Privacy" section of the README for what is stored, where, and how to delete it. In short: nothing leaves your machine except model calls through your own Claude login and the tracker calls you opt into; `rm -rf ~/.tally` removes everything Tally wrote.
+See the "Privacy" section of the README for what is stored, where, and how to delete it. Precisely:
+
+- The hooks make no network calls. Everything they record stays in `~/.tally` (or `TALLY_HOME`), redacted (keys, tokens, bearer headers, passwords in URLs) and truncated before it is written.
+- Model calls leave the machine when the Judge, Coach or intake run: through `claude -p` on your own Claude login by default, or to whatever `models.base_url` you configure (OpenAI's API, or a local server for air-gapped use). What is sent: the frozen criteria, a trimmed diff and test output, tool names and truncated command lines, and the assistant's final message. Prompts are sent to intake only when a task is inferred from them; code is sent as diff hunks to the Judge. If you cannot send code to a model provider, point `models.provider` at a local endpoint.
+- Tracker calls (`gh`, the Jira and Linear APIs, GitHub's REST API for issue links) happen only for the ticket you linked, and write-back to an issue or PR only with `--post` or `writeback: true`. Write-back carries statuses, cost and criteria text, never prompts or code.
+- `tally export` and `tally ask` send numbers, statuses and outcomes only, and titles only with `--titles`.
+- `rm -rf ~/.tally` removes everything Tally wrote; `tally uninstall` restores your settings files byte for byte from the backups it took.
