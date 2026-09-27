@@ -1,0 +1,83 @@
+diff --git a/lib/view.js b/lib/view.js
+index d66b4a2..d6dce89 100644
+--- a/lib/view.js
++++ b/lib/view.js
+@@ -57,6 +57,11 @@ function View(name, options) {
+   this.name = name;
+   this.root = opts.root;
+ 
++  // a name ending in "." has an extname of "." but no engine name
++  if (this.ext === '.') {
++    this.ext = '';
++  }
++
+   if (!this.ext && !this.defaultEngine) {
+     throw new Error('No default engine was specified and no extension was provided.');
+   }
+diff --git a/test/app.render.js b/test/app.render.js
+index bd65ce1..d9e51af 100644
+--- a/test/app.render.js
++++ b/test/app.render.js
+@@ -92,6 +92,36 @@ describe('app', function(){
+       })
+     })
+ 
++    describe('when the name ends in a "."', function(){
++      it('should provide a lookup error to the callback', function(done){
++        var app = createApp();
++
++        app.set('views', path.join(__dirname, 'fixtures'))
++        app.set('view engine', 'tmpl');
++
++        app.render('index.', function (err) {
++          assert.ok(err)
++          assert.equal(err.message, 'Failed to lookup view "index." in views directory "' + path.join(__dirname, 'fixtures') + '"')
++          done();
++        });
++      })
++
++      it('should not throw synchronously', function(done){
++        var app = createApp();
++
++        app.set('views', path.join(__dirname, 'fixtures'))
++        app.set('view engine', 'tmpl');
++
++        assert.doesNotThrow(function () {
++          app.render('user.', function (err) {
++            assert.ok(err)
++            assert.ok(/^Failed to lookup view/.test(err.message))
++            done();
++          });
++        })
++      })
++    })
++
+     describe('when an error occurs', function(){
+       it('should invoke the callback', function(done){
+         var app = createApp();
+diff --git a/test/res.render.js b/test/res.render.js
+index 114b398..38c04ec 100644
+--- a/test/res.render.js
++++ b/test/res.render.js
+@@ -64,6 +64,21 @@ describe('res', function(){
+       .expect(500, /No default engine was specified/, done);
+     })
+ 
++    it('should error with a lookup error when the name ends in a "."', function (done) {
++      var app = createApp();
++
++      app.set('views', path.join(__dirname, 'fixtures'))
++      app.set('view engine', 'tmpl');
++
++      app.use(function(req, res){
++        res.render('index.')
++      });
++
++      request(app)
++      .get('/')
++      .expect(500, /Failed to lookup view &quot;index.&quot;/, done);
++    })
++
+     it('should expose app.locals', function(done){
+       var app = createApp();
+ 

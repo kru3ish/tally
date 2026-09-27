@@ -1,0 +1,184 @@
+diff --git a/lib/application.js b/lib/application.js
+index 310e6df..956c058 100644
+--- a/lib/application.js
++++ b/lib/application.js
+@@ -19,6 +19,7 @@ var View = require('./view');
+ var http = require('node:http');
+ var methods = require('./utils').methods;
+ var compileETag = require('./utils').compileETag;
++var compileMountPath = require('./utils').compileMountPath;
+ var compileQueryParser = require('./utils').compileQueryParser;
+ var compileTrust = require('./utils').compileTrust;
+ var resolve = require('node:path').resolve;
+@@ -215,11 +216,12 @@ app.use = function use(fn) {
+ 
+   // get router
+   var router = this.router;
++  var mountPath = compileMountPath(path);
+ 
+   fns.forEach(function (fn) {
+     // non-express app
+     if (!fn || !fn.handle || !fn.set) {
+-      return router.use(path, fn);
++      return router.use(mountPath, fn);
+     }
+ 
+     debug('.use app under %s', path);
+@@ -227,7 +229,7 @@ app.use = function use(fn) {
+     fn.parent = this;
+ 
+     // restore .app property on req and res
+-    router.use(path, function mounted_app(req, res, next) {
++    router.use(mountPath, function mounted_app(req, res, next) {
+       var orig = req.app;
+       fn.handle(req, res, function (err) {
+         Object.setPrototypeOf(req, orig.request)
+diff --git a/lib/utils.js b/lib/utils.js
+index 4f21e7e..c7c5c09 100644
+--- a/lib/utils.js
++++ b/lib/utils.js
+@@ -21,6 +21,12 @@ var qs = require('qs');
+ var querystring = require('node:querystring');
+ const { Buffer } = require('node:buffer');
+ 
++/**
++ * Module variables.
++ * @api private
++ */
++
++var SLASHES_ONLY_REGEXP = /^\/{2,}$/;
+ 
+ /**
+  * A list of lowercased HTTP methods that are supported by Node.js.
+@@ -50,6 +56,30 @@ exports.etag = createETagGenerator({ weak: false })
+ 
+ exports.wetag = createETagGenerator({ weak: true })
+ 
++/**
++ * Compile a mount path into a path the router matches literally.
++ *
++ * A path made up only of slashes ("//", "///") is trimmed down to the
++ * empty string by the router, which then matches every request. Such a
++ * path is turned into an expression that only matches the slashes given.
++ *
++ * @param {String|RegExp|Array} path
++ * @return {String|RegExp|Array}
++ * @api private
++ */
++
++exports.compileMountPath = function compileMountPath(path) {
++  if (Array.isArray(path)) {
++    return path.map(function (p) { return exports.compileMountPath(p) });
++  }
++
++  if (typeof path !== 'string' || !SLASHES_ONLY_REGEXP.test(path)) {
++    return path;
++  }
++
++  return new RegExp('^' + path.replace(/\//g, '\\/') + '(?=\\/|$)');
++};
++
+ /**
+  * Normalize the given `type`, for example "html" becomes "text/html".
+  *
+diff --git a/test/app.use.js b/test/app.use.js
+index 1d56aa3..423965c 100644
+--- a/test/app.use.js
++++ b/test/app.use.js
+@@ -60,6 +60,32 @@ describe('app', function(){
+         .expect(200, 'forum', cb)
+     })
+ 
++    it('should not mount at "/" when the mount-point is "//"', function(done){
++      var blog = express()
++        , app = express();
++      var cb = after(2, done)
++
++      blog.get('/', function(req, res){
++        res.end('blog');
++      });
++
++      app.use('//', blog);
++
++      app.get('/', function(req, res){
++        res.end('app');
++      });
++
++      assert.strictEqual(blog.mountpath, '//')
++
++      request(app)
++        .get('/')
++        .expect(200, 'app', cb)
++
++      request(app)
++        .get('//')
++        .expect(200, 'blog', cb)
++    })
++
+     it('should set the child\'s .parent', function(){
+       var blog = express()
+         , app = express();
+@@ -361,6 +387,63 @@ describe('app', function(){
+       .expect(200, 'saw POST /bar', cb);
+     })
+ 
++    it('should not match "/" when path is "//"', function (done) {
++      var app = express();
++      var cb = after(4, done);
++      var router = express.Router();
++
++      router.get('/', function (req, res) {
++        res.send('saw router ' + req.method + ' ' + req.url);
++      });
++
++      router.get('/bar', function (req, res) {
++        res.send('saw router ' + req.method + ' ' + req.url);
++      });
++
++      app.use('//', router);
++
++      app.get('/', function (req, res) {
++        res.send('saw app GET /');
++      });
++
++      request(app)
++      .get('/')
++      .expect(200, 'saw app GET /', cb);
++
++      request(app)
++      .get('/bar')
++      .expect(404, cb);
++
++      request(app)
++      .get('//')
++      .expect(200, 'saw router GET /', cb);
++
++      request(app)
++      .get('/foo')
++      .expect(404, cb);
++    })
++
++    it('should only match the given slashes when path is all slashes', function (done) {
++      var app = express();
++      var cb = after(3, done);
++
++      app.use('///', function (req, res) {
++        res.send('saw ' + req.method + ' ' + req.url + ' through ' + req.originalUrl);
++      });
++
++      request(app)
++      .get('/')
++      .expect(404, cb);
++
++      request(app)
++      .get('//')
++      .expect(404, cb);
++
++      request(app)
++      .get('///')
++      .expect(200, 'saw GET / through ///', cb);
++    })
++
+     it('should accept array of middleware', function (done) {
+       var app = express();
+ 

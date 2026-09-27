@@ -1,0 +1,149 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index cab3345..53e0dbf 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
+ <!-- markdownlint-disable MD024 -->
+ <!-- markdownlint-disable MD004 -->
+ 
++## [Unreleased]
++
++### Fixed
++
++- `.parse()` uses the node argument conventions rather than the Electron conventions when `ELECTRON_RUN_AS_NODE` is set ([#2603])
++
+ ## [15.0.0] (2026-05-29)
+ 
+ Commander 15 is ESM only. This is expected to be seamless for ESM consumers, but some CommonJS consumers may hit issues with tooling requiring configuration for ESM-only dependencies. See Migration Tips below.
+@@ -1500,6 +1506,7 @@ program
+ [#2464]: https://github.com/tj/commander.js/pull/2464
+ [#2465]: https://github.com/tj/commander.js/pull/2465
+ [#2475]: https://github.com/tj/commander.js/pull/2475
++[#2603]: https://github.com/tj/commander.js/issues/2603
+ 
+ <!-- Referenced in 5.x -->
+ [#1]: https://github.com/tj/commander.js/issues/1
+diff --git a/Readme.md b/Readme.md
+index 9f1ff3c..003114e 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -971,6 +971,8 @@ Or, call with an array of strings to parse, and optionally where the user argume
+ - `'electron'`: `argv[0]` is the application and `argv[1]` varies depending on whether the electron application is packaged
+ - `'user'`: just user arguments
+ 
++Electron is auto-detected using `process.versions.electron`, except when `ELECTRON_RUN_AS_NODE` is set in the environment. The Electron executable then runs the script like node does, so the node conventions are used.
++
+ For example:
+ 
+ ```js
+diff --git a/lib/command.js b/lib/command.js
+index 9a3d03e..920f539 100644
+--- a/lib/command.js
++++ b/lib/command.js
+@@ -997,7 +997,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
+ 
+     // auto-detect argument conventions if nothing supplied
+     if (argv === undefined && parseOptions.from === undefined) {
+-      if (process.versions?.electron) {
++      // ELECTRON_RUN_AS_NODE means the electron executable is running a script like node, so node conventions apply
++      if (process.versions?.electron && !process.env.ELECTRON_RUN_AS_NODE) {
+         parseOptions.from = 'electron';
+       }
+       // check node specific options for scenarios where user CLI args follow executable without scriptname
+diff --git a/tests/command.parse.test.js b/tests/command.parse.test.js
+index 61912b4..b84726d 100644
+--- a/tests/command.parse.test.js
++++ b/tests/command.parse.test.js
+@@ -9,6 +9,14 @@ import assert from 'node:assert/strict';
+ // (If mutating process.argv and process.execArgv causes problems, could add utility
+ // functions to get them and then mock the functions for tests.)
+ 
++function restoreRunAsNode(value) {
++  if (value === undefined) {
++    delete process.env.ELECTRON_RUN_AS_NODE;
++  } else {
++    process.env.ELECTRON_RUN_AS_NODE = value;
++  }
++}
++
+ describe('Command.parse()', () => {
+   describe('.parse() explicit (from:) and autodetection of args format parsing', () => {
+     test('when no args then use process.argv and app/script/args', () => {
+@@ -25,14 +33,77 @@ describe('Command.parse()', () => {
+       const program = new commander.Command();
+       program.argument('[args...]');
+       const holdArgv = process.argv;
++      const holdRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
++      delete process.env.ELECTRON_RUN_AS_NODE;
+       process.versions.electron = '1.2.3';
+       process.argv = 'node user'.split(' ');
+       program.parse();
+       delete process.versions.electron;
++      restoreRunAsNode(holdRunAsNode);
+       process.argv = holdArgv;
+       assert.deepEqual(program.args, ['user']);
+     });
+ 
++    describe('autodetection when ELECTRON_RUN_AS_NODE set', () => {
++      test('when no args and electron properties then use process.argv and app/script/args', () => {
++        const program = new commander.Command();
++        program.argument('[args...]');
++        const holdArgv = process.argv;
++        const holdRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
++        process.versions.electron = '1.2.3';
++        process.env.ELECTRON_RUN_AS_NODE = '1';
++        process.argv = 'electron script.js user'.split(' ');
++        program.parse();
++        delete process.versions.electron;
++        restoreRunAsNode(holdRunAsNode);
++        process.argv = holdArgv;
++        assert.deepEqual(program.args, ['user']);
++      });
++
++      test('when no args and electron properties then script is used for program name', () => {
++        const program = new commander.Command();
++        program.argument('[args...]');
++        const holdArgv = process.argv;
++        const holdRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
++        process.versions.electron = '1.2.3';
++        process.env.ELECTRON_RUN_AS_NODE = '1';
++        process.argv = 'electron script.js user'.split(' ');
++        program.parse();
++        delete process.versions.electron;
++        restoreRunAsNode(holdRunAsNode);
++        process.argv = holdArgv;
++        assert.equal(program.name(), 'script');
++      });
++
++      test('when no args and electron properties and empty value then use process.argv and app/args', () => {
++        const program = new commander.Command();
++        program.argument('[args...]');
++        const holdArgv = process.argv;
++        const holdRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
++        process.versions.electron = '1.2.3';
++        process.env.ELECTRON_RUN_AS_NODE = '';
++        process.argv = 'node user'.split(' ');
++        program.parse();
++        delete process.versions.electron;
++        restoreRunAsNode(holdRunAsNode);
++        process.argv = holdArgv;
++        assert.deepEqual(program.args, ['user']);
++      });
++
++      test('when explicit from "electron" then ELECTRON_RUN_AS_NODE is ignored', () => {
++        const program = new commander.Command();
++        program.argument('[args...]');
++        const holdDefaultApp = process.defaultApp;
++        const holdRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
++        process.defaultApp = undefined;
++        process.env.ELECTRON_RUN_AS_NODE = '1';
++        program.parse('customApp user'.split(' '), { from: 'electron' });
++        process.defaultApp = holdDefaultApp;
++        restoreRunAsNode(holdRunAsNode);
++        assert.deepEqual(program.args, ['user']);
++      });
++    });
++
+     test('when args then app/script/args', () => {
+       const program = new commander.Command();
+       program.argument('[args...]');

@@ -2,14 +2,30 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterAll } from 'vitest';
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.join(here, '..');
 export const fixtures = path.join(here, 'fixtures');
 export const basicFixture = path.join(fixtures, 'session-basic');
 
+/* every temp dir a test file creates is removed when that file finishes; a run of the suite used to leave thousands behind.
+   Registered here so each test file that imports the helpers gets the hook without repeating it. */
+const created: string[] = [];
+afterAll(() => {
+  for (const d of created.splice(0)) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    } catch {
+      /* a process may still hold a file on Windows; the next run's cleanup or the OS gets it */
+    }
+  }
+});
+
 export function tmpDir(prefix = 'tally-test-'): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  created.push(d);
+  return d;
 }
 
 export function isolate(): { home: string; claude: string; restore: () => void } {
