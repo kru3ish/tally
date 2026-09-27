@@ -264,7 +264,14 @@ export async function judgeSession(opts: {
       patternMisses.set(c.id, `the suite ${ver.ran ? (ver.passed ? 'passed' : 'FAILED') : 'was not run'}; a green run only proves the covered behaviour held. Name what this diff changes that no test exercises, or mark unverifiable`);
       continue;
     }
-    const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    /* a check that throws (a path that is a directory, an unreadable file, a runner that cannot spawn) is a gap in the
+       evidence, never a crash: the receipt must still be produced, with the criterion unverifiable and the error on it */
+    let r0: Awaited<ReturnType<typeof resolveCheck>>;
+    try {
+      r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    } catch (err) {
+      r0 = { status: 'unverifiable', evidence: `the ${c.check.kind} check could not run: ${err instanceof Error ? err.message : String(err)}`, files: [] };
+    }
     /* a pattern the intake model wrote can miss what a human would accept (the eval's one disagreement was
        /spawn.*wc2/ against `spawnSync(process.execPath, [binPath` ), so a content-pattern miss is a hint for the
        judgment tiers, not a verdict; existence, diff-membership and test results stay conclusive */

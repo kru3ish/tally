@@ -61,6 +61,35 @@ function fileMatches(candidates: string[], wanted: string): string | undefined {
   });
 }
 
+/* regular files under a directory, depth-first, skipping node_modules and dot directories, capped */
+function filesUnder(dir: string, cap: number): string[] {
+  const out: string[] = [];
+  const walk = (d: string): void => {
+    if (out.length >= cap) return;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= cap) return;
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile()) {
+        try {
+          if (fs.statSync(full).size <= 512 * 1024) out.push(full);
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
 function safeRegex(pattern: string): RegExp | null {
   try {
     return new RegExp(pattern, 'i');
@@ -146,6 +175,24 @@ export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidenc
       if (!fs.existsSync(p)) return { status: 'unmet', evidence: `${check.path} does not exist`, files: [] };
       const re = safeRegex(check.pattern);
       if (!re) return { status: 'unverifiable', evidence: `invalid pattern ${check.pattern}`, files: [] };
+      /* intake sometimes names a directory ("test"): then the check means "some file under it contains the pattern" */
+      if (fs.statSync(p).isDirectory()) {
+        const files = filesUnder(p, 400);
+        for (const f of files) {
+          let body = '';
+          try {
+            body = fs.readFileSync(f, 'utf8');
+          } catch {
+            continue;
+          }
+          const m = re.exec(body);
+          if (m) {
+            const rel = path.relative(ctx.cwd, f).replace(/\\/g, '/');
+            return { status: 'met', evidence: `${rel} matches /${check.pattern}/ ("${m[0].slice(0, 60)}")`, files: [rel] };
+          }
+        }
+        return { status: 'unmet', evidence: `no file under ${check.path}/ (${files.length} searched) matches /${check.pattern}/`, files: [check.path] };
+      }
       const body = fs.readFileSync(p, 'utf8');
       const m = re.exec(body);
       return m ? { status: 'met', evidence: `${check.path} matches /${check.pattern}/ ("${m[0].slice(0, 60)}")`, files: [check.path] } : { status: 'unmet', evidence: `${check.path} does not match /${check.pattern}/`, files: [check.path] };

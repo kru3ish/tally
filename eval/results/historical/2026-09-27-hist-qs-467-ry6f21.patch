@@ -1,0 +1,97 @@
+diff --git a/lib/stringify.js b/lib/stringify.js
+index a6e23e7..b0eaff7 100644
+--- a/lib/stringify.js
++++ b/lib/stringify.js
+@@ -61,6 +61,18 @@ var isNonNullishPrimitive = function isNonNullishPrimitive(v) {
+         || typeof v === 'bigint';
+ };
+ 
++var serializeDates = function serializeDates(obj, generateArrayPrefix, serializeDate) {
++    if (obj instanceof Date) {
++        return serializeDate(obj);
++    }
++    if (generateArrayPrefix === 'comma' && isArray(obj)) {
++        return utils.maybeMap(obj, function (value) {
++            return value instanceof Date ? serializeDate(value) : value;
++        });
++    }
++    return obj;
++};
++
+ var sentinel = {};
+ 
+ var stringify = function stringify(
+@@ -112,17 +124,10 @@ var stringify = function stringify(
+ 
+     if (typeof filter === 'function') {
+         obj = filter(prefix, obj);
+-    } else if (obj instanceof Date) {
+-        obj = serializeDate(obj);
+-    } else if (generateArrayPrefix === 'comma' && isArray(obj)) {
+-        obj = utils.maybeMap(obj, function (value) {
+-            if (value instanceof Date) {
+-                return serializeDate(value);
+-            }
+-            return value;
+-        });
+     }
+ 
++    obj = serializeDates(obj, generateArrayPrefix, serializeDate);
++
+     if (obj === null) {
+         if (strictNullHandling) {
+             return formatter(encoder && !encodeValuesOnly ? encoder(prefix, defaults.encoder, charset, 'key', format) : prefix);
+diff --git a/test/stringify.js b/test/stringify.js
+index 98a0190..157a53f 100644
+--- a/test/stringify.js
++++ b/test/stringify.js
+@@ -1117,6 +1117,49 @@ test('stringify()', function (t) {
+         st.end();
+     });
+ 
++    t.test('serializes Date values passed through unchanged by filter=function', function (st) {
++        var date = new Date(1257894000000);
++        var identity = function (prefix, value) {
++            return value;
++        };
++        var obj = { a: date, b: [date], c: { d: date } };
++
++        st.equal(
++            qs.stringify(obj, { filter: identity, encode: false }),
++            'a=2009-11-10T23:00:00.000Z&b[0]=2009-11-10T23:00:00.000Z&c[d]=2009-11-10T23:00:00.000Z',
++            'uses toISOString by default'
++        );
++
++        st.equal(
++            qs.stringify(obj, {
++                filter: identity,
++                encode: false,
++                serializeDate: function (d) { return d.getTime(); }
++            }),
++            'a=1257894000000&b[0]=1257894000000&c[d]=1257894000000',
++            'uses a custom serializeDate'
++        );
++
++        st.equal(
++            qs.stringify(obj, {
++                filter: function (prefix, value) {
++                    return value instanceof Date ? value.getTime() + 1 : value;
++                },
++                encode: false
++            }),
++            'a=1257894000001&b[0]=1257894000001&c[d]=1257894000001',
++            'a filter that transforms a Date still controls the output'
++        );
++
++        st.equal(
++            qs.stringify({ a: [date] }, { filter: identity, encode: false, arrayFormat: 'comma' }),
++            'a=2009-11-10T23:00:00.000Z',
++            'serializes Dates in comma arrays'
++        );
++
++        st.end();
++    });
++
+     t.test('can disable uri encoding', function (st) {
+         st.equal(qs.stringify({ a: 'b' }, { encode: false }), 'a=b');
+         st.equal(qs.stringify({ a: { b: 'c' } }, { encode: false }), 'a[b]=c');

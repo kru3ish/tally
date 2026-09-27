@@ -1,0 +1,206 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "ry6f21",
+  "date": "2026-09-27T15:57:22.475Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "152535e"
+  },
+  "task": {
+    "id": "hist-qs-467",
+    "class": "historical",
+    "repo": "https://github.com/ljharb/qs.git",
+    "base": "beefb703428b318215d60619fa26f7dafaed7b7b",
+    "head": "bd32b78cacf60824c72671153f52d1f944742011",
+    "issue": "https://github.com/ljharb/qs/issues/467",
+    "tags": [
+      "javascript",
+      "bug",
+      "qs",
+      "historical"
+    ],
+    "contamination": "unlikely",
+    "human_fix": "https://github.com/ljharb/qs/pull/595"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "turns": 17,
+    "duration_s": 147,
+    "cost_usd": 1.046381
+  },
+  "config": {
+    "agent_model": "opus",
+    "max_turns": 80,
+    "timeout_min": 40,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "bd32b78 [Fix] `stringify`: serialize `Date` values that a `filter` function returns unchanged"
+    ],
+    "files": [
+      {
+        "file": "lib/stringify.js",
+        "added": 14,
+        "deleted": 9
+      },
+      {
+        "file": "test/stringify.js",
+        "added": 43,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-hist-qs-467-ry6f21.patch",
+    "patch_bytes": 3412
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 1.8598215000000002,
+    "blind": true
+  },
+  "session": "23edff21-ba30-4670-a448-0d8b64f3a1b4",
+  "tally_summary": {
+    "verified": 3,
+    "supported": 1,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 4,
+    "sufficient": 4,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 1096,
+    "preexisting_files": 4,
+    "agent_added_files": 0,
+    "agent_cases_added": 0
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "qs.stringify with a filter function serializes Date values that the filter returns unchanged, using serializeDate or Date.prototype.toISOString, at the top level, inside arrays, and inside nested objects. Date values that the filter transforms use the transformed value, not default serialization.",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "lib/stringify.js -61,6 +61,18 mentions serializeDate",
+          "lib/stringify.js -112,17 +124,10 mentions serializeDate",
+          "test/stringify.js -1117,6 +1117,49 mentions serializeDate",
+          "test/stringify.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (1096 passed)",
+          "[model] The new test 'serializes Date values passed through unchanged by filter=function' covers all required scenarios: dates at top level (a=date), inside arrays (b[0]=date), inside nested objects (c[d]=date), with default toISOString serialization, with custom serializeDate, and with filter-transformed dates using the transformed value. All four test assertions passed, confirmed by the independent tape run showing 1096 tests passing. The code moves Date serialization outside the filter's `else if` chain into `serializeDates()`, which always executes after the filter, allowing unchanged Date values to be serialized while transformed dates use the filter's output."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "lib/stringify.js:129 now calls the new serializeDates() helper (lines 64-74) unconditionally after the filter call, instead of only in the non-filter else-branch. Verified by probe: the exact issue repro now yields {\"a\":\"1...123\",\"b\":\"2009-11-10T23:00:00.000Z\",\"c\":[\"2009-11-10T23:00:00.000Z\",\"3...45\"],\"d\":\"false\",\"e\":{\"a\":\"123\",\"b\":\"2009-11-10T23:00:00.000Z\",\"c\":\"6...700\"}} — matching the issue's expected output. Top-level key: a=2009-11-10T23:00:00.000Z; array element: a[0]=...; nested: a[b]=...; deep nested a[b][0][e]=...; comma arrays and allowDots/brackets/repeat/indices all serialize. Cus"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "Behavior without a filter option is unchanged; existing serialization logic continues to work for all data types.",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "independent run of `npx tape \"test/**/*.js\"` passed (1096 passed)",
+          "[model] The `serializeDates` function preserves the original `else if` logic: `if (obj instanceof Date)` serializes dates (original: `else if (obj instanceof Date) { obj = serializeDate(obj); }`), and `if (generateArrayPrefix === 'comma' && isArray(obj))` maps and serializes dates in comma arrays (identical to original else-if branch). When no filter is provided, the new code calls `serializeDates` with the same parameters, producing identical behavior. All 1096 tests pass, including tests of non-filter Date and non-Date serialization paths."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Direct differential check: extracted base lib/stringify.js via `git show beefb70:lib/stringify.js` and ran HEAD vs base side by side over 18 inputs (Dates at top level/array/nested/deep, strings, numbers, null, undefined, false, Buffer, BigInt, empty array/object, Date as root, mixed) x 18 option sets (default, encode:false, all four arrayFormats, commaRoundTrip, custom serializeDate, allowDots, strictNullHandling, skipNulls, encodeValuesOnly, allowEmptyArrays, filter-as-array allowlist, sort): 324/324 combinations byte-identical, diffs = 0. Statically the no-filter path is a verbatim transcri"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "A test covers Date values passing through a filter function at the top level, as array elements, and in nested objects.",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /new Date/ (\"new Date\")",
+          "test/stringify.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (1096 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/stringify.js:1120-1160 adds subtest 'serializes Date values passed through unchanged by filter=function' with obj = { a: date, b: [date], c: { d: date } } — covering top-level key, array element and nested object in one assertion — plus assertions for a custom serializeDate, for a filter that transforms the Date (getTime()+1, output must be the transformed value), and for Dates inside comma arrays. All four assertions appear in the run output (e.g. 'ok 733 uses a custom serializeDate', 'ok 734 a filter that transforms a Date still controls the output', 'ok 735 serializes Dates in comma ar"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "The existing test suite passes with the fix applied.",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npx tape \"test/**/*.js\"` exited 0 (independent run, repo policy test_command)",
+          "test/stringify.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npx tape \"test/**/*.js\"` in the repo: '1..1096 / # tests 1096 / # pass 1096 / # ok' — zero failures. Lint on the two changed files shows only pre-existing no-continue warnings and CRLF linebreak-style noise from the Windows checkout (present across untouched files too)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 4,
+    "total": 4,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 4
+  },
+  "timings": {
+    "agent_s": 147,
+    "judge_s": 129,
+    "grader_s": 378
+  },
+  "notes": []
+}

@@ -181,3 +181,41 @@ describe('eval run', () => {
     expect(cal[0]!.criteria[0]!.assurance).toBeDefined();
   });
 });
+
+describe('resume', () => {
+  it('continues from an existing worktree and session without running the agent again', async () => {
+    const work = tmpDir('tally-eval-resume-');
+    const srcRepo = path.join(work, 'src');
+    fs.mkdirSync(srcRepo);
+    spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: srcRepo });
+    fs.writeFileSync(path.join(srcRepo, 'package.json'), JSON.stringify({ name: 'r', scripts: { test: 'node -e "console.log(\'1 passing\')"' } }));
+    fs.writeFileSync(path.join(srcRepo, 'README.md'), '# r\n');
+    spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { cwd: srcRepo });
+    spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'base'], { cwd: srcRepo });
+    const task = { id: 'resume-task', class: 'fixture' as const, repo: srcRepo, task: 'Add a greeting to the README', criteria: [{ text: 'README mentions hello', check: { kind: 'file_contains', path: 'README.md', pattern: 'hello' } }], setup: [], tags: [], selected_because: 't', contamination: 'unlikely' as const, added: '2026-09-27', file: 'x', repoPath: srcRepo, taskText: 'Add a greeting to the README' };
+    const root = tmpDir('tally-eval-resume-root-');
+    const dir = path.join(root, task.id);
+    const { base } = prepareRepo(task, dir, () => {});
+    /* the "agent" already worked and its session exists: a README edit committed, and a receipt for that session */
+    fs.appendFileSync(path.join(dir, 'README.md'), 'hello\n');
+    spawnSync('git', ['-c', 'user.email=a@a', '-c', 'user.name=a', 'commit', '-q', '-am', 'greet'], { cwd: dir });
+    const session = 'resume-session-1';
+    let agentCalls = 0;
+    const r = await runEvalTask({
+      task,
+      resume: { root, session },
+      agent: async () => {
+        agentCalls += 1;
+        return { sessionId: session, costUsd: 0, turns: 0, durationS: 0 };
+      },
+      grader: () => ({ criteria: [{ id: 'c1', status: 'met', evidence: 'README says hello' }], verdict: 'worth it', quality_note: '', duration_s: 1 }),
+      out: () => {},
+    });
+    expect(agentCalls).toBe(0);
+    expect(r.task.base).toBe(base);
+    expect(r.session).toBe(session);
+    expect(r.notes.some((n) => /resumed from/.test(n))).toBe(true);
+    expect(r.work?.commits.some((c) => /greet/.test(c))).toBe(true);
+    expect(r.agreement.total).toBe(1);
+  });
+});

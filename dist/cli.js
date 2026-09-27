@@ -6264,6 +6264,32 @@ function fileMatches(candidates, wanted) {
     return n === w || n.endsWith("/" + w) || w.endsWith("/" + n);
   });
 }
+function filesUnder(dir, cap) {
+  const out = [];
+  const walk = (d) => {
+    if (out.length >= cap) return;
+    let entries = [];
+    try {
+      entries = fs12.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= cap) return;
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+      const full = path13.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile()) {
+        try {
+          if (fs12.statSync(full).size <= 512 * 1024) out.push(full);
+        } catch {
+        }
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
 function safeRegex(pattern) {
   try {
     return new RegExp(pattern, "i");
@@ -6335,6 +6361,23 @@ async function resolveCheck(check, ctx) {
       if (!fs12.existsSync(p)) return { status: "unmet", evidence: `${check.path} does not exist`, files: [] };
       const re = safeRegex(check.pattern);
       if (!re) return { status: "unverifiable", evidence: `invalid pattern ${check.pattern}`, files: [] };
+      if (fs12.statSync(p).isDirectory()) {
+        const files = filesUnder(p, 400);
+        for (const f of files) {
+          let body2 = "";
+          try {
+            body2 = fs12.readFileSync(f, "utf8");
+          } catch {
+            continue;
+          }
+          const m2 = re.exec(body2);
+          if (m2) {
+            const rel2 = path13.relative(ctx.cwd, f).replace(/\\/g, "/");
+            return { status: "met", evidence: `${rel2} matches /${check.pattern}/ ("${m2[0].slice(0, 60)}")`, files: [rel2] };
+          }
+        }
+        return { status: "unmet", evidence: `no file under ${check.path}/ (${files.length} searched) matches /${check.pattern}/`, files: [check.path] };
+      }
       const body = fs12.readFileSync(p, "utf8");
       const m = re.exec(body);
       return m ? { status: "met", evidence: `${check.path} matches /${check.pattern}/ ("${m[0].slice(0, 60)}")`, files: [check.path] } : { status: "unmet", evidence: `${check.path} does not match /${check.pattern}/`, files: [check.path] };
@@ -8400,7 +8443,12 @@ async function judgeSession(opts) {
       patternMisses.set(c.id, `the suite ${ver.ran ? ver.passed ? "passed" : "FAILED" : "was not run"}; a green run only proves the covered behaviour held. Name what this diff changes that no test exercises, or mark unverifiable`);
       continue;
     }
-    const r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    let r0;
+    try {
+      r0 = await resolveCheck(c.check, { cwd: opts.cwd, evidence: ev, verification: ver, consent, timeoutMs: opts.cfg.judge.test_timeout_ms, noTree: opts.skipGit });
+    } catch (err) {
+      r0 = { status: "unverifiable", evidence: `the ${c.check.kind} check could not run: ${err instanceof Error ? err.message : String(err)}`, files: [] };
+    }
     const touched = new Set([...ev.git.files_changed, ...ev.edited_files].map((f) => f.replace(/\\/g, "/")));
     const chk = c.check;
     const hasDiff = !!(ev.git.diff_excerpt || ev.reconstruction.diff_text);
@@ -10150,19 +10198,29 @@ async function runEvalTask(opts) {
   const out = opts.out ?? ((s) => process.stdout.write(s + "\n"));
   const cfg = loadConfig();
   const runId = Math.random().toString(36).slice(2, 8);
-  const root = opts.root ?? fs32.mkdtempSync(path32.join(os6.tmpdir(), "tally-eval-"));
+  const root = opts.resume?.root ?? opts.root ?? fs32.mkdtempSync(path32.join(os6.tmpdir(), "tally-eval-"));
   const dir = path32.join(root, opts.task.id);
   const notes = [];
   const version = readJson(path32.join(packageRoot(), "package.json"), {}).version ?? "0.0.0";
   const commit = sh(packageRoot(), "git", ["rev-parse", "--short", "HEAD"]).out.trim() || void 0;
-  out(`[${opts.task.id}] preparing ${opts.task.repo}${opts.task.base ? " @ " + opts.task.base.slice(0, 8) : ""}`);
-  const { base } = prepareRepo(opts.task, dir, out);
-  setTestRerunConsent(dir, true);
-  const settingsFile = writeHookSettings(root);
-  out(`[${opts.task.id}] agent session (${opts.agentModel ?? "sonnet"}, \u2264${opts.maxTurns ?? 80} turns)`);
-  const agent2 = opts.agent ?? claudeAgent(opts.claudeBin);
-  const a = await agent2({ cwd: dir, prompt: AGENT_PROMPT, settingsFile, model: opts.agentModel ?? "sonnet", maxTurns: opts.maxTurns ?? 80, timeoutMs: (opts.timeoutMin ?? 45) * 60 * 1e3 });
-  if (a.error) notes.push(a.error);
+  let base;
+  let a;
+  if (opts.resume) {
+    if (!fs32.existsSync(path32.join(dir, ".git"))) throw new Error(`resume: no repository at ${dir}`);
+    base = sh(dir, "git", ["log", "--format=%H", "--grep=^eval: task contract$", "-1"]).out.trim() || sh(dir, "git", ["rev-list", "--max-parents=0", "HEAD"]).out.trim().split("\n")[0];
+    a = { sessionId: opts.resume.session, costUsd: null, turns: null, durationS: 0 };
+    notes.push(`resumed from ${dir} with session ${opts.resume.session.slice(0, 8)}; agent turns and duration are not known, cost is taken from the receipt`);
+    out(`[${opts.task.id}] resuming at ${dir} (base ${base.slice(0, 8)}, session ${opts.resume.session.slice(0, 8)})`);
+  } else {
+    out(`[${opts.task.id}] preparing ${opts.task.repo}${opts.task.base ? " @ " + opts.task.base.slice(0, 8) : ""}`);
+    base = prepareRepo(opts.task, dir, out).base;
+    setTestRerunConsent(dir, true);
+    const settingsFile = writeHookSettings(root);
+    out(`[${opts.task.id}] agent session (${opts.agentModel ?? "sonnet"}, \u2264${opts.maxTurns ?? 80} turns)`);
+    const agent2 = opts.agent ?? claudeAgent(opts.claudeBin);
+    a = await agent2({ cwd: dir, prompt: AGENT_PROMPT, settingsFile, model: opts.agentModel ?? "sonnet", maxTurns: opts.maxTurns ?? 80, timeoutMs: (opts.timeoutMin ?? 45) * 60 * 1e3 });
+    if (a.error) notes.push(a.error);
+  }
   if (!a.sessionId) throw new Error(`no agent session for ${opts.task.id}: ${a.error ?? "unknown"}`);
   const session = a.sessionId;
   const head = sh(dir, "git", ["rev-parse", "HEAD"]).out.trim();
@@ -10193,6 +10251,7 @@ async function runEvalTask(opts) {
     judge = await judgeSession({ session, cwd: dir, transcriptPath: transcriptPath ?? path32.join(sessionDir(session), "missing.jsonl"), cfg, llm: makeLlm({ session }), reason: "manual", consent: true, events });
   }
   const assurance = judge.assurance ?? buildAssurance({ judge, task: loadTask(session), cwd: dir });
+  if (opts.resume && a.costUsd == null) a.costUsd = judge.cost.total_usd;
   const judgeS = Math.round((Date.now() - t0) / 1e3);
   out(`[${opts.task.id}] blind evaluator (${opts.graderModel ?? "opus"})`);
   const t1 = Date.now();
@@ -10427,10 +10486,16 @@ async function run9(args) {
 `);
       return 1;
     }
+    const resumeRoot = flag(args, "resume-root");
+    const resumeSession = flag(args, "resume-session");
+    if ((resumeRoot || resumeSession) && (!resumeRoot || !resumeSession || tasks.length !== 1)) {
+      process.stderr.write("--resume-root <dir> and --resume-session <id> go together and need exactly one task (--only <id>).\n");
+      return 1;
+    }
     let failures = 0;
     for (const t of tasks) {
       try {
-        await runEvalTask({ task: t, agentModel: flag(args, "agent-model"), graderModel: flag(args, "grader-model"), maxTurns: flag(args, "max-turns") ? Number(flag(args, "max-turns")) : void 0, timeoutMin: flag(args, "timeout-min") ? Number(flag(args, "timeout-min")) : void 0, keep: has(args, "keep"), claudeBin: flag(args, "claude-bin") });
+        await runEvalTask({ task: t, agentModel: flag(args, "agent-model"), graderModel: flag(args, "grader-model"), maxTurns: flag(args, "max-turns") ? Number(flag(args, "max-turns")) : void 0, timeoutMin: flag(args, "timeout-min") ? Number(flag(args, "timeout-min")) : void 0, keep: has(args, "keep"), claudeBin: flag(args, "claude-bin"), resume: resumeRoot && resumeSession ? { root: path34.resolve(resumeRoot), session: resumeSession } : void 0 });
       } catch (err) {
         failures += 1;
         process.stderr.write(`[${t.id}] failed: ${err instanceof Error ? err.message : String(err)}

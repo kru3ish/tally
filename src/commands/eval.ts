@@ -1,6 +1,6 @@
 /* `tally eval run|discover|report`: the evaluation loop as a command, so it is reproducible by anyone with the repo.
 
-     tally eval run [--only id,id] [--class real] [--agent-model sonnet] [--grader-model opus] [--max-turns 80] [--keep]
+     tally eval run [--only id,id] [--class real] [--agent-model sonnet] [--grader-model opus] [--max-turns 80] [--keep] [--resume-root dir --resume-session id]
      tally eval discover --repos owner/name,owner/name [--limit 10]
      tally eval report [--json]
 
@@ -23,10 +23,16 @@ export async function run(args: Args): Promise<number | void> {
       process.stderr.write(`No eval tasks matched under ${path.join(process.cwd(), 'eval', 'tasks')}. Add a spec (see docs/EVALUATION.md) or run \`tally eval discover\`.\n`);
       return 1;
     }
+    const resumeRoot = flag(args, 'resume-root');
+    const resumeSession = flag(args, 'resume-session');
+    if ((resumeRoot || resumeSession) && (!resumeRoot || !resumeSession || tasks.length !== 1)) {
+      process.stderr.write('--resume-root <dir> and --resume-session <id> go together and need exactly one task (--only <id>).\n');
+      return 1;
+    }
     let failures = 0;
     for (const t of tasks) {
       try {
-        await runEvalTask({ task: t, agentModel: flag(args, 'agent-model'), graderModel: flag(args, 'grader-model'), maxTurns: flag(args, 'max-turns') ? Number(flag(args, 'max-turns')) : undefined, timeoutMin: flag(args, 'timeout-min') ? Number(flag(args, 'timeout-min')) : undefined, keep: has(args, 'keep'), claudeBin: flag(args, 'claude-bin') });
+        await runEvalTask({ task: t, agentModel: flag(args, 'agent-model'), graderModel: flag(args, 'grader-model'), maxTurns: flag(args, 'max-turns') ? Number(flag(args, 'max-turns')) : undefined, timeoutMin: flag(args, 'timeout-min') ? Number(flag(args, 'timeout-min')) : undefined, keep: has(args, 'keep'), claudeBin: flag(args, 'claude-bin'), resume: resumeRoot && resumeSession ? { root: path.resolve(resumeRoot), session: resumeSession } : undefined });
       } catch (err) {
         failures += 1;
         process.stderr.write(`[${t.id}] failed: ${err instanceof Error ? err.message : String(err)}\n`);

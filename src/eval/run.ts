@@ -40,6 +40,8 @@ export interface RunOptions {
   keep?: boolean;
   /* how long to wait for the receipt the SessionEnd hook produces before judging in the runner (0 = judge at once) */
   hookJudgeWaitMs?: number;
+  /* continue a run whose agent already finished: the worktree root (containing <task.id>/) and the agent's session id */
+  resume?: { root: string; session: string };
   out?: (s: string) => void;
   /* injectable for tests */
   agent?: AgentRunner;
@@ -154,21 +156,33 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
   const out = opts.out ?? ((s: string) => process.stdout.write(s + '\n'));
   const cfg = loadConfig();
   const runId = Math.random().toString(36).slice(2, 8);
-  const root = opts.root ?? fs.mkdtempSync(path.join(os.tmpdir(), 'tally-eval-'));
+  const root = opts.resume?.root ?? opts.root ?? fs.mkdtempSync(path.join(os.tmpdir(), 'tally-eval-'));
   const dir = path.join(root, opts.task.id);
   const notes: string[] = [];
   const version = readJson<{ version?: string }>(path.join(packageRoot(), 'package.json'), {}).version ?? '0.0.0';
   const commit = sh(packageRoot(), 'git', ['rev-parse', '--short', 'HEAD']).out.trim() || undefined;
 
-  out(`[${opts.task.id}] preparing ${opts.task.repo}${opts.task.base ? ' @ ' + opts.task.base.slice(0, 8) : ''}`);
-  const { base } = prepareRepo(opts.task, dir, out);
-  setTestRerunConsent(dir, true);
-  const settingsFile = writeHookSettings(root);
+  let base: string;
+  let a: Awaited<ReturnType<AgentRunner>>;
+  if (opts.resume) {
+    /* a crash after the agent finished (the judge threw on qs #493) must not force a second paid agent session: pick up
+       the existing worktree and session and continue from the judge */
+    if (!fs.existsSync(path.join(dir, '.git'))) throw new Error(`resume: no repository at ${dir}`);
+    base = sh(dir, 'git', ['log', '--format=%H', '--grep=^eval: task contract$', '-1']).out.trim() || sh(dir, 'git', ['rev-list', '--max-parents=0', 'HEAD']).out.trim().split('\n')[0]!;
+    a = { sessionId: opts.resume.session, costUsd: null, turns: null, durationS: 0 };
+    notes.push(`resumed from ${dir} with session ${opts.resume.session.slice(0, 8)}; agent turns and duration are not known, cost is taken from the receipt`);
+    out(`[${opts.task.id}] resuming at ${dir} (base ${base.slice(0, 8)}, session ${opts.resume.session.slice(0, 8)})`);
+  } else {
+    out(`[${opts.task.id}] preparing ${opts.task.repo}${opts.task.base ? ' @ ' + opts.task.base.slice(0, 8) : ''}`);
+    base = prepareRepo(opts.task, dir, out).base;
+    setTestRerunConsent(dir, true);
+    const settingsFile = writeHookSettings(root);
 
-  out(`[${opts.task.id}] agent session (${opts.agentModel ?? 'sonnet'}, ≤${opts.maxTurns ?? 80} turns)`);
-  const agent = opts.agent ?? claudeAgent(opts.claudeBin);
-  const a = await agent({ cwd: dir, prompt: AGENT_PROMPT, settingsFile, model: opts.agentModel ?? 'sonnet', maxTurns: opts.maxTurns ?? 80, timeoutMs: (opts.timeoutMin ?? 45) * 60 * 1000 });
-  if (a.error) notes.push(a.error);
+    out(`[${opts.task.id}] agent session (${opts.agentModel ?? 'sonnet'}, ≤${opts.maxTurns ?? 80} turns)`);
+    const agent = opts.agent ?? claudeAgent(opts.claudeBin);
+    a = await agent({ cwd: dir, prompt: AGENT_PROMPT, settingsFile, model: opts.agentModel ?? 'sonnet', maxTurns: opts.maxTurns ?? 80, timeoutMs: (opts.timeoutMin ?? 45) * 60 * 1000 });
+    if (a.error) notes.push(a.error);
+  }
   if (!a.sessionId) throw new Error(`no agent session for ${opts.task.id}: ${a.error ?? 'unknown'}`);
   const session = a.sessionId;
   const head = sh(dir, 'git', ['rev-parse', 'HEAD']).out.trim();
@@ -205,6 +219,7 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
     judge = await judgeSession({ session, cwd: dir, transcriptPath: transcriptPath ?? path.join(sessionDir(session), 'missing.jsonl'), cfg, llm: makeLlm({ session }), reason: 'manual', consent: true, events });
   }
   const assurance = judge.assurance ?? buildAssurance({ judge, task: loadTask(session), cwd: dir });
+  if (opts.resume && a.costUsd == null) a.costUsd = judge.cost.total_usd;
   const judgeS = Math.round((Date.now() - t0) / 1000);
 
   /* the blind evaluator: fresh process, no Tally output */

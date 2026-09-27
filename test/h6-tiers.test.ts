@@ -303,3 +303,19 @@ describe('fixture replay with recorded tiers', () => {
     expect(r.judge.cost.tally_own_usd).toBeCloseTo(c.recorded.calls.reduce((s, x) => s + x.cost_usd, 0), 4);
   }, 60000);
 });
+
+describe('file_contains on a directory', () => {
+  const ev = { git: { files_changed: [], diff_stat: '', insertions: 0, deletions: 0, diff_excerpt: '' }, command_runs: [], ship_events: [], final_messages: [], prompts: [], tool_call_count: 0, edited_files: [] };
+  it('searches the files under the directory instead of crashing with EISDIR', async () => {
+    const cwd = tmpDir('tally-dircheck-');
+    fs.mkdirSync(path.join(cwd, 'test', 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, 'test', 'a.js'), "it('plain', () => {});\n");
+    fs.writeFileSync(path.join(cwd, 'test', 'nested', 'b.js'), "it('withbracket[] literal', () => {});\n");
+    const hit = await resolveCheck({ kind: 'file_contains', path: 'test', pattern: 'withbracket\\[\\]' }, { cwd, evidence: ev, verification: { ran: false }, timeoutMs: 1000 });
+    expect(hit.status).toBe('met');
+    expect(hit.files).toEqual(['test/nested/b.js']);
+    const miss = await resolveCheck({ kind: 'file_contains', path: 'test', pattern: 'nowhere_to_be_found' }, { cwd, evidence: ev, verification: { ran: false }, timeoutMs: 1000 });
+    expect(miss.status).toBe('unmet');
+    expect(miss.evidence).toMatch(/2 searched/);
+  });
+});
