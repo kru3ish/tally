@@ -97,8 +97,11 @@ export function criterionKeywords(text: string): string[] {
   for (const m of text.matchAll(/\b\d{2,}\b/g)) out.add(m[0]);
   for (const m of text.matchAll(/\b[a-z]+[A-Z][A-Za-z]+\b|\b[a-z]+_[a-z_]+\b|\b[A-Z][A-Z_]{2,}\b/g)) out.add(m[0]);
   for (const m of text.matchAll(/--?[a-z][\w-]+/g)) out.add(m[0]);
-  return [...out].filter((k) => k.length >= 3).slice(0, 12);
+  /* format and tooling acronyms name nothing about a criterion: half the test files in a JavaScript repository say JSON */
+  return [...out].filter((k) => k.length >= 3 && !GENERIC_TOKENS.has(k.toUpperCase())).slice(0, 12);
 }
+
+const GENERIC_TOKENS = new Set(['JSON', 'CLI', 'API', 'HTTP', 'HTTPS', 'URL', 'URI', 'HTML', 'CSS', 'README', 'TODO', 'ISO', 'UTF', 'UTF-8', 'ASCII', 'SQL', 'CSV', 'XML', 'YAML', 'ENV', 'NPM', 'NODE', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'REST', 'CRUD', 'UUID', 'STDOUT', 'STDERR', 'STDIN', 'TCP', 'UDP', 'DNS', 'TLS', 'SSL', 'JWT', 'OK', 'PR', 'MD']);
 
 export function isTestCriterionText(text: string): boolean {
   return /\b(test|tests|tested|spec|coverage|regression test|assert)/i.test(text);
@@ -232,7 +235,11 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
   const testCache = new Map<string, string>();
   const baseHead = j.evidence.base_head;
   const diff = opts.diff ?? (baseHead ? git(cwd, ['diff', baseHead, '--']) ?? '' : '');
+  /* the tree under cwd is only evidence if it is the repository the receipt describes: `tally verify` run from another
+     directory, or after an evaluation worktree was removed, must not scan whatever repository happens to be there */
+  const treeIsRepo = !!baseHead && git(cwd, ['cat-file', '-e', `${baseHead}^{commit}`]) !== null;
   const provenance = testProvenance({ cwd, baseHead, judge: j, diff });
+  if (!treeIsRepo) provenance.note = [provenance.note, `the repository at ${cwd} does not contain the receipt's base commit, so the tree was not scanned for tests`].filter(Boolean).join('; ');
   const changed = new Set(j.evidence.files_changed.map((f) => f.replace(/\\/g, '/')));
   const testFilesTouched = [...provenance.agent_created.added_files, ...provenance.agent_created.modified_files];
 
@@ -256,7 +263,7 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
     for (const h of hunks) items.push({ kind: 'diff_hunk', strength: 'deterministic', summary: `${h.file} ${h.header.split('@@')[1]?.trim() ?? ''} mentions ${h.keyword}`, ref: `${h.file}${h.header}`, ok: true });
     let testHunkNamesIt = hunks.some((h) => TEST_PATH_RE.test(h.file));
     /* deterministic: a test in the tree names what the criterion is about (only for criteria with something to name) */
-    if (!testHunkNamesIt && keywords.some((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k))) {
+    if (!testHunkNamesIt && treeIsRepo && keywords.some((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k))) {
       for (const hit of testFilesNaming(cwd, keywords.filter((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k)), testCache)) {
         items.push({ kind: 'test_names_it', strength: 'deterministic', summary: `${hit.file} mentions ${hit.keyword}`, ref: hit.file, ok: true });
         testHunkNamesIt = true;

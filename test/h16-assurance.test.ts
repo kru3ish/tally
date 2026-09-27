@@ -301,3 +301,56 @@ describe('anchoring needs a test that names the behaviour', () => {
     expect(c2.evidence.every((e) => e.kind === 'model_judgment')).toBe(true);
   });
 });
+
+describe('the tree is evidence only when it is the receipt repository', () => {
+  it('scans no test files from a different repository and says so', async () => {
+    const { cwd, base } = makeRepo({ agentAddsTest: true });
+    const llm = new StubLlm(stubFor(['met', 'met', 'unmet']), 'assure-tree');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'assure-tree', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'assure-tree', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    /* another repository whose test files mention 429 everywhere */
+    const other = tmpDir('tally-other-');
+    git(other, ['init', '-q', '-b', 'main']);
+    fs.mkdirSync(path.join(other, 'test'));
+    fs.writeFileSync(path.join(other, 'test', 'decoy.test.js'), "it('429 429 429', () => {});\n");
+    git(other, ['add', '-A']);
+    git(other, ['commit', '-q', '-m', 'decoy']);
+    const a = buildAssurance({ judge: j, task: loadTask('assure-tree'), cwd: other });
+    for (const c of a.criteria) expect(c.evidence.some((e) => /decoy/.test(e.summary) || /decoy/.test(e.ref ?? ''))).toBe(false);
+    expect(a.verification.note).toMatch(/does not contain the receipt's base commit/);
+    /* in the right repository the scan works and the note is absent */
+    const b = buildAssurance({ judge: j, task: loadTask('assure-tree'), cwd });
+    expect(b.verification.note).not.toMatch(/does not contain/);
+  });
+
+  it('format and tooling acronyms are not keywords a test can "name"', () => {
+    expect(criterionKeywords('wc2 --json outputs a JSON array in frequency order')).not.toContain('JSON');
+    expect(criterionKeywords('End-to-end CLI tests spawn node on temporary files')).not.toContain('CLI');
+    expect(criterionKeywords('Login returns 429 after 5 failed attempts')).toContain('429');
+    expect(criterionKeywords('exposes getRateLimit() in src/limits.js')).toEqual(expect.arrayContaining(['getRateLimit', 'src/limits.js']));
+  });
+
+  it('tally verify uses the repository the receipt was made in, and never re-judges a receipt whose repository is gone', async () => {
+    const { verifySession } = await import('../src/commands/verify.js');
+    const { cwd, base } = makeRepo({ agentAddsTest: true });
+    const llm = new StubLlm(stubFor(['met', 'met', 'unmet']), 'assure-verify');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'assure-verify', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'assure-verify', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j.cwd).toBe(cwd);
+    const elsewhere = tmpDir('tally-elsewhere-');
+    const a = await verifySession('assure-verify', { cwd: elsewhere, quiet: true });
+    expect(a).toBeTruthy();
+    expect(a!.criteria.find((c) => c.id === 'c1')!.status).toBe('VERIFIED');
+    expect(a!.verification.note ?? '').not.toMatch(/does not contain/);
+    /* the repository disappears: the stored receipt is shown, nothing is re-run */
+    fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5 });
+    const after = await verifySession('assure-verify', { cwd: elsewhere, quiet: true, fresh: true });
+    expect(after).toBeTruthy();
+    expect(after!.criteria.length).toBe(3);
+    expect(after!.verification.note).toMatch(/does not contain the receipt's base commit/);
+  });
+});

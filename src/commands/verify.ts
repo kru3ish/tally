@@ -26,9 +26,18 @@ export async function verifySession(session: string, opts: { cwd: string; deep?:
   const cfg = loadConfig();
   const task = loadTask(session);
   let judge = loadJudge(session);
-  const head = currentHead(opts.cwd);
+  /* the repository is the one the receipt was made in, not wherever verify is run from; a receipt whose repository is
+     gone (an evaluation worktree, a deleted clone) is shown as stored and never re-judged against another tree */
+  const recorded = judge?.cwd;
+  const repoGone = !!recorded && !fs.existsSync(recorded);
+  if (recorded && !repoGone && path.resolve(recorded) !== path.resolve(opts.cwd)) {
+    if (!opts.quiet) process.stderr.write(`Using the receipt's repository ${recorded} (verify was run from ${opts.cwd}).\n`);
+    opts = { ...opts, cwd: recorded };
+  }
+  if (repoGone && !opts.quiet) process.stderr.write(`The receipt's repository ${recorded} no longer exists; showing the stored receipt without re-scanning a tree.\n`);
+  const head = repoGone ? null : currentHead(opts.cwd);
   const stale = !!judge && !!head && !!judge.head && judge.head !== head;
-  if (!judge || stale || opts.deep || opts.fresh) {
+  if (!repoGone && (!judge || stale || opts.deep || opts.fresh)) {
     const transcriptPath = transcriptPathFor(session);
     if (!transcriptPath || !fs.existsSync(transcriptPath)) {
       if (judge) log(`verify: ${session} no transcript; using the stored receipt`);

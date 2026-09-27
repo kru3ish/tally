@@ -7408,7 +7408,7 @@ function criterionKeywords(text2) {
   for (const m of text2.matchAll(/\b\d{2,}\b/g)) out.add(m[0]);
   for (const m of text2.matchAll(/\b[a-z]+[A-Z][A-Za-z]+\b|\b[a-z]+_[a-z_]+\b|\b[A-Z][A-Z_]{2,}\b/g)) out.add(m[0]);
   for (const m of text2.matchAll(/--?[a-z][\w-]+/g)) out.add(m[0]);
-  return [...out].filter((k) => k.length >= 3).slice(0, 12);
+  return [...out].filter((k) => k.length >= 3 && !GENERIC_TOKENS.has(k.toUpperCase())).slice(0, 12);
 }
 function isTestCriterionText(text2) {
   return /\b(test|tests|tested|spec|coverage|regression test|assert)/i.test(text2);
@@ -7529,7 +7529,9 @@ function buildAssurance(opts) {
   const testCache = /* @__PURE__ */ new Map();
   const baseHead2 = j.evidence.base_head;
   const diff = opts.diff ?? (baseHead2 ? git(cwd, ["diff", baseHead2, "--"]) ?? "" : "");
+  const treeIsRepo = !!baseHead2 && git(cwd, ["cat-file", "-e", `${baseHead2}^{commit}`]) !== null;
   const provenance = testProvenance({ cwd, baseHead: baseHead2, judge: j, diff });
+  if (!treeIsRepo) provenance.note = [provenance.note, `the repository at ${cwd} does not contain the receipt's base commit, so the tree was not scanned for tests`].filter(Boolean).join("; ");
   const changed = new Set(j.evidence.files_changed.map((f) => f.replace(/\\/g, "/")));
   const testFilesTouched = [...provenance.agent_created.added_files, ...provenance.agent_created.modified_files];
   const criteria = j.criteria.map((c) => {
@@ -7546,7 +7548,7 @@ function buildAssurance(opts) {
     const hunks = matchingHunks(diff, keywords);
     for (const h of hunks) items.push({ kind: "diff_hunk", strength: "deterministic", summary: `${h.file} ${h.header.split("@@")[1]?.trim() ?? ""} mentions ${h.keyword}`, ref: `${h.file}${h.header}`, ok: true });
     let testHunkNamesIt = hunks.some((h) => TEST_PATH_RE.test(h.file));
-    if (!testHunkNamesIt && keywords.some((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k))) {
+    if (!testHunkNamesIt && treeIsRepo && keywords.some((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k))) {
       for (const hit of testFilesNaming(cwd, keywords.filter((k) => /\d{2,}|[A-Z_]{3,}|[a-z]+[A-Z]|_/.test(k)), testCache)) {
         items.push({ kind: "test_names_it", strength: "deterministic", summary: `${hit.file} mentions ${hit.keyword}`, ref: hit.file, ok: true });
         testHunkNamesIt = true;
@@ -7678,7 +7680,7 @@ function renderVerify(a, opts = {}) {
   L.push(c("90", `Experimental: verdict ${a.experimental.verdict}, completion ${a.experimental.completion_pct}%, quality ${a.experimental.quality}/10, ROI ${a.experimental.roi ?? "n/a"}. ${a.experimental.note}`));
   return L.join("\n");
 }
-var TEST_PATH_RE, TEST_CASE_RE, MARK, COLOR;
+var TEST_PATH_RE, TEST_CASE_RE, GENERIC_TOKENS, MARK, COLOR;
 var init_assurance = __esm({
   "src/assurance/index.ts"() {
     "use strict";
@@ -7686,6 +7688,7 @@ var init_assurance = __esm({
     init_checks();
     TEST_PATH_RE = /(^|\/)(tests?|__tests__|spec|specs)\/|(^|\/)tests?\.[cm]?[jt]sx?$|\.(test|spec)\.[cm]?[jt]sx?$|_test\.(go|py|rb)$|(^|\/)test_[^/]+\.py$|Test\.(java|kt|cs)$/i;
     TEST_CASE_RE = /^\+\s*(it|test|describe\.each|test\.each)\s*\(|^\+\s*def test_|^\+\s*func Test|^\+\s*#\[test\]|^\+\s*@Test\b/m;
+    GENERIC_TOKENS = /* @__PURE__ */ new Set(["JSON", "CLI", "API", "HTTP", "HTTPS", "URL", "URI", "HTML", "CSS", "README", "TODO", "ISO", "UTF", "UTF-8", "ASCII", "SQL", "CSV", "XML", "YAML", "ENV", "NPM", "NODE", "GET", "POST", "PUT", "PATCH", "DELETE", "REST", "CRUD", "UUID", "STDOUT", "STDERR", "STDIN", "TCP", "UDP", "DNS", "TLS", "SSL", "JWT", "OK", "PR", "MD"]);
     MARK = { VERIFIED: "\u2713", SUPPORTED: "\u25B3", UNVERIFIED: "?", UNMET: "\u2717" };
     COLOR = { VERIFIED: "32", SUPPORTED: "33", UNVERIFIED: "90", UNMET: "31" };
   }
@@ -9731,9 +9734,18 @@ async function verifySession(session, opts) {
   const cfg = loadConfig();
   const task = loadTask(session);
   let judge = loadJudge(session);
-  const head = currentHead(opts.cwd);
+  const recorded = judge?.cwd;
+  const repoGone = !!recorded && !fs28.existsSync(recorded);
+  if (recorded && !repoGone && path29.resolve(recorded) !== path29.resolve(opts.cwd)) {
+    if (!opts.quiet) process.stderr.write(`Using the receipt's repository ${recorded} (verify was run from ${opts.cwd}).
+`);
+    opts = { ...opts, cwd: recorded };
+  }
+  if (repoGone && !opts.quiet) process.stderr.write(`The receipt's repository ${recorded} no longer exists; showing the stored receipt without re-scanning a tree.
+`);
+  const head = repoGone ? null : currentHead(opts.cwd);
   const stale = !!judge && !!head && !!judge.head && judge.head !== head;
-  if (!judge || stale || opts.deep || opts.fresh) {
+  if (!repoGone && (!judge || stale || opts.deep || opts.fresh)) {
     const transcriptPath = transcriptPathFor(session);
     if (!transcriptPath || !fs28.existsSync(transcriptPath)) {
       if (judge) log(`verify: ${session} no transcript; using the stored receipt`);
