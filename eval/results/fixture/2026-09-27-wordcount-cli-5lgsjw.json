@@ -1,0 +1,181 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "5lgsjw",
+  "date": "2026-09-27T13:50:21.179Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "wordcount-cli",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/wordcount-cli",
+    "base": "f883d9b8e561fee01678c5825f3f557dd3e4ad33",
+    "head": "b27f1e6f928afa827b75c9b87a03e475e35dc4cc",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 20,
+    "duration_s": 210,
+    "cost_usd": 0.4462026
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.6153854999999999,
+    "blind": true
+  },
+  "session": "bf98b76d-6e50-45e6-85c9-636637a7550d",
+  "tally_summary": {
+    "verified": 4,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 1,
+    "total": 5,
+    "sufficient": 4,
+    "verdict": "not worth it",
+    "completion_pct": 80
+  },
+  "grader_verdict": "borderline",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 4,
+    "preexisting_files": 1,
+    "agent_added_files": 1,
+    "agent_cases_added": 3
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "wc2 <file> --top N outputs exactly N words with the most frequent first; equal frequencies break alphabetically",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "bin/wc2.js -1,11 +1,43 mentions --top",
+          "test/cli.test.js -0,0 +1,47 mentions --top",
+          "test/cli.test.js added by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "bin/wc2.js parses `--top N` and slices the sorted entries; src/count.js:7 sorts by `b[1]-a[1] || a[0].localeCompare(b[0])`. Verified directly: `node bin/wc2.js task.md --top 5` prints exactly 5 lines (json 4 / the 4 / wc 4 / a 3 / file 3) — descending count, alphabetical within each tie group. sortWords(countWords('b a c a b c d')) returns [[a,2],[b,2],[c,2],[d,1]]. `--top 999` on a 60-unique-word file prints 60 lines (graceful when N exceeds available), `--top 0` prints nothing with exit 0. Non-integer/negative/missing N (`--top`, `--top abc`, `--top -1`, `--top 2.5`) all exit 2 with usage. t"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "wc2 <file> --json outputs a JSON array of {\"word\":..., \"count\":...} objects in frequency descending order",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "bin/wc2.js -1,11 +1,43 mentions word",
+          "src/count.js -3,3 +3,7 mentions count",
+          "test/cli.test.js -0,0 +1,47 mentions word",
+          "test/cli.test.js added by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "bin/wc2.js prints `JSON.stringify(entries.map(([word, count]) => ({ word, count })))` from the same sorted `entries` used by the line path. Verified: `node bin/wc2.js task.md --json` emits [{\"word\":\"json\",\"count\":4},{\"word\":\"the\",\"count\":4},{\"word\":\"wc\",\"count\":4},{\"word\":\"a\",\"count\":3},...] — a single JSON array of {word,count} objects in frequency-descending, tie-alphabetical order. Combines correctly with --top in either flag order (`--json --top 2` and `--top 2 --json` both yield the 2-element array). test/cli.test.js:33 JSON.parses stdout and deep-equals the expected array."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "Unknown flags cause wc2 to exit with code 2 and print a usage message to stderr",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "The arg loop's else branch calls usage() (console.error) then process.exit(2). Verified by spawning: ['task.md','--bogus'] → status=2, stdout='', stderr='usage: wc2 <file> [--top N] [--json]'; same for ['task.md','-t','3'] and for a flag placed before the filename ('--json task.md'). No-args still exits 2 with usage (pre-existing behaviour preserved). test/cli.test.js:40 asserts status 2, empty stdout, and /usage/i on stderr."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "End-to-end CLI tests spawn 'node bin/wc2.js' on temporary files to exercise --top, --json, and unknown flag error scenarios",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /spawn.*wc2|exec.*wc2/ (\"spawn node bin/wc2\")",
+          "bin/wc2.js changed",
+          "bin/wc2.js -1,11 +1,43 mentions --top",
+          "test/cli.test.js -0,0 +1,47 mentions node bin/wc2.js",
+          "test/cli.test.js added by the agent",
+          "independent run of `npm test` passed (4 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/cli.test.js is new and spawns the real CLI: `spawnSync(process.execPath, [path.join(__dirname,'..','bin','wc2.js'), ...args])` against files written into `fs.mkdtempSync(path.join(os.tmpdir(),'wc2-test-'))`. Three tests cover --top (exact stdout), --json (parsed array), and an unknown flag (exit code + stderr). `npm test` passes: 4 tests, 0 failures. Nits only: the --json test always pairs --json with --top so plain `--json` over the full list is never spawned, and the mkdtemp directories are never cleaned up, leaking one temp dir per test."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "Word count output without flags remains unchanged and all existing tests pass",
+      "tally": {
+        "status": "unmet",
+        "assurance": "UNMET",
+        "resolved_by": "tier1",
+        "evidence": [
+          "bin/wc2.js changed",
+          "src/count.js changed",
+          "test/cli.test.js changed",
+          "test/cli.test.js added by the agent",
+          "independent run of `npm test` passed (4 passed)",
+          "[model] The diff shows sortWords() is unconditionally applied to all word outputs, changing order from insertion order to frequency-descending with alphabetical tie-breaking, even without flags. No test exercises the baseline output without flags."
+        ]
+      },
+      "grader": {
+        "status": "partial",
+        "evidence": "The existing suite still passes — test/count.test.js is untouched and green, and countWords itself is unmodified (src/count.js only gains a new exported sortWords). But the no-flag CLI output did change: the base printed `Object.entries(counts)` in first-occurrence order, while bin/wc2.js now feeds every path through `sortWords`. Compared side by side on task.md, base emits 'top 3 / and 2 / json 4 / for 1 / the 4 ...' whereas HEAD emits 'json 4 / the 4 / wc 4 / a 3 ...'. Same 60 lines and same counts, different ordering. This default-path change is unrequested by the task and covered by no tes"
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 4,
+    "total": 5,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 4
+  },
+  "timings": {
+    "agent_s": 210,
+    "judge_s": 65,
+    "grader_s": 129
+  },
+  "notes": []
+}

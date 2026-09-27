@@ -25,6 +25,10 @@ export interface EvalRunResult {
   tally: { version: string; commit?: string };
   task: { id: string; class: 'fixture' | 'real' | 'historical'; repo: string; base: string; head: string; issue?: string; tags: string[]; contamination: string; human_fix?: string };
   agent: { product: string; model?: string; turns?: number; duration_s?: number; cost_usd?: number | null };
+  /* how the agent was run: enough to reproduce the session shape without the transcript */
+  config?: { agent_model: string; max_turns: number; timeout_min: number; permission_mode: string; allowed_tools: string[]; grader_model: string };
+  /* what the agent produced: its commits and files, and the patch file written next to this result (base..head) */
+  work?: { commits: string[]; files: Array<{ file: string; added: number; deleted: number }>; patch_file?: string; patch_bytes: number };
   grader: { product: string; model?: string; cost_usd?: number | null; blind: true };
   session: string;
   tally_summary: { verified: number; supported: number; unverified: number; unmet: number; total: number; verdict: string; completion_pct: number };
@@ -44,6 +48,10 @@ export function writeResult(r: EvalRunResult, root = process.cwd()): string {
   const dir = path.join(resultsRoot(root), r.task.class);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${r.date.slice(0, 10)}-${r.task.id}-${r.run_id}.json`);
+  if (r.work?.patch_file) {
+    /* the patch is written by the runner into the same directory; record its name relative to the result */
+    r.work.patch_file = path.basename(r.work.patch_file);
+  }
   fs.writeFileSync(file, JSON.stringify(r, null, 2) + '\n');
   const line = { run_id: r.run_id, date: r.date, tally: r.tally, task: { id: r.task.id, class: r.task.class }, agent: r.agent, grader: { model: r.grader.model }, agreement: r.agreement, tally_summary: r.tally_summary, grader_verdict: r.grader_verdict, cost_usd: r.agent.cost_usd, file: path.relative(root, file).replace(/\\/g, '/') };
   fs.appendFileSync(path.join(resultsRoot(root), 'ledger.jsonl'), JSON.stringify(line) + '\n');

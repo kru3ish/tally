@@ -2,6 +2,17 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [Unreleased]
+
+### Added
+
+- **Eval results preserve the work.** Each `eval/results/<class>/…json` now records the agent's run configuration (model, turn cap, timeout, permission mode, allowed tools, grader model), its commits, per-file line counts, and the patch itself in a `.patch` file next to the result (capped at 400 KB, lockfiles excluded), so a disagreement can be re-read against the diff after the worktree is gone.
+- **Historical eval class.** Three specs pinned to the commit before a merged human fix (qs #467, qs #493, yargs #2497); the agent sees the issue text only, and the fix PR is recorded as `human_fix` for the record.
+
+### Fixed
+
+- **False VERIFIED from a touched test file.** A test file the agent added or modified, plus a green independent run, used to anchor any met criterion at VERIFIED, including one with nothing a test could name ("the logger is enhanced for production use"). The first corpus run of `tally eval run --class fixture` caught it: the blind grader said partial where Tally said VERIFIED. Anchoring now needs a test that names the behaviour (a hunk in a test file, or a test in the tree, mentioning what the criterion is about); a touched test file is provenance only. Fixture baseline unchanged (no fixture relied on the weak anchor).
+
 ## [0.6.0] - 2026-09-27
 
 Verification is Tally's own job: an autonomous, blind evaluation loop, adversarial fixtures, and a release checklist that runs itself.

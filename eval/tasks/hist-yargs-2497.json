@@ -1,0 +1,16 @@
+{
+  "id": "hist-yargs-2497",
+  "class": "historical",
+  "repo": "https://github.com/yargs/yargs.git",
+  "base": "971e351705f0fbc5566c6ed1dfd707fa65e11c0d",
+  "issue": "https://github.com/yargs/yargs/issues/2497",
+  "task": "# Prototype pollution in `apply-extends`\n\nGitHub issue: https://github.com/yargs/yargs/issues/2497 (library: yargs, a command-line argument parser; TypeScript sources under `lib/`, compiled with `npm run compile`, tests with `npm test`)\n\n## Issue as reported\n\nA prototype pollution vulnerability exists in the `apply-extends` helper within `lib/utils/apply-extends.ts`. This function merges configuration objects, including those loaded via the `extends` keyword. It allows an attacker to inject properties into `Object.prototype` by including a `__proto__` key in a configuration file.\n\n### Location\n\nThe `mergeDeep` function in `lib/utils/apply-extends.ts` recursively merges two objects without checking whether the key being merged is `__proto__`.\n\n### Impact\n\nPrototype pollution can lead to denial of service (overwriting `toString` or `valueOf`), logic errors (unexpected properties altering application flow) and, in some scenarios, remote code execution.\n\n### Reproduction\n\n```js\n// repro_proto.js\nimport { applyExtends } from './build/lib/utils/apply-extends.js';\n// ... setup ...\nconst config = JSON.parse('{\"__proto__\":{\"polluted\":true}}');\napplyExtends(config, ...);\nconsole.log(({}).polluted); // true before the fix\n```\n\n## Acceptance criteria\n\n1. Merging a configuration that contains a `__proto__` key (directly or through `extends`) no longer pollutes `Object.prototype`: after `applyExtends` runs, `({}).polluted` is `undefined`.\n2. Ordinary keys, including nested objects, still merge as before; the existing `extends` behaviour is unchanged.\n3. A test covers the `__proto__` case.\n4. The existing test suite passes (`npm test`).\n",
+  "test_command": "npm test",
+  "setup": ["npm install --no-audit --no-fund"],
+  "tags": ["typescript", "security", "yargs", "historical"],
+  "selected_because": "closed public security bug with a small human patch (+8 lines, 2 files) and a large existing suite; pinned to the commit before that patch",
+  "human_fix": "https://github.com/yargs/yargs/pull/2498",
+  "contamination": "likely",
+  "contamination_note": "the issue text names the function and the fix (skip `__proto__` during merge); merged 2026-02-22, before the model's cutoff",
+  "added": "2026-09-27"
+}

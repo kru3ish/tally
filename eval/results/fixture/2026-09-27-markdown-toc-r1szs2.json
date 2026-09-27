@@ -1,0 +1,249 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "r1szs2",
+  "date": "2026-09-27T13:31:05.631Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "markdown-toc",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/markdown-toc",
+    "base": "9050e1a43a5ad36839974c21a6ad6db1e59fb585",
+    "head": "28634721f35d6f3f145af77f597549ffbfcab8d0",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 19,
+    "duration_s": 119,
+    "cost_usd": 0.4222097999999999
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.409487,
+    "blind": true
+  },
+  "session": "58236595-6416-4db8-b6c9-37a496d8b162",
+  "tally_summary": {
+    "verified": 6,
+    "supported": 2,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 8,
+    "sufficient": 8,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 4,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 3
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Function `toc(md, { maxDepth = 3 })` is exported from src/toc.js",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] src/toc.js matches /export.*toc|function\\s+toc/ (\"export function toc\")",
+          "src/toc.js changed",
+          "README.md -5,3 +5,10 mentions toc(md, { maxDepth = 3 })",
+          "src/toc.js -1,3 +1,49 mentions maxDepth",
+          "test/toc.test.js -1,7 +1,34 mentions src/toc.js",
+          "test/toc.test.js modified by the agent",
+          "independent run of `npm test` passed (4 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/toc.js:25 exports `export function toc(md, { maxDepth = 3 } = {})`; the `= {}` default means `toc('# A')` works (verified: returns \"- [A](#a)\"), and test/toc.test.js imports `{ headings, toc }` successfully."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "Returns a markdown bullet list with one line per heading up to maxDepth, indented two spaces per level below the minimum heading level present",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/toc.js changed",
+          "test/toc.test.js changed",
+          "README.md -5,3 +5,10 mentions maxDepth",
+          "src/toc.js -1,3 +1,49 mentions maxDepth",
+          "test/toc.test.js -1,7 +1,34 mentions maxDepth",
+          "test/toc.test.js modified by the agent",
+          "independent run of `npm test` passed (4 passed)",
+          "[model] Code indents using '  '.repeat(level - minLevel), filters entries by maxDepth, and formats as markdown bullet list; Test 2 verifies depth=3 limits 4 levels to 3 and produces correct 0/2/4-space indentation."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "toc walks lines, keeps ATX headings with level <= maxDepth, computes minLevel = min of matched levels and indents '  '.repeat(level - minLevel). Verified: '# Title/## Section/### Sub/#### Deep' with maxDepth 3 -> \"- [Title](#title)\\n  - [Section](#section)\\n    - [Sub](#sub)\" (#### dropped); '## Deep start/### Child' -> top entry unindented, child at 2 spaces; maxDepth 1 -> only '- [A](#a)'."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "Each heading line links to a GitHub-style anchor (lowercase, spaces to hyphens, punctuation removed, duplicates suffixed -1, -2, etc.)",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/toc.js changed",
+          "test/toc.test.js changed",
+          "README.md -5,3 +5,10 mentions -style",
+          "test/toc.test.js -1,7 +1,34 mentions -style",
+          "test/toc.test.js modified by the agent",
+          "independent run of `npm test` passed (4 passed)",
+          "[model] slugify() applies .toLowerCase(), .replace(/[^\\w\\s-]/g, '') for punctuation removal, .replace(/\\s+/g, '-') for spaces, and uses Map to suffix duplicates -1, -2; Test 3 verifies 'Hello, World!' → 'hello-world' and duplicate suffixed -1."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "slugify() lowercases, trims, strips /[^\\w\\s-]/g, converts whitespace runs to '-', and a Map-based counter appends -1/-2. Verified: '# Hello, World!' twice -> '#hello-world' and '#hello-world-1'; '# A!/# A?/# A' -> a, a-1, a-2. Two corner-case deviations from real GitHub: consecutive spaces left by removed punctuation are collapsed to one hyphen ('# C++ & Rust: A \"Guide\"?' -> '#c-rust-a-guide' where GitHub yields '#c--rust-a-guide'), and non-ASCII letters are stripped ('# Cafe & Noño' -> '#cafe-noo', GitHub keeps 'ñoño'). The enumerated rules in the criterion all hold; untested links break only"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "Ignores headings that appear inside fenced code blocks (```)",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/toc.js changed",
+          "test/toc.test.js changed",
+          "[model] stripFencedCode() toggles inFence boolean on ``` lines and skips all lines inside fenced blocks; called before heading extraction; Test 4 verifies '# Not a heading' inside code fence is ignored while '## Section' outside is processed."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "stripFencedCode() toggles on /^\\s*```/ and drops fence lines and their contents before heading matching. Verified: '# T/```js/# nope/```/## Real' -> only T and Real; an unclosed fence ('# A/```/# B') correctly swallows the rest. Tilde (~~~) fences are not handled, but the criterion only specifies ```."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "Test suite includes tests for depth limiting, anchor generation with punctuation and duplicates, and code-fence skipping",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "test/toc.test.js changed",
+          "test/toc.test.js modified by the agent",
+          "independent run of `npm test` passed (4 passed)",
+          "[model] Test suite includes Test 2 (depth limiting and indentation), Test 3 (anchor generation with punctuation 'Hello, World!' and duplicates -1 suffix), and Test 4 (code-fence skipping); all 4 tests pass via npm test."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/toc.test.js adds three tests: 'toc limits depth and indents relative to the top-level heading present' (maxDepth 3 drops ####), 'toc builds github-style anchors and suffixes duplicates' (punctuation in '# Hello, World!' plus the duplicate -1 suffix), and 'toc ignores headings inside fenced code blocks'. No tests for the no-heading/level-gap/CRLF cases."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "npm test passes",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/toc.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) ran clean: 4 pass, 0 fail, duration ~67ms, including the pre-existing headings test."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c7",
+      "text": "README's Usage section documents the toc function with parameter and return information",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] README.md matches /Usage|toc\\(md/ (\"Usage\")",
+          "README.md changed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "README.md '## Usage' section gains a paragraph documenting the signature `toc(md, { maxDepth = 3 })`, the maxDepth parameter, the return value (Markdown bullet list, two-space indent relative to the top level present), anchor rules including duplicate suffixes, and code-fence skipping."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c8",
+      "text": "Function correctly handles markdown with no headings, single heading, and heading level gaps without error",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/toc.js changed",
+          "test/toc.test.js changed",
+          "[model] Code returns empty string if entries.length === 0 (no headings case); Test 2 processes individual headings and gaps (1→2→3→4) without error; minLevel calculation with Math.min() safely handles level gaps; independent npm test run shows 4/4 pass with no errors."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Probed directly: no headings ('just text') -> \"\" via the entries.length === 0 guard; '' -> \"\"; single '# Only' -> '- [Only](#only)'; level gap '# A/### C/## B' -> A at 0, C at 4 spaces, B at 2 spaces — no throw and consistent with the spec's 'two spaces per level below the top level present'."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 8,
+    "total": 8,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 8
+  },
+  "timings": {
+    "agent_s": 119,
+    "judge_s": 53,
+    "grader_s": 98
+  },
+  "notes": []
+}

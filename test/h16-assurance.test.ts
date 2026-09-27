@@ -282,3 +282,22 @@ describe('adversarial rules', () => {
     expect(c2.evidence.some((e) => e.kind === 'test_names_it' && e.ok === false)).toBe(true);
   });
 });
+
+describe('anchoring needs a test that names the behaviour', () => {
+  it('a modified test file plus a green run does not verify a criterion with nothing nameable', async () => {
+    const { cwd, base } = makeRepo({ agentAddsTest: true });
+    const stub = stubFor(['met', 'met', 'unmet']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), criteria: [{ text: 'Login returns 429 after 5 failed attempts', source: 'explicit' }, { text: 'The implementation is enhanced for production use', source: 'explicit' }, { text: 'README documents the limit', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } }] }) }, 'assure-vague');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'assure-vague', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'assure-vague', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const c1 = j.assurance!.criteria.find((c) => c.id === 'c1')!;
+    const c2 = j.assurance!.criteria.find((c) => c.id === 'c2')!;
+    expect(c1.status).toBe('VERIFIED');
+    expect(c1.evidence.some((e) => (e.kind === 'diff_hunk' || e.kind === 'test_names_it') && /429/.test(e.summary))).toBe(true);
+    expect(c2.judge_status).toBe('met');
+    expect(c2.status).toBe('SUPPORTED');
+    expect(c2.evidence.every((e) => e.kind === 'model_judgment')).toBe(true);
+  });
+});

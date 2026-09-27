@@ -285,8 +285,11 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
     if (testClaimWithoutTest) items.push({ kind: 'test_names_it', strength: 'deterministic', summary: 'no test file was added, modified or names what this criterion is about', ok: false });
     const det = items.filter((i) => i.strength === 'deterministic');
     const detPositive = det.filter((i) => i.ok !== false && i.kind !== 'file_check');
-    /* a test the agent touched, or a test hunk that names the behaviour, plus a green independent run: proof the test ran */
-    const anchoredByTest = (det.some((i) => i.kind === 'test_added' || i.kind === 'test_modified') || testHunkNamesIt) && det.some((i) => (i.kind === 'independent_run' || (i.kind === 'file_check' && /independent run/.test(i.summary))) && i.ok === true) && !runInconclusive;
+    /* a test that names the behaviour (a hunk in a test file, or a test in the tree, mentioning what the criterion is
+       about) plus a green independent run: proof that a test about this ran. A test file the agent merely touched is
+       provenance, not an anchor: the logger-vague eval run showed a modified test file plus a green suite lifting a
+       criterion with nothing nameable ("enhanced for production use") to VERIFIED, which the blind grader called partial. */
+    const anchoredByTest = testHunkNamesIt && det.some((i) => (i.kind === 'independent_run' || (i.kind === 'file_check' && /independent run/.test(i.summary))) && i.ok === true) && !runInconclusive;
     let status: AssuranceStatus;
     let basis: CriterionAssurance['basis'];
     if (testClaimWithoutTest) {

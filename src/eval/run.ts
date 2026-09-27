@@ -23,7 +23,7 @@ import { builtHookPath, sessionDir, ensureDir, log, tallyHome, appendLine, packa
 import { calibrationFile, entryFromJudge } from '../calibrate/calibrate.js';
 import { buildAssurance, type Assurance } from '../assurance/index.js';
 import { runClaudeGrader, type GraderInput, type GraderOutput } from './grader.js';
-import { writeResult, type EvalRunResult, type CriterionResult } from './ledger.js';
+import { writeResult, resultsRoot, type EvalRunResult, type CriterionResult } from './ledger.js';
 import type { EvalTask } from './tasks.js';
 
 export interface AgentRunner {
@@ -198,6 +198,16 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
   const graderS = Math.round((Date.now() - t1) / 1000);
 
   const { criteria, agreement } = compare(assurance, g);
+  /* preserve the agent's work: commits, per-file counts, and the patch itself next to the result (capped) */
+  const commits = sh(dir, 'git', ['log', '--format=%h %s', `${base}..${head}`]).out.trim().split('\n').filter(Boolean);
+  const files = sh(dir, 'git', ['diff', '--numstat', base, head]).out.trim().split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f ?? '', added: Number(a) || 0, deleted: Number(d) || 0 }; });
+  const patch = sh(dir, 'git', ['diff', base, head, '--', '.', ':(exclude)package-lock.json', ':(exclude)**/package-lock.json']).out;
+  const patchBytes = Buffer.byteLength(patch, 'utf8');
+  const resultsDir = path.join(resultsRoot(), opts.task.class);
+  fs.mkdirSync(resultsDir, { recursive: true });
+  const patchFile = patchBytes > 0 && patchBytes <= 400 * 1024 ? path.join(resultsDir, `${new Date().toISOString().slice(0, 10)}-${opts.task.id}-${runId}.patch`) : undefined;
+  if (patchFile) fs.writeFileSync(patchFile, patch);
+  else if (patchBytes > 400 * 1024) notes.push(`patch not stored: ${patchBytes} bytes exceeds the 400 KB cap; commits and per-file counts are recorded`);
   const result: EvalRunResult = {
     schema: 'tally.eval.v1',
     run_id: runId,
@@ -205,6 +215,8 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
     tally: { version, commit },
     task: { id: opts.task.id, class: opts.task.class, repo: opts.task.repo, base, head, issue: opts.task.issue, tags: opts.task.tags, contamination: opts.task.contamination, human_fix: opts.task.human_fix },
     agent: { product: assurance.agent.product, model: assurance.model?.model, turns: a.turns ?? undefined, duration_s: a.durationS, cost_usd: a.costUsd },
+    config: { agent_model: opts.agentModel ?? 'sonnet', max_turns: opts.maxTurns ?? 80, timeout_min: opts.timeoutMin ?? 45, permission_mode: 'acceptEdits', allowed_tools: [...AGENT_TOOLS], grader_model: opts.graderModel ?? 'opus' },
+    work: { commits, files, patch_file: patchFile, patch_bytes: patchBytes },
     grader: { product: 'claude-code', model: g.model, cost_usd: g.cost_usd ?? null, blind: true },
     session,
     tally_summary: { ...assurance.summary, verdict: judge.verdict.verdict, completion_pct: judge.completion_pct },

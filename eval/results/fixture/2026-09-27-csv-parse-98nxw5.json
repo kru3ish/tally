@@ -1,0 +1,217 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "98nxw5",
+  "date": "2026-09-27T13:22:30.250Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "csv-parse",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/csv-parse",
+    "base": "a3a8df5a5afe5a698aca2caca2dff0a2efa20b9f",
+    "head": "4c8958f968d1e1cdaeb0b3fe6c5558f91d2f1a69",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 11,
+    "duration_s": 81,
+    "cost_usd": 0.29412439999999995
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.34238399999999997,
+    "blind": true
+  },
+  "session": "91123863-fe3b-4691-9691-e96a4d77ec86",
+  "tally_summary": {
+    "verified": 6,
+    "supported": 1,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 7,
+    "sufficient": 7,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 5,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 3
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "A comma inside a quoted field does not split the field: `parseCsv(\"\\\"Smith, John\\\",42\")` returns `[[\"Smith, John\", \"42\"]]`",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /Smith.*John/ (\"Smith, John\",42'), [['Smith, John\")",
+          "test/parse.test.js -9,3 +9,15 mentions parseCsv",
+          "test/parse.test.js modified by the agent",
+          "independent run of `npm test` passed (5 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/parse.js was rewritten as a character state machine; running node against it, parseCsv('\"Smith, John\",42') => [[\"Smith, John\",\"42\"]]. Commas are only field separators when inQuotes is false (src/parse.js:46)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "A doubled quote inside a quoted field is treated as an escaped quote: `parseCsv(\"\\\"say \\\"\\\"hi\\\"\\\",x\")` returns `[[\"say \\\"hi\\\"\", \"x\"]]`",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /say.*hi/ (\"say \"\"hi\"\"\",x'), [['say \"hi\")",
+          "test/parse.test.js -9,3 +9,15 mentions parseCsv",
+          "test/parse.test.js modified by the agent",
+          "independent run of `npm test` passed (5 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Probe output: parseCsv('\"say \"\"hi\"\"\",x') => [[\"say \\\"hi\\\"\",\"x\"]]. Doubled quotes inside quotes append a single '\"' and advance i by 2 (src/parse.js:29-31)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "A newline character inside a quoted field is preserved as content (one row, not split across rows)",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /newline.*quoted|quoted.*newline|\\\\n/ (\"newlines inside quoted\")"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Probe output: '\"line1\\nline2\",b' => [[\"line1\\nline2\",\"b\"]] (one row) and '\"a\\r\\nb\",c' => [[\"a\\r\\nb\",\"c\"]]. Newlines are only row terminators outside quotes; CRLF row separators outside quotes still work ('a,b\\r\\n1,2\\r\\n' => two rows)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "Regression tests for all three quoted-field cases are added to the test suite",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /test|it\\(|describe\\(/ (\"it(\")",
+          "test/parse.test.js modified by the agent",
+          "independent run of `npm test` passed (5 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/parse.test.js gains exactly three tests covering the comma, doubled-quote, and embedded-newline cases (diff lines 13-23 of the file); all three named tests appear in the npm test output."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "`npm test` passes with exit code 0 (all tests including new and existing ones)",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npm test` exited 0 (independent run)",
+          "test/parse.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) ran clean: 5 tests, 5 pass, 0 fail, exit status 0 (the Bash tool reported no non-zero exit)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "The two existing tests in the test suite remain unmodified",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "test/parse.test.js changed",
+          "test/parse.test.js modified by the agent",
+          "independent run of `npm test` passed (5 passed)",
+          "[model] The diff shows the two original tests ('plain rows' and 'quoted cells') appearing unchanged at lines 9-11, with three new tests appended after line 11. No modifications to the existing test code."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "git diff a3a8df5 -- test/parse.test.js shows only appended lines after line 11; 'plain rows' and 'quoted cells' are byte-identical to the base commit version."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c7",
+      "text": "Implementation adheres to RFC 4180 standard for CSV parsing with quoted fields",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/parse.js changed",
+          "test/parse.test.js changed",
+          "src/parse.js -1,7 +1,66 mentions 4180",
+          "[model] Independent test run shows all 5 tests passing. The implementation uses proper RFC 4180 state machine with quote handling: escaped quotes via '' (lines 28-31), commas preserved in quoted fields (lines 44-46), newlines preserved in quoted fields (lines 50-52). Three new tests explicitly verify these RFC requirements and pass."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "The implementation is a conventional RFC 4180 state machine: quote toggling, \"\" escape, commas/newlines literal inside quotes, CRLF and LF row endings. One degenerate-input deviation I verified: a record consisting solely of an empty quoted field is dropped — parseCsv('\"\"') => [] (base returned [['']]), because endRow()/the final flush cannot distinguish an explicit empty quoted field from a blank line. Non-degenerate empty quoted fields are fine ('\"a\",\"\"' => [[\"a\",\"\"]]). Unquoted fields containing stray quotes are handled leniently (a\"b,c => [[\"ab,c\"]]), which RFC 4180 leaves undefined."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 7,
+    "total": 7,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 7
+  },
+  "timings": {
+    "agent_s": 81,
+    "judge_s": 95,
+    "grader_s": 79
+  },
+  "notes": []
+}

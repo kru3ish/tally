@@ -56,6 +56,17 @@ Task specs live in `eval/tasks/*.json` (see `src/eval/tasks.ts` for the schema).
 
 Builder and evaluator are separate model invocations with separate context. They are still the same model family, so agreement between them is not agreement with a human. The human-graded set stays the reference.
 
+### Ledger results by class
+
+Numbers below are read from `eval/results/ledger.jsonl` (`tally eval report`). Agent: Claude Code with claude-sonnet-5, at most 80 turns; blind grader: a separate `claude -p` process (opus) with fresh context that saw the task, the repository and the base commit, never Tally's answer.
+
+**Fixture class, Tally 0.6.0 (2026-09-27): 8 tasks, 52 criteria.** Exact criterion agreement 50/52; verdict agreement 6/8; **false VERIFIED 1; false UNMET 0**; agent spend $2.73 in total (12 to 20 turns per task). Every Tally criterion in this class was VERIFIED or UNMET; none landed at SUPPORTED or UNVERIFIED. The two disagreements:
+
+- `logger-vague` c3 "The logger implementation is enhanced for production use (specific form unspecified in ticket)": Tally VERIFIED, grader partial. A false VERIFIED. Cause: a test file the agent modified plus a green run anchored a criterion that no test could name. Fixed after this run (anchoring now needs a test that names the behaviour); the fixture baseline was unaffected and the case stays in the ledger against 0.6.0. The rerun on the fixed build is recorded in the ledger under the next commit.
+- `wordcount-cli` c5 "Word count output without flags remains unchanged and all existing tests pass": Tally unmet, grader partial; verdicts not worth it vs borderline. Both saw the same fact: the agent applied frequency sorting to the no-flag path, changing the default output order, while the existing suite stayed green. Tally treats a compound criterion with one failed half as unmet; the grader gave partial credit for the green suite. Kept as graded.
+
+This is a model grading a model on constructed tasks. It shows the pipeline scores clean small tasks correctly and that the adversarial blind grader catches Tally's over-claims; it does not show agreement with humans on messy work.
+
 ## What Tally reliably detects (as of 0.5.0)
 
 - A criterion with no evidence in the diff (the forgotten README): UNMET on every fixture and every eval run so far.
@@ -76,6 +87,7 @@ Builder and evaluator are separate model invocations with separate context. They
 1. A test names the behaviour but asserts something weaker (see above).
 2. A mechanical `file_contains` / `diff_contains` pattern that matches text unrelated to the criterion (a comment, a string constant). Mitigation: patterns are only written by intake for criteria that name a file, command or value.
 3. A disputed override that was itself wrong; disputes are recorded as interpreted evidence and marked on the receipt.
+4. **Closed 2026-09-27.** A test file the agent touched plus a green run anchored any met criterion, including one with nothing a test could name. Found by the first corpus run (`logger-vague`: Tally VERIFIED, blind grader partial). Anchoring now requires a test that names the behaviour; touched test files are provenance only. The result stays in the ledger as a false VERIFIED against 0.6.0.
 
 ## Known false-negative classes (Tally says UNMET or UNVERIFIED, a human says met)
 

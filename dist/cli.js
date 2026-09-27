@@ -7568,7 +7568,7 @@ function buildAssurance(opts) {
     if (testClaimWithoutTest) items.push({ kind: "test_names_it", strength: "deterministic", summary: "no test file was added, modified or names what this criterion is about", ok: false });
     const det = items.filter((i) => i.strength === "deterministic");
     const detPositive = det.filter((i) => i.ok !== false && i.kind !== "file_check");
-    const anchoredByTest = (det.some((i) => i.kind === "test_added" || i.kind === "test_modified") || testHunkNamesIt) && det.some((i) => (i.kind === "independent_run" || i.kind === "file_check" && /independent run/.test(i.summary)) && i.ok === true) && !runInconclusive;
+    const anchoredByTest = testHunkNamesIt && det.some((i) => (i.kind === "independent_run" || i.kind === "file_check" && /independent run/.test(i.summary)) && i.ok === true) && !runInconclusive;
     let status;
     let basis;
     if (testClaimWithoutTest) {
@@ -10013,6 +10013,9 @@ function writeResult(r, root = process.cwd()) {
   const dir = path31.join(resultsRoot(root), r.task.class);
   fs31.mkdirSync(dir, { recursive: true });
   const file = path31.join(dir, `${r.date.slice(0, 10)}-${r.task.id}-${r.run_id}.json`);
+  if (r.work?.patch_file) {
+    r.work.patch_file = path31.basename(r.work.patch_file);
+  }
   fs31.writeFileSync(file, JSON.stringify(r, null, 2) + "\n");
   const line = { run_id: r.run_id, date: r.date, tally: r.tally, task: { id: r.task.id, class: r.task.class }, agent: r.agent, grader: { model: r.grader.model }, agreement: r.agreement, tally_summary: r.tally_summary, grader_verdict: r.grader_verdict, cost_usd: r.agent.cost_usd, file: path31.relative(root, file).replace(/\\/g, "/") };
   fs31.appendFileSync(path31.join(resultsRoot(root), "ledger.jsonl"), JSON.stringify(line) + "\n");
@@ -10174,6 +10177,18 @@ async function runEvalTask(opts) {
   if (g.raw_error) notes.push(g.raw_error);
   const graderS = Math.round((Date.now() - t1) / 1e3);
   const { criteria, agreement } = compare(assurance, g);
+  const commits = sh(dir, "git", ["log", "--format=%h %s", `${base}..${head}`]).out.trim().split("\n").filter(Boolean);
+  const files = sh(dir, "git", ["diff", "--numstat", base, head]).out.trim().split("\n").filter(Boolean).map((l) => {
+    const [a2, d, f] = l.split("	");
+    return { file: f ?? "", added: Number(a2) || 0, deleted: Number(d) || 0 };
+  });
+  const patch = sh(dir, "git", ["diff", base, head, "--", ".", ":(exclude)package-lock.json", ":(exclude)**/package-lock.json"]).out;
+  const patchBytes = Buffer.byteLength(patch, "utf8");
+  const resultsDir = path32.join(resultsRoot(), opts.task.class);
+  fs32.mkdirSync(resultsDir, { recursive: true });
+  const patchFile = patchBytes > 0 && patchBytes <= 400 * 1024 ? path32.join(resultsDir, `${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}-${opts.task.id}-${runId}.patch`) : void 0;
+  if (patchFile) fs32.writeFileSync(patchFile, patch);
+  else if (patchBytes > 400 * 1024) notes.push(`patch not stored: ${patchBytes} bytes exceeds the 400 KB cap; commits and per-file counts are recorded`);
   const result = {
     schema: "tally.eval.v1",
     run_id: runId,
@@ -10181,6 +10196,8 @@ async function runEvalTask(opts) {
     tally: { version, commit },
     task: { id: opts.task.id, class: opts.task.class, repo: opts.task.repo, base, head, issue: opts.task.issue, tags: opts.task.tags, contamination: opts.task.contamination, human_fix: opts.task.human_fix },
     agent: { product: assurance.agent.product, model: assurance.model?.model, turns: a.turns ?? void 0, duration_s: a.durationS, cost_usd: a.costUsd },
+    config: { agent_model: opts.agentModel ?? "sonnet", max_turns: opts.maxTurns ?? 80, timeout_min: opts.timeoutMin ?? 45, permission_mode: "acceptEdits", allowed_tools: [...AGENT_TOOLS], grader_model: opts.graderModel ?? "opus" },
+    work: { commits, files, patch_file: patchFile, patch_bytes: patchBytes },
     grader: { product: "claude-code", model: g.model, cost_usd: g.cost_usd ?? null, blind: true },
     session,
     tally_summary: { ...assurance.summary, verdict: judge.verdict.verdict, completion_pct: judge.completion_pct },

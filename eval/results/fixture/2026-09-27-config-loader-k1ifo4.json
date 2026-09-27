@@ -1,0 +1,228 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "k1ifo4",
+  "date": "2026-09-27T13:18:15.556Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "config-loader",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/config-loader",
+    "base": "b1fd98b730da22e64d2336692292ce622288d236",
+    "head": "d41c191c65909183ec52a707556b6c5cff5ce5a9",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 12,
+    "duration_s": 143,
+    "cost_usd": 0.30161459999999995
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.7605754999999998,
+    "blind": true
+  },
+  "session": "dbe67c66-6ab6-4d26-93ef-4e2ef4fe1b29",
+  "tally_summary": {
+    "verified": 7,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 7,
+    "sufficient": 7,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 7,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 7
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Environment variables prefixed APP_ override JSON keys (e.g., APP_PORT=8080 sets port to 8080); numbers and the strings true/false are coerced to their types; other values remain strings",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/load.js changed",
+          "test/load.test.js changed",
+          "src/load.js -1,5 +1,51 mentions APP_",
+          "test/load.test.js -5,8 +5,63 mentions 8080",
+          "test/load.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)",
+          "[model] The coerce() function correctly handles 'true'→true, 'false'→false, numeric strings→Number, and leaves other values as strings. The test 'overrides top-level key from env with numeric coercion' verifies APP_PORT='8080'→8080, and 'coerces true/false strings to booleans and leaves other values as strings' confirms the full type-coercion behavior. All 7 tests pass including the process.env default behavior test."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/load.js:29-39 applies overrides for every env key starting with `APP_` (prefix stripped, remainder lowercased); coerce() at src/load.js:3-8 maps 'true'/'false' to booleans, non-empty numeric strings via Number(), everything else stays a string. Probe run confirmed: APP_PORT='8080' -> {port:8080} (number), APP_FLAG='true' -> true, APP_NAME='hello' -> 'hello', APP_NAME='1.2.3' -> '1.2.3', APP_NAME='' -> ''. Non-APP_ vars (PORT, PATHX) are ignored. Edge quirks inherited from Number(): a whitespace-only value ' ' becomes 0 and '0x10' becomes 16 — narrow, not realistic config values, but techni"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "Nested keys use double underscore syntax: APP_DB__HOST sets db.host",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/load.js changed",
+          "test/load.test.js changed",
+          "test/load.test.js -5,8 +5,63 mentions db.host",
+          "test/load.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)",
+          "[model] The code uses `.split('__')` on the APP_-stripped env var name to parse nested paths. The setPath() helper function creates intermediate objects as needed. The test 'overrides nested keys using double underscore' confirms APP_DB__HOST='db.internal' correctly produces {db: {host: 'db.internal'}}. Independent test run shows all 7 tests passing."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Key name is split on '__' and each segment lowercased (src/load.js:32-35), then setPath (src/load.js:10-18) walks/creates intermediate objects. Probe: APP_DB__HOST='h' on {\"db\":{\"host\":\"lh\",\"port\":5432}} -> {db:{host:'h',port:5432}} (sibling preserved). Segments that would be empty (e.g. APP___PROTO__) are skipped at src/load.js:36, so no prototype pollution — probe confirmed ({}).polluted stayed undefined for both APP___PROTO__ and APP_A____PROTO__."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "The env parameter defaults to process.env when not provided and is injectable for testing",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] test/load.test.js matches /env\\s*:/ (\"env:\")",
+          "test/load.test.js changed",
+          "src/load.js -1,5 +1,51 mentions process.env",
+          "test/load.test.js -5,8 +5,63 mentions process.env",
+          "test/load.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Signature `loadConfig(file, { env = process.env, required = [] } = {})` at src/load.js:41 — whole options object and each field defaulted. Probe: loadConfig(f) with no second arg works, and loadConfig(f,{env:undefined,required:[]}) also falls back to process.env. test/load.test.js:33-41 sets process.env.APP_PORT='9090', asserts the loaded port is 9090, and deletes it in a finally block; all other tests inject env explicitly."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "The required parameter accepts a list of dotted key paths; when a required key is missing, an Error is thrown with a message naming every missing key",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] test/load.test.js matches /required|throw/ (\"throw\")",
+          "test/load.test.js changed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/load.js:45-48 filters `required` through getPath(config, path.split('.')) and throws `new Error('Missing required config keys: ' + missing.join(', '))` listing all of them. Probe with required:['port','db.name','x.y'] threw \"Missing required config keys: db.name, x.y\" — both missing keys named, the present one omitted. Validation runs after env overrides, so a key supplied only via env satisfies it (covered by test/load.test.js:54-62). Minor: getPath uses `in`, so an inherited name like 'toString' counts as present (probe confirmed no throw); a key present with value null also passes, whic"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "Tests cover override, coercion, nested keys, and required-key error scenarios",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] test/load.test.js matches /override|coercion|nested/ (\"override\")",
+          "test/load.test.js changed",
+          "test/load.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/load.test.js adds six tests beyond the original 'reads json': top-level override with numeric coercion (line 19), boolean coercion plus a string left unchanged (line 25), nested double-underscore override (line 31), process.env default (line 37), required error asserting the message matches both db.host and db.name and does not name the present key 'port' (line 45), and required satisfied by an env-supplied nested key (line 56). A shared writeConfig helper replaces the inline temp-file setup. Not covered: whitespace/hex coercion edges and non-APP_ vars being ignored (I verified those by p"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "npm test passes without errors",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/load.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) in the repo root: 7 tests, 7 pass, 0 fail, duration ~82ms. No warnings or unhandled errors."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c7",
+      "text": "src/load.js file is modified to extend the loadConfig function",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_changed] src/load.js is in the diff",
+          "src/load.js changed",
+          "src/load.js -1,5 +1,51 mentions loadConfig",
+          "test/load.test.js -5,8 +5,63 mentions loadConfig",
+          "test/load.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "git diff b1fd98b..d41c191 shows src/load.js +50/-2 and test/load.test.js +59/-2. loadConfig in src/load.js was extended in place (same export, same first parameter, backward compatible with the original one-arg call — the pre-existing 'reads json' test is unchanged and still passes). No other files touched; working tree clean after my probe file was removed."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 7,
+    "total": 7,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 7
+  },
+  "timings": {
+    "agent_s": 143,
+    "judge_s": 21,
+    "grader_s": 164
+  },
+  "notes": []
+}

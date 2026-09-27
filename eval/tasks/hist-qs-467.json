@@ -1,0 +1,16 @@
+{
+  "id": "hist-qs-467",
+  "class": "historical",
+  "repo": "https://github.com/ljharb/qs.git",
+  "base": "8859c37470e11b42b547b275e4e9bd0bc8cc5464",
+  "issue": "https://github.com/ljharb/qs/issues/467",
+  "task": "# Serialization for `Date` is not working when using `filter` option\n\nGitHub issue: https://github.com/ljharb/qs/issues/467 (library: qs, a querystring parser and serializer)\n\n## Issue as reported\n\nSerialization for `Date` type values is skipped when using the `filter` option for custom serialization.\n\n### Code to reproduce\n\n```js\nconst qs = require('qs');\n\nclass Range {\n  constructor(from, to) { this.from = from; this.to = to; }\n}\n\nconst data = {\n  a: new Range(1, 123),\n  b: new Date(),\n  c: [new Date(), new Range(3, 45)],\n  d: false,\n  e: { a: 123, b: new Date(), c: new Range(6, 700) },\n};\n\nconst stringified = qs.stringify(data, {\n  filter(_, value) {\n    if (value instanceof Range) {\n      return `${value.from}...${value.to}`;\n    }\n    return value;\n  }\n});\n\nconsole.log(qs.parse(stringified));\n```\n\n### What I expected\n\n```js\n{\n  a: '1...123',\n  b: '2023-03-07T09:02:41.260Z',\n  c: [ '2023-03-07T09:02:41.260Z', '3...45' ],\n  d: 'false',\n  e: { a: '123', b: '2023-03-07T09:02:41.260Z', c: '6...700' }\n}\n```\n\n### What actually happens\n\n```js\n{\n  a: '1...123',\n  c: [ '3...45' ],\n  d: 'false',\n  e: { a: '123', c: '6...700' }\n}\n```\n\nThe `Date` values are dropped. Today the caller has to serialize `Date` themselves inside the filter (`if (value instanceof Date) return value.toISOString()`), which should not be necessary: `Date` values that the filter returns unchanged should still be serialized with the configured `serializeDate` (default `toISOString`).\n\n## Acceptance criteria\n\n1. `qs.stringify` with a `filter` function serializes `Date` values that the filter returns unchanged, using `serializeDate` when one is configured and `Date.prototype.toISOString` otherwise, at the top level, inside arrays and inside nested objects.\n2. A filter that transforms a `Date` (for example returns `value.getTime()`) still controls the output; the fix must not override what the filter returned.\n3. Behaviour without a `filter` option is unchanged.\n4. A test covers `Date` values passing through a `filter` function (top level, array element and nested object).\n5. The existing test suite passes.\n\nRun the tests with `npx tape \"test/**/*.js\"`.\n",
+  "test_command": "npx tape \"test/**/*.js\"",
+  "setup": ["npm install --no-audit --no-fund --ignore-scripts"],
+  "tags": ["javascript", "bug", "qs", "historical"],
+  "selected_because": "closed public bug fixed by a small human patch (2 files, +63/-3) with a tape suite; the repository is pinned to the commit before that patch and the agent never sees it",
+  "human_fix": "https://github.com/ljharb/qs/pull/595",
+  "contamination": "unlikely",
+  "contamination_note": "fix merged 2026-08-29, after the agent model's training cutoff; the issue itself (2023) and its expected output are public",
+  "added": "2026-09-27"
+}

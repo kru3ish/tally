@@ -1,0 +1,135 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "71sm6d",
+  "date": "2026-09-27T13:26:34.773Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "logger-vague",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/logger-vague",
+    "base": "d6bd418affa1ed1c8e9ec4f9d3ce48d734b9394d",
+    "head": "8fd8029fe3cf296e4fe161527a4649c7e76db982",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 18,
+    "duration_s": 97,
+    "cost_usd": 0.3989826
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.5184960000000001,
+    "blind": true
+  },
+  "session": "5a1d6229-fc15-48e1-98ff-b2f9f15769ca",
+  "tally_summary": {
+    "verified": 3,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 3,
+    "sufficient": 3,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 10,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 9
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "The file `src/logger.js` is modified to implement logger improvements",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_changed] src/logger.js is in the diff",
+          "src/logger.js changed",
+          "test/logger.test.js -1,7 +1,73 mentions src/logger.js",
+          "test/logger.test.js modified by the agent",
+          "independent run of `npm test` passed (10 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "git diff d6bd418..HEAD shows src/logger.js grew from 3 to 33 lines (commit 8fd8029 \"Add log levels, timestamps, and metadata to logger\"). Base was a single `log(level, msg)` doing `console.log('[' + level + '] ' + msg)`. Current src/logger.js:1-32 adds a LEVELS priority map (debug/info/warn/error), module-level `currentLevel` with exported `setLevel`/`getLevel` (setLevel throws `invalid log level: x` on unknown input), threshold filtering (lines 19-22), ISO-8601 timestamps plus uppercased level tag (lines 24-25), optional JSON-serialized metadata argument (lines 26-28), and severity routing to"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "The existing test suite continues to pass after logger changes",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/logger.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) reports `tests 10 / pass 10 / fail 0`. The only test that existed at the base commit — `test('does not throw', ...)` calling `log('info','x')` — is still present verbatim at test/logger.test.js:9-11 and passes. The agent added 9 further tests covering timestamp format, console-method routing per level, level filtering, setLevel/getLevel, invalid-level rejection, metadata JSON, and unknown-level fallback; all pass, and `git status --porcelain -uall` is clean (nothing stray committed or left in the tree)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "The logger implementation is enhanced for production use (specific form unspecified in ticket)",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/logger.js changed",
+          "test/logger.test.js changed",
+          "test/logger.test.js modified by the agent",
+          "independent run of `npm test` passed (10 passed)",
+          "[model] Independent test run PASSED (10/10 tests). Diff shows production-standard enhancements: log-level filtering (debug/info/warn/error with numeric priorities), ISO timestamp formatting on every line, proper console method routing (console.error/warn/debug/log), configurable severity threshold via setLevel/getLevel, optional JSON metadata support, and input validation for levels."
+        ]
+      },
+      "grader": {
+        "status": "partial",
+        "evidence": "Genuine production-relevant gains: severity-based filtering so debug traffic can be suppressed, machine-parseable ISO timestamps, correct routing of warn/error to stderr-side console methods, and structured metadata. But concrete production robustness items are missing, verified by probing the module with node -e: `log('info','c', circularObj)` throws \"Converting circular structure to JSON\" and `log('info','b',{n:1n})` throws \"Do not know how to serialize a BigInt\" — JSON.stringify at line 27 is unguarded, so a log call can crash the caller's request path (the 3-line base logger never threw on"
+      },
+      "agree": false,
+      "false_verified": true,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 2,
+    "total": 3,
+    "false_verified": 1,
+    "false_unmet": 0,
+    "verified_vs_supported": 2
+  },
+  "timings": {
+    "agent_s": 97,
+    "judge_s": 22,
+    "grader_s": 125
+  },
+  "notes": []
+}

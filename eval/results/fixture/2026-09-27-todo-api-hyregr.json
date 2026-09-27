@@ -1,0 +1,250 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "hyregr",
+  "date": "2026-09-27T13:43:36.403Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "2601470"
+  },
+  "task": {
+    "id": "todo-api",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/todo-api",
+    "base": "eea6e126b4a59b4eee068647d669ffb20c347cdf",
+    "head": "a508fa3f1176974031ec6982fa6ba581ab9b8398",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 14,
+    "duration_s": 56,
+    "cost_usd": 0.308529
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.6152874999999999,
+    "blind": true
+  },
+  "session": "6b15fcc0-5072-43b9-9ce8-6248f2a9e33f",
+  "tally_summary": {
+    "verified": 8,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 8,
+    "sufficient": 8,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 6,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 5
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "DELETE /todos/:id with valid id removes the todo and responds with 204",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "src/server.js -19,6 +21,24 mentions 204",
+          "test/server.test.js -21,3 +21,47 mentions 204",
+          "test/server.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/server.js:24-29 matches DELETE on /todos/<digits>, calls store.remove(id) (src/store.js:16-18, Map.delete returns a boolean), and on success does res.writeHead(204); res.end() with no body. test/server.test.js:26-34 POSTs a todo, DELETEs it, asserts status 204, then re-fetches GET /todos and asserts list.length === 0 — so removal is actually verified, not just the status code. Test passes in my `npm test` run."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "DELETE /todos/:id with unknown id responds 404 with {\"error\":\"not found\"}",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "src/server.js -19,6 +21,24 mentions error",
+          "test/server.test.js -21,3 +21,47 mentions error",
+          "test/server.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/server.js:26 returns json(404, { error: 'not found' }) when store.remove() returns false. test/server.test.js:36-42 DELETEs /todos/999 on an empty store, asserts status 404 and assert.deepEqual(body, { error: 'not found' }) — exact body shape checked. Passes. A non-numeric id such as /todos/abc does not match the /^\\/todos\\/(\\d+)$/ regex and falls through to the identical generic 404 at src/server.js:42, so that path also returns the required body."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "PATCH /todos/:id with body {\"done\":true} marks the todo as done and returns the updated todo object",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "src/server.js -19,6 +21,24 mentions done",
+          "src/store.js -13,5 +13,14 mentions done",
+          "test/server.test.js -21,3 +21,47 mentions done",
+          "test/server.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/server.js:30-41 buffers the PATCH body, parses { done }, and calls store.setDone(id, done). src/store.js:19-24 mutates the stored object's done field and returns the whole todo ({ id, title, done }), which is serialized at src/server.js:38 with status 200. test/server.test.js:44-54 asserts status 200, updated.done === true and updated.id === created.id. Passes. (The test does not assert `title` survives, but store.setDone mutates the existing object in place so all fields are retained.)"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "PATCH /todos/:id with non-boolean done value responds 400",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "src/server.js -19,6 +21,24 mentions 400",
+          "test/server.test.js -21,3 +21,47 mentions 400",
+          "test/server.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/server.js:35 guards with `if (typeof done !== 'boolean') return json(400, { error: 'done must be a boolean' })`. test/server.test.js:56-63 PATCHes a real todo with {\"done\":\"yes\"} and asserts status 400. Passes. Note the type check runs before the existence lookup, so PATCH on an unknown id with a non-boolean done yields 400 rather than 404 — the task does not specify an ordering, so this is a defensible choice, not a defect."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "Test suite includes explicit test cases for 204, 404, and 400 response codes",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "test/server.test.js changed",
+          "src/server.js -19,6 +21,24 mentions 204",
+          "test/server.test.js -21,3 +21,47 mentions 204",
+          "test/server.test.js modified by the agent",
+          "independent run of `npm test` passed (6 passed)",
+          "[model] Test diff shows 5 explicit new tests including 'DELETE removes the todo and responds 204' with assert.equal(r.status, 204); 'DELETE unknown id responds 404' with assert.equal(r.status, 404); and 'PATCH with non-boolean done responds 400' with assert.equal(r.status, 400). Independent test run confirms 6/6 tests passed."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/server.test.js adds five tests, all with explicit status assertions: 'DELETE removes the todo and responds 204' (assert.equal(r.status, 204), line 30), 'DELETE unknown id responds 404' (line 39, plus deepEqual on the error body), 'PATCH with non-boolean done responds 400' (line 62), plus bonus coverage for PATCH 200 (line 49) and PATCH unknown id 404 (line 68). All three required codes are covered by dedicated cases."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "npm test passes",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npm test` exited 0 (independent run)",
+          "test/server.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran `npm test` (node --test) in the repo: 6 tests, 6 pass, 0 fail, duration ~149ms. Output listed all six test names as passing, including the pre-existing 'POST then GET'. `git status --porcelain` is clean, so this is the committed state, not an uncommitted fixup."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c7",
+      "text": "Existing GET and POST endpoints function unchanged with no regression",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/server.js changed",
+          "test/server.test.js changed",
+          "test/server.test.js -21,3 +21,47 mentions GET",
+          "test/server.test.js modified by the agent",
+          "independent run of `npm test` passed (6 passed)",
+          "[model] Diff shows GET /todos and POST /todos handlers remain unchanged. The new idMatch regex line evaluates to null for these paths and does not modify control flow. Original test suite passed (6/6 tests), which includes both existing endpoint tests, confirming no regression despite the addition of request-wide URL parsing."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "git diff against eea6e12 shows 73 insertions and 0 deletions across the three files — the GET handler (src/server.js:13), the POST handler (src/server.js:14-23), the final fallback 404, and store.add/list/get are untouched. The only insertion ahead of the existing routes is the `idMatch` regex const at src/server.js:11, which binds a local and cannot change routing: GET/POST are still matched by exact pathname first, and requests like GET /todos/1 still fall through to the same generic 404. The original 'POST then GET' test is byte-identical to the base-commit version (verified via git show) a"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c8",
+      "text": "src/server.js is modified to implement DELETE and PATCH endpoints",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_changed] src/server.js is in the diff",
+          "src/server.js changed",
+          "src/server.js -19,6 +21,24 mentions DELETE",
+          "test/server.test.js -21,3 +21,47 mentions DELETE",
+          "test/server.test.js modified by the agent",
+          "independent run of `npm test` passed (6 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/server.js is modified with both endpoints in the router: the DELETE branch at src/server.js:24-29 and the PATCH branch at src/server.js:30-41, backed by two new store methods (remove, setDone) at src/store.js:16-24. Implementation lives in the files the task named — no shim, no test-only fake."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 8,
+    "total": 8,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 8
+  },
+  "timings": {
+    "agent_s": 56,
+    "judge_s": 116,
+    "grader_s": 118
+  },
+  "notes": []
+}

@@ -1,0 +1,16 @@
+{
+  "id": "hist-qs-493",
+  "class": "historical",
+  "repo": "https://github.com/ljharb/qs.git",
+  "base": "3f5e1c528c967d915096787efbffa73cf6044170",
+  "issue": "https://github.com/ljharb/qs/issues/493",
+  "task": "# Incorrect parsing of nested params with closing square bracket `]` in property name\n\nGitHub issue: https://github.com/ljharb/qs/issues/493 (library: qs, a querystring parser and serializer)\n\n## Issue as reported\n\nSearch parameters with a closing square bracket in nested property names are parsed incorrectly. Demonstrated with `/?search[withbracket[]]=foobar`:\n\n```js\n> var qs = require('qs');\n> input = { search: { 'withbracket[]': 'foobar' } }\n> output = qs.stringify(input, { encode: false })\n'search[withbracket[]]=foobar'\n> result = qs.parse(output)\n{ 'search[withbracket': [ 'foobar' ] }\n```\n\nSo `stringify` followed by `parse` does not round-trip. For comparison the native URL object keeps the whole key: `[...new URL('http://example.com/?search[withbracket[]]=foobar').searchParams.keys()]` is `['search[withbracket[]]']`. And when parsing a query without inner brackets, the result is a nested object: `qs.parse('search[okay]=baz')` is `{ search: { okay: 'baz' } }`.\n\n### Current result\n\n```json\n{ \"search[withbracket\": [\"foobar\"] }\n```\n\n### Expected result\n\n```json\n{ \"search\": { \"withbracket[]\": \"foobar\" } }\n```\n\n(A bracket pair *inside* a bracket group is literal content of that key; only an outermost `[]` means \"push to array\".)\n\n## Acceptance criteria\n\n1. `qs.parse('search[withbracket[]]=foobar')` returns `{ search: { 'withbracket[]': 'foobar' } }`, and `qs.parse('a[b[]]=c')` returns `{ a: { 'b[]': 'c' } }`.\n2. An outermost `[]` still means array push: `qs.parse('list[][x[]]=y')` returns `{ list: [{ 'x[]': 'y' }] }`, and existing behaviour for `a[]=1&a[]=2` is unchanged.\n3. The `depth`, `strictDepth`, `allowDots` and `allowPrototypes` options keep their documented behaviour on keys without inner brackets.\n4. A test covers keys with a literal `[]` inside a bracket group.\n5. The existing test suite passes.\n\nRun the tests with `npx tape \"test/**/*.js\"`.\n",
+  "test_command": "npx tape \"test/**/*.js\"",
+  "setup": ["npm install --no-audit --no-fund --ignore-scripts"],
+  "tags": ["javascript", "bug", "qs", "historical", "parser"],
+  "selected_because": "closed public parsing bug (open 2024-2026) fixed by a human patch that replaced a regex splitter with a balanced-bracket splitter (+101/-22); pinned to the commit before that patch",
+  "human_fix": "https://github.com/ljharb/qs/pull/530",
+  "contamination": "possible",
+  "contamination_note": "the fix PR was open from 2025-08 with its approach in the description; merged 2026-04-21, before the model's cutoff",
+  "added": "2026-09-27"
+}
