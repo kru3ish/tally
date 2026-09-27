@@ -18,6 +18,7 @@ import { sessionDir, ensureDir, historyFile, appendLine, repoKey, builtHookPath 
 import type { Suggestion, HistoryEntry } from '../coach/types.js';
 import type { Exec } from '../judge/evidence.js';
 import { parseTranscriptFile } from '../transcript/parse.js';
+import { renderVerify } from '../assurance/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -275,7 +276,35 @@ export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
     out(dim(`  models in session: ${t.models.join(', ')} · subagent spend: ${Object.entries(judge.cost.by_subagent).filter(([k]) => k !== 'main').map(([k, v]) => `${k} $${v.usd.toFixed(3)}`).join(', ') || 'none'}`));
     out(dim(`  full receipt: ${path.join(sessionDir(session), 'report.md')}`));
 
-    step(4, 'Follow-up 8 days later: the PR was merged, then reverted');
+    step(4, 'tally verify: what Tally can prove, criterion by criterion');
+    out(dim("  deterministic evidence first; the model's reading is one item, labelled [model], and lifts nothing above SUPPORTED on its own"));
+    if (judge.assurance) out(renderVerify(judge.assurance, { color }));
+
+    step(5, 'The agent fixes the forgotten criterion; verification becomes complete');
+    fs.appendFileSync(path.join(cwd, 'README.md'), '\n## Rate limiting\n\nPOST /api/login answers 429 after 5 failed attempts from one IP within 15 minutes.\n');
+    git(cwd, 'add', '-A');
+    git(cwd, 'commit', '-q', '-m', 'docs: document the login rate limit');
+    const llmFixed = new StubLlm(
+      {
+        judge: () => ({
+          criteria: [
+            { id: 'c1', status: 'met', evidence: 'src/rateLimit.js returns true above 5 attempts and src/login.js maps it to 429; independent `npm test` passed.', files: ['src/login.js', 'src/rateLimit.js'] },
+            { id: 'c2', status: 'met', evidence: 'test.js asserts 429 after 6 attempts; the auditor ran it and it passed.', files: ['test.js'] },
+            { id: 'c3', status: 'met', evidence: 'README.md gains a "Rate limiting" section stating the 5-attempt, 15-minute, per-IP rule.', files: ['README.md'] },
+            { id: 'c4', status: 'unverifiable', evidence: 'No test exercises attempts below the limit; nothing in the diff contradicts it.', files: [] },
+          ],
+          quality_score: 7,
+          quality_reason: 'Small, focused change with a test and docs.',
+          verdict_reason: 'Three of four criteria are met with an independent green run; the below-limit behaviour is still not covered by a test.',
+          recommendations: ['Add a test for the below-limit path.', 'Read the ticket checklist before saying done.', 'Stop calling the Jira MCP after the first 401.'],
+        }),
+      },
+      session,
+    );
+    const judgeFixed = await judgeSession({ session, cwd, transcriptPath, cfg, llm: llmFixed, reason: 'push', events: events2, consent: true });
+    if (judgeFixed.assurance) out(renderVerify(judgeFixed.assurance, { color, evidence: false }));
+
+    step(6, 'Follow-up 8 days later: the PR was merged, then reverted');
     const mergeSha = git(cwd, 'rev-parse', 'HEAD');
     fs.writeFileSync(path.join(cwd, 'src', 'login.js'), `module.exports = function login(attempts) { return 200; };\n`);
     fs.unlinkSync(path.join(cwd, 'src', 'rateLimit.js'));

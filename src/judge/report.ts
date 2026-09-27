@@ -1,5 +1,6 @@
 import type { Judge } from './schema.js';
 import { renderReview, type Review } from './review.js';
+import { statusFromJudge } from '../assurance/index.js';
 import { fmtUsd } from '../cost/pricing.js';
 
 const STATUS_ICON: Record<string, string> = { met: '✔', partial: '◐', unmet: '✘', unverifiable: '?' };
@@ -12,7 +13,7 @@ export function renderReport(j: Judge): string {
   if (j.task.source.url) L.push(`Source: ${j.task.source.url}`);
   if (!j.task.linked) L.push('> No task was linked. Criteria were inferred from the first prompt; link a ticket next time with `tally task <url>`.');
   L.push('');
-  L.push(`## Verdict: **${j.verdict.verdict.toUpperCase()}**${j.followup ? ` → after follow-up: **${j.followup.final_verdict.toUpperCase()}** (${j.followup.final_status})` : ''}`);
+  L.push(`## Verdict (experimental, model-assisted): **${j.verdict.verdict.toUpperCase()}**${j.followup ? ` → after follow-up: **${j.followup.final_verdict.toUpperCase()}** (${j.followup.final_status})` : ''}`);
   L.push('');
   L.push(j.verdict.reason);
   if (j.followup) {
@@ -26,6 +27,25 @@ export function renderReport(j: Judge): string {
     for (const f of j.safety.flags) L.push(`- ${f.ts.slice(11, 19)} ${f.kind}: ${esc(f.detail)}`);
     L.push('');
   }
+  if (j.assurance) {
+    const a = j.assurance;
+    L.push(`## Assurance — ${a.summary.sufficient}/${a.summary.total} criteria have sufficient evidence (${a.summary.verified} verified, ${a.summary.supported} supported, ${a.summary.unverified} unverified, ${a.summary.unmet} unmet)`);
+    L.push('');
+    L.push(`Agent ${a.agent.product}${a.agent.version ? ' ' + a.agent.version : ''}${a.model ? `, model ${a.model.model} (${a.model.provider})` : ''}. VERIFIED: deterministic evidence demonstrates it. SUPPORTED: evidence needs interpretation or is incomplete. UNVERIFIED: not enough evidence. UNMET: evidence shows it was not done.`);
+    L.push('');
+    for (const c of a.criteria) {
+      L.push(`**${c.status}** ${c.id} ${esc(c.text)}${c.disputed ? ' _(disputed)_' : ''}`);
+      L.push('');
+      for (const e of c.evidence) L.push(`- ${esc(e.summary)}${e.ref ? ` (\`${esc(e.ref)}\`)` : ''}${e.strength === 'interpreted' ? ' _model_' : ''}${e.ok === false ? ' **failed**' : ''}`);
+      if (!c.evidence.length) L.push('- no evidence found');
+      L.push('');
+    }
+    const v = a.verification;
+    L.push(`Verification provenance: pre-existing tests ${v.preexisting_files === null ? 'unknown (no base tree)' : `${v.preexisting_files} file(s)`}; agent-created ${v.agent_created.added_files.length} file(s) added, ${v.agent_created.modified_files.length} modified, ${v.agent_created.cases_added} case(s); independent run ${v.independent.ran ? `${v.independent.passed ? 'passed' : 'FAILED'}${v.independent.total_passed !== null ? ` (${v.independent.total_passed} passed)` : ''}` : `not made (${v.independent.reason ?? 'unknown'})`}; the agent's own test runs: ${v.agent_runs.length} (claims, not evidence).${v.note ? ' ' + esc(v.note) + '.' : ''}`);
+    if (a.scope.unnamed_areas.length) L.push(`
+Scope: changed areas no criterion names: ${a.scope.unnamed_areas.join(', ')} (flagged for explanation, not judged wrong).`);
+    L.push('');
+  }
   L.push(`## Acceptance criteria — ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` of ${j.completion_basis.verifiable} verifiable` : ''} (${j.counts.met} met, ${j.counts.partial} partial, ${j.counts.unmet} unmet, ${j.counts.unverifiable} unverifiable)`);
   L.push('');
   L.push('| # | Status | Criterion | Evidence |');
@@ -36,7 +56,7 @@ export function renderReport(j: Judge): string {
   L.push('');
   L.push(`Tiers run: ${j.tiers.ran.map(tierLabel).join(' → ')}. ${j.tiers.reason}. ${j.tiers.mechanical} criteria mechanical (checks), ${j.tiers.judgment} judgment.${j.tiers.calls.length ? ' Model calls: ' + j.tiers.calls.map((c) => `${c.tier} ${c.model} on ${c.criteria.join(', ')} (${c.prompt_tokens.toLocaleString('en-US')} prompt tokens, ${fmtUsd(c.cost_usd)})`).join('; ') + '.' : ' No model call.'}${j.tiers.escalations?.length ? ' Escalated: ' + j.tiers.escalations.map((e) => `${e.id} (${e.reason})`).join(', ') + '.' : ''}`);
   L.push('');
-  L.push(`## Quality: ${j.quality.score}/10`);
+  L.push(`## Quality (experimental, model-assisted${j.quality.source ? `, ${j.quality.source}` : ''}): ${j.quality.score}/10`);
   L.push('');
   L.push(j.quality.reason);
   L.push('');
@@ -121,17 +141,42 @@ export function renderSummary(j: Judge, color = true): string {
   const c = (code: string, s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
   const verdictColor = j.verdict.verdict === 'worth it' ? '32' : j.verdict.verdict === 'borderline' ? '33' : j.verdict.verdict === 'insufficient evidence' ? '90' : '31';
   const L: string[] = [];
+  const a = j.assurance;
+  const assuranceOf = (id: string, cr: Judge['criteria'][number]) => a?.criteria.find((x) => x.id === id)?.status ?? statusFromJudge(cr);
+  const A_COLOR: Record<string, string> = { VERIFIED: '32', SUPPORTED: '33', UNVERIFIED: '90', UNMET: '31' };
+  const A_MARK: Record<string, string> = { VERIFIED: '✓', SUPPORTED: '△', UNVERIFIED: '?', UNMET: '✗' };
   L.push(c('1', `Tally receipt · ${j.task.title}`));
-  L.push(`${c(verdictColor, c('1', j.verdict.verdict.toUpperCase()))}${j.followup ? `  → after follow-up: ${c('1', j.followup.final_verdict.toUpperCase())} (${j.followup.final_status})` : ''}  ·  ${j.completion_pct}% complete${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` (${j.counts.unverifiable} unverifiable)` : ''}  ·  quality ${j.quality.score}/10  ·  ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`);
+  if (a) L.push(c('90', `Agent ${a.agent.product}${a.agent.version ? ' ' + a.agent.version : ''}${a.model ? ` · model ${a.model.model} (${a.model.provider})` : ''}${a.task.status === 'needs_confirmation' ? ' · contract NOT CONFIRMED' : ''}`));
+  const sum = a?.summary ?? j.criteria.reduce((acc, cr) => {
+    const st = statusFromJudge(cr);
+    acc.total += 1;
+    if (st === 'VERIFIED') acc.verified += 1;
+    else if (st === 'SUPPORTED') acc.supported += 1;
+    else if (st === 'UNVERIFIED') acc.unverified += 1;
+    else acc.unmet += 1;
+    acc.sufficient = acc.verified + acc.supported;
+    return acc;
+  }, { verified: 0, supported: 0, unverified: 0, unmet: 0, total: 0, sufficient: 0 });
+  L.push(`${c('1', `${sum.sufficient}/${sum.total} criteria have sufficient evidence`)}  ·  ${sum.verified} verified, ${sum.supported} supported${sum.unverified ? `, ${sum.unverified} unverified` : ''}${sum.unmet ? c('31', `, ${sum.unmet} UNMET`) : ''}${j.followup ? `  ·  after follow-up: ${c('1', j.followup.final_status)}` : ''}`);
   for (const cr of j.criteria) {
-    const col = cr.status === 'met' ? '32' : cr.status === 'partial' ? '33' : cr.status === 'unmet' ? '31' : '90';
-    L.push(`  ${c(col, STATUS_ICON[cr.override?.status ?? cr.status]!)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}${cr.override ? c('36', `  disputed: ${cr.override.original} → ${cr.override.status} by ${cr.override.by} (${cr.override.reason})`) : ''}`);
+    const st = assuranceOf(cr.id, cr);
+    L.push(`  ${c(A_COLOR[st]!, `${A_MARK[st]} ${st.padEnd(10)}`)} ${cr.id} ${cr.text} ${c('90', `[${cr.resolved_by === 'tier0' ? 'check' : cr.resolved_by === 'rule' ? 'rule' : cr.resolved_by}${cr.confidence !== undefined && cr.resolved_by !== 'tier0' ? ` ${cr.confidence.toFixed(2)}` : ''}]`)}${cr.override ? c('36', `  disputed: ${cr.override.original} → ${cr.override.status} by ${cr.override.by} (${cr.override.reason})`) : ''}`);
   }
   L.push(`Judged by: ${j.tiers.ran.map((t) => t.replace('tier', 'tier ')).join(' → ')} · ${j.tiers.reason}${j.tiers.calls.length ? ` · model spend ${fmtUsd(j.tiers.llm_cost_usd)}` : ' · $0 in model calls'}`);
-  L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')}` : c('90', `not run (${j.verification.reason})`)}`);
+  L.push(`Verification: ${j.verification.ran ? `${j.verification.command} → ${j.verification.passed ? c('32', 'passed') : c('31', j.verification.timed_out ? 'timed out' : 'FAILED')} (independent run)` : c('90', `not run (${j.verification.reason})`)}${a ? c('90', ` · pre-existing tests ${a.verification.preexisting_files ?? '?'} file(s) · agent-created ${a.verification.agent_created.added_files.length} added, ${a.verification.agent_created.modified_files.length} modified, ${a.verification.agent_created.cases_added} case(s)`) : ''}`);
+  if (a?.scope.unnamed_areas.length) L.push(c('33', `Scope: changed areas no criterion names: ${a.scope.unnamed_areas.join(', ')} (flagged, not judged wrong)`));
   if (j.review) for (const line of renderReview(j.review as Review)) L.push(line);
   L.push(`Cost (API-equivalent${j.cost.confidence === 'partial' ? ', PARTIAL: transcript not fully parsed' : ''}): ${fmtUsd(j.cost.total_usd)} / budget ${fmtUsd(j.cost.budget_usd)} (${j.cost.budget_used_pct}%) · per met criterion ${j.cost.per_completed_criterion_usd === null ? 'n/a' : fmtUsd(j.cost.per_completed_criterion_usd)} · waste ${fmtUsd(j.waste.total_usd)}`);
   L.push(`  Tally's own spend: ${fmtUsd(j.cost.tally_own_usd)} (${j.cost.tally_share_pct}% of session spend, separate)${j.cost.otel?.available ? ` · OTel cross-check ${fmtUsd(j.cost.otel.total_usd ?? 0)}` : ''}`);
+  const avoidable: string[] = [];
+  for (const l of j.waste.failed_loops) avoidable.push(`${fmtUsd(l.usd)}  ${l.repeats} identical failing runs of \`${l.command}\``);
+  for (const r of j.waste.repeated_reads) avoidable.push(`${fmtUsd(r.usd)}  ${r.reads} reads of ${r.file}`);
+  if (j.waste.compaction_churn.usd > 0) avoidable.push(`${fmtUsd(j.waste.compaction_churn.usd)}  ${j.waste.compaction_churn.compactions} compaction(s) re-caching ${j.waste.compaction_churn.recache_tokens.toLocaleString('en-US')} tokens`);
+  if (avoidable.length) {
+    L.push('Potentially avoidable work');
+    for (const x of avoidable.sort((p, q) => Number(q.split(' ')[0]!.replace('$', '')) - Number(p.split(' ')[0]!.replace('$', '')))) L.push(`  ${x}`);
+  }
+  L.push(c('90', `Experimental (model-assisted): verdict ${c(verdictColor, j.verdict.verdict.toUpperCase())}${j.followup ? ` → ${j.followup.final_verdict.toUpperCase()}` : ''} · completion ${j.completion_pct}%${j.completion_basis && j.completion_basis.verifiable < j.completion_basis.total ? ` of ${j.completion_basis.verifiable} verifiable` : ''} · quality ${j.quality.score}/10${j.quality.source ? ` (${j.quality.source})` : ''} · ROI ${j.value.roi_multiple === null ? 'n/a' : j.value.roi_multiple + '×'}`));
   const phases = Object.entries(j.cost.by_phase)
     .filter(([, v]) => v.usd > 0)
     .map(([k, v]) => `${k} ${fmtUsd(v.usd)}`)

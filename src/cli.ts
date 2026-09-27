@@ -49,6 +49,8 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   uninstall: () => import('./commands/install.js').then((m) => ({ run: m.runUninstall })),
   task: () => import('./commands/task.js'),
   judge: () => import('./commands/judge.js'),
+  verify: () => import('./commands/verify.js'),
+  adapters: () => import('./commands/adapters.js'),
   finalize: () => import('./commands/finalize.js'),
   followup: () => import('./commands/followup.js'),
   watch: () => import('./commands/watch.js'),
@@ -77,19 +79,22 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   prompts: () => import('./commands/prompts.js'),
 };
 
-const HELP = `tally — per-task receipts and live coaching for Claude Code
+const HELP = `tally — the reliability layer for AI coding agents: what was asked, what changed, what is proven
 
 Usage: tally <command> [options]
 
 Setup
   install [--project]         Add Tally hooks + status line to Claude Code settings (backs up first)
   install --agent <id>        Same for another agent: codex | gemini | cursor (writes its hook file, backed up)
+  adapters [--json]           Which agents Tally can observe here, and what each can and cannot tell it
   uninstall [--project|--agent <id>]  Remove hooks; settings return byte-identical
   doctor                      Check claude, gh, hooks, pricing, config
   config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
 
 Judge
   task <url|path|text>        Link a task to the current session; freeze acceptance criteria
+  task --show                 The Task Contract: goal, criteria, constraints, verification, unknowns, status, revisions
+  verify [session] [--json|--ci|--deep]   What Tally can prove: VERIFIED / SUPPORTED / UNVERIFIED / UNMET per criterion, with the evidence
   judge [session] [--post]    Produce the receipt (judge.json + report.md); --post comments on issue/PR
   judge <session> --explain <c1|all>   The evidence behind a status: diff hunks, test output, transcript moments
   dispute <session> <c#> --status s --reason ".."   Contest a criterion; the receipt keeps both and is re-scored

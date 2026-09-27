@@ -114,6 +114,9 @@ export const JudgeSchema = z.object({
   /* risky agent behaviour seen in the session's events (security-watch rule) */
   safety: z.object({ flags: z.array(z.object({ ts: z.string(), kind: z.string(), detail: z.string() })) }).optional(),
   verdict: z.object({ verdict: z.enum(['worth it', 'borderline', 'not worth it', 'insufficient evidence']), reason: z.string() }),
+  /* the Evidence Map (src/assurance): VERIFIED / SUPPORTED / UNVERIFIED / UNMET per criterion with traceable items;
+     optional so receipts written before 0.5 still load */
+  assurance: z.custom<import('../assurance/index.js').Assurance>(() => true).optional(),
   review: z
     .object({
       ran: z.boolean(),

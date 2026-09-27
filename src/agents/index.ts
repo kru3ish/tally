@@ -40,9 +40,29 @@ export type CanonicalOutput =
   | { kind: 'deny'; reason: string }
   | { kind: 'block'; reason: string };
 
+/* What an agent can tell Tally. False means Tally reports the fact as unavailable rather than estimating it. */
+export interface AgentCapabilities {
+  lifecycle_hooks: boolean;
+  tool_calls: boolean;
+  shell_commands: boolean;
+  file_reads: boolean;
+  file_edits: boolean;
+  permission_hooks: boolean;
+  stop_hook: boolean;
+  context_events: boolean;
+  subagents: boolean;
+  transcript: boolean;
+  token_usage: boolean;
+  model_name: boolean;
+  cost: boolean;
+  /* free text on what is missing and why, shown by `tally adapters` */
+  notes?: string;
+}
+
 export interface AgentAdapter {
   id: AgentId;
   label: string;
+  capabilities: AgentCapabilities;
   /* the env var the agent sets with the session id in child processes, if any */
   sessionEnv?: string;
   /* the agent's event name → Tally's canonical event */
@@ -81,6 +101,7 @@ function isTally(cmd: unknown): boolean {
 const claudeCode: AgentAdapter = {
   id: 'claude-code',
   label: 'Claude Code',
+  capabilities: { lifecycle_hooks: true, tool_calls: true, shell_commands: true, file_reads: true, file_edits: true, permission_hooks: true, stop_hook: true, context_events: true, subagents: true, transcript: true, token_usage: true, model_name: true, cost: true },
   sessionEnv: 'CLAUDE_SESSION_ID',
   subscribed: ALL_CANONICAL,
   event: (name) => (ALL_CANONICAL.includes(name as CanonicalEvent) ? (name as CanonicalEvent) : 'Unknown'),
@@ -116,6 +137,7 @@ function codexTool(raw: Record<string, unknown>): { tool_name?: string; tool_inp
 const codex: AgentAdapter = {
   id: 'codex',
   label: 'Codex CLI',
+  capabilities: { lifecycle_hooks: true, tool_calls: true, shell_commands: true, file_reads: false, file_edits: true, permission_hooks: true, stop_hook: true, context_events: true, subagents: true, transcript: true, token_usage: true, model_name: true, cost: true, notes: 'file reads are not a separate tool in Codex (apply_patch edits, shell reads); rollout format read from public descriptions, so a file without recognisable token counts is labelled partial' },
   subscribed: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'PreCompact', 'SessionEnd'],
   event: (name) => (ALL_CANONICAL.includes(name as CanonicalEvent) ? (name as CanonicalEvent) : 'Unknown'),
   normalize: (raw) => ({ ...raw, ...codexTool(raw) }) as CanonicalInput,
@@ -157,6 +179,7 @@ const GEMINI_TOOLS: Record<string, string> = { run_shell_command: 'Bash', write_
 const gemini: AgentAdapter = {
   id: 'gemini',
   label: 'Gemini CLI',
+  capabilities: { lifecycle_hooks: true, tool_calls: true, shell_commands: true, file_reads: true, file_edits: true, permission_hooks: true, stop_hook: true, context_events: true, subagents: false, transcript: false, token_usage: false, model_name: false, cost: false, notes: 'no documented transcript with token usage: receipts carry criteria, tests and tool-call counts, no dollars' },
   sessionEnv: 'GEMINI_SESSION_ID',
   subscribed: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'PreCompress', 'SessionEnd'],
   event: (name) => GEMINI_EVENTS[name] ?? 'Unknown',
@@ -203,6 +226,7 @@ const CURSOR_EVENTS: Record<string, CanonicalEvent> = { sessionStart: 'SessionSt
 const cursor: AgentAdapter = {
   id: 'cursor',
   label: 'Cursor',
+  capabilities: { lifecycle_hooks: true, tool_calls: true, shell_commands: true, file_reads: true, file_edits: true, permission_hooks: true, stop_hook: true, context_events: true, subagents: true, transcript: false, token_usage: false, model_name: true, cost: false, notes: 'the stop hook continues the agent with a follow-up message rather than blocking; no documented transcript with token usage, so no dollars' },
   subscribed: ['sessionStart', 'beforeSubmitPrompt', 'beforeShellExecution', 'afterShellExecution', 'afterFileEdit', 'preToolUse', 'postToolUse', 'stop', 'sessionEnd'],
   event: (name) => CURSOR_EVENTS[name] ?? 'Unknown',
   normalize(raw, agentEvent) {

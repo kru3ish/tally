@@ -6,6 +6,7 @@ import { loadConfig } from '../config.js';
 import { makeLlm } from '../llm/client.js';
 import { intake, loadTask, renderTask, confirmTask } from '../task/intake.js';
 import { resolveSession } from '../session.js';
+import { contractFromTask, renderContract } from '../core/contract.js';
 import { recordAssignment } from '../experiment/experiment.js';
 
 export async function run(args: Args): Promise<number | void> {
@@ -15,6 +16,15 @@ export async function run(args: Args): Promise<number | void> {
   if (!session) {
     process.stderr.write('No active Tally session found. Start Claude Code with Tally hooks installed, or pass --session <id>.\n');
     return 1;
+  }
+  if (has(args, 'show')) {
+    const t = loadTask(session);
+    if (!t) {
+      process.stderr.write('No task contract for this session yet. Link one: tally task <url|path|text>\n');
+      return 1;
+    }
+    process.stdout.write(renderContract(contractFromTask(t, { cwd })) + '\n');
+    return;
   }
   if (has(args, 'confirm')) {
     const t = confirmTask(session);

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { recordRevision } from '../core/contract.js';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Config } from '../config.js';
@@ -39,6 +40,8 @@ export const TaskSchema = z.object({
   fetch_error: z.string().optional(),
   criteria: z.array(CriterionSchema),
   spec_quality: z.object({ score: z.number().min(0).max(10), missing: z.array(z.string()), questions: z.array(z.string()) }),
+  /* what the ticket says must not change or is out of scope; part of the Task Contract */
+  constraints: z.array(z.string()).optional(),
   needs_clarification: z.boolean(),
   estimate: z.object({ hours: z.number().nonnegative(), basis: z.enum(['story_points', 'llm', 'default']), story_points: z.number().optional() }),
   budget_usd: z.number().nonnegative(),
@@ -75,6 +78,7 @@ export const INTAKE_SCHEMA = {
     },
     estimate_hours: { type: 'number' },
     rationale: { type: 'string' },
+    constraints: { type: 'array', items: { type: 'string' } },
   },
   required: ['title', 'criteria', 'spec_quality', 'estimate_hours', 'rationale'],
 } as const;
@@ -88,6 +92,7 @@ Rules:
 - For each criterion give a "check": a mechanical test that decides it with no judgment, or kind "none" when only a reader can decide.
   Kinds: "tests_pass" (the project's test suite passes), "file_exists" {path}, "file_changed" {path} (the file appears in the diff), "file_contains" {path, pattern (regex)}, "diff_contains" {pattern (regex)}, "command" {command, expect_exit} (only the repo's own npm/make/test scripts), "pr" {state: pushed|opened|merged}.
   Prefer a check whenever the ticket names a file, a command, a test, or a PR outcome. Use "none" for behaviour that needs reading the code (correctness, edge cases, "works", "unchanged").
+- constraints: what the ticket says must not change, must not be used, or is out of scope, as short imperative lines ("Do not replace the auth provider"). Empty when the ticket states none; never invent them.
 Return only the JSON object.`;
 
 /* A check whose path is not a plausible repo-relative path (spaces, absolute, empty) decides nothing; it becomes a judgment criterion. */
@@ -104,6 +109,7 @@ interface IntakeOut {
   spec_quality: { score: number; missing: string[]; questions: string[] };
   estimate_hours: number;
   rationale: string;
+  constraints?: string[];
 }
 
 export function taskFile(session: string): string {
@@ -216,6 +222,7 @@ export async function intake(opts: {
     fetch_error: fetched.fetch_error,
     criteria,
     spec_quality: { score, missing: out.spec_quality?.missing ?? [], questions: out.spec_quality?.questions ?? [] },
+    constraints: (Array.isArray(out.constraints) ? out.constraints : []).map(String).map((x) => x.trim()).filter(Boolean).slice(0, 8),
     needs_clarification: score < 5,
     estimate,
     budget_usd: pol.policy.budget.usd ?? (pol.policy.budget.fraction ? Math.max(BUDGET_FLOOR_USD, Math.round(estimate.hours * (pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate) * pol.policy.budget.fraction * 100) / 100) : computeBudget(estimate.hours, pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate)),
@@ -230,6 +237,7 @@ export async function intake(opts: {
   TaskSchema.parse(task);
   ensureDir(sessionDir(opts.session));
   writeJson(taskFile(opts.session), task);
+  recordRevision(opts.session, existing ? 'replaced' : 'created', task.criteria.map((c) => c.text), existing ? 'intake re-run with --force' : undefined);
   const pending = path.join(sessionDir(opts.session), 'task.pending');
   if (fs.existsSync(pending)) fs.unlinkSync(pending);
   appendEvent({
@@ -247,6 +255,7 @@ export function confirmTask(session: string): Task | null {
   if (!t) return null;
   t.confirmed = true;
   writeJson(taskFile(session), t);
+  recordRevision(session, 'confirmed', t.criteria.map((c) => c.text));
   appendEvent({ ts: new Date().toISOString(), type: 'task', session, cwd: t.cwd, data: { confirmed: true, title: t.title } });
   return t;
 }

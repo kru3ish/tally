@@ -12,6 +12,7 @@ import { collectEvidence, type Evidence, type Exec } from './evidence.js';
 import { runVerification, NO_CONSENT_REASON, type VerificationResult } from './verify.js';
 import { loadPolicy } from '../policy.js';
 import { maintainerReview, reviewCaps, shouldReview, type Review } from './review.js';
+import { buildAssurance } from '../assurance/index.js';
 import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
@@ -33,7 +34,7 @@ export function isTestCriterion(text: string): boolean {
 }
 import { JudgeSchema, type Judge, type Verdict } from './schema.js';
 import { renderReport, renderSummary } from './report.js';
-import { sessionDir, ensureDir, writeJson, historyFile, appendLine, repoKey, readJson } from '../paths.js';
+import { sessionDir, ensureDir, writeJson, historyFile, appendLine, repoKey, readJson, log } from '../paths.js';
 import { tallySpendFile } from '../llm/client.js';
 
 export const JUDGE_SYSTEM = `You are an independent, skeptical auditor of a coding session. You did NOT do the work and you must not take the working assistant's word for anything.
@@ -469,6 +470,13 @@ export async function judgeSession(opts: {
     judge_model: r.model,
   };
   const validated = JudgeSchema.parse(judge);
+  /* the Evidence Map is derived from the receipt, the contract and git; stored so renderers need no re-judge */
+  try {
+    const start = events.find((e) => e.type === 'session_start');
+    validated.assurance = buildAssurance({ judge: validated, task, cwd: opts.cwd, agent: { product: String(start?.data.agent ?? 'claude-code') } });
+  } catch (err) {
+    log(`judge: assurance map failed: ${String(err)}`);
+  }
   persistJudge(validated, task);
   return validated;
 }
