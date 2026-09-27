@@ -87,13 +87,21 @@ check('INSTALL', 'install / uninstall round trip leaves settings byte-identical'
 check('DEMO', 'tally demo completes and shows the verify step', () => {
   const out = run('node', ['dist/cli.js', 'demo', '--plain', '--fast']);
   if (!/Tally Verify/.test(out) || !/UNMET/.test(out) || !/Done\./.test(out)) throw new Error('demo output missing expected sections');
+  /* the demo leaves its data for a person to look at; the checklist is not a person */
+  const data = /Demo data: (\S+)/.exec(out)?.[1];
+  if (data && data.includes('tally-demo-')) fs.rmSync(data, { recursive: true, force: true, maxRetries: 5 });
 });
 
 // ASSURANCE
 check('ASSURANCE', 'fixture replay meets the recorded baseline and the self-share gate', () => {
-  const out = run('node', ['dist/cli.js', 'calibrate', 'eval', '--max-share', '8'], { env: { TALLY_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'tally-ev-')) } });
-  const m = /criterion agreement\s+(\d+)%/.exec(out);
-  return m ? `criteria ${m[1]}%` : 'ok';
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-ev-'));
+  try {
+    const out = run('node', ['dist/cli.js', 'calibrate', 'eval', '--max-share', '8'], { env: { TALLY_HOME: home } });
+    const m = /criterion agreement\s+(\d+)%/.exec(out);
+    return m ? `criteria ${m[1]}%` : 'ok';
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5 });
+  }
 });
 if (!skipLive) {
   check('ASSURANCE', 'live fixture run (model calls; costs a few cents)', () => {

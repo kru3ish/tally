@@ -115,7 +115,18 @@ export interface FixtureResult {
 
 export async function runFixture(c: FixtureCase, opts: { cfg?: Config; live?: boolean; llm?: LlmClient; workRoot?: string; deep?: boolean }): Promise<FixtureResult> {
   const cfg = opts.cfg ?? loadConfig();
+  const ownRoot = !opts.workRoot;
   const workRoot = opts.workRoot ?? fs.mkdtempSync(path.join(os.tmpdir(), 'tally-cal-'));
+  try {
+    return await runFixtureIn(c, { ...opts, cfg, workRoot });
+  } finally {
+    /* a caller that passed its own root removes it; one it made here is removed here */
+    if (ownRoot) fs.rmSync(workRoot, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+
+async function runFixtureIn(c: FixtureCase, opts: { cfg: Config; live?: boolean; llm?: LlmClient; workRoot: string; deep?: boolean }): Promise<FixtureResult> {
+  const { cfg, workRoot } = opts;
   const { cwd, base } = materializeRepo(c, workRoot);
   const session = c.task.session;
   ensureDir(sessionDir(session));

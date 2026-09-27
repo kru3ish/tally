@@ -13907,7 +13907,16 @@ function materializeRepo(c, root) {
 }
 async function runFixture(c, opts) {
   const cfg = opts.cfg ?? loadConfig();
+  const ownRoot = !opts.workRoot;
   const workRoot = opts.workRoot ?? fs49.mkdtempSync(path50.join(os10.tmpdir(), "tally-cal-"));
+  try {
+    return await runFixtureIn(c, { ...opts, cfg, workRoot });
+  } finally {
+    if (ownRoot) fs49.rmSync(workRoot, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+async function runFixtureIn(c, opts) {
+  const { cfg, workRoot } = opts;
   const { cwd, base } = materializeRepo(c, workRoot);
   const session = c.task.session;
   ensureDir(sessionDir(session));
