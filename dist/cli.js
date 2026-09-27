@@ -6171,6 +6171,7 @@ var init_events = __esm({
 
 // src/judge/verify.ts
 import fs11 from "node:fs";
+import os4 from "node:os";
 import path12 from "node:path";
 function detectTestCommand(cwd) {
   const pkg = path12.join(cwd, "package.json");
@@ -6200,6 +6201,60 @@ function detectTestCommand(cwd) {
   if (has2("build.gradle") || has2("build.gradle.kts")) return { command: "gradle test", basis: "gradle build file" };
   return null;
 }
+function parseTestSummary(output) {
+  const num2 = (pats) => {
+    for (const p of pats) {
+      const m = p.exec(output);
+      if (m?.[1] !== void 0) return Number(m[1]);
+    }
+    return null;
+  };
+  const passed = num2([/(\d+)\s+passing/, /ℹ pass\s+(\d+)/, /#\s*pass\s+(\d+)/, /Tests:.*?(\d+) passed/, /(\d+) passed/]);
+  let failed = num2([/(\d+)\s+failing/, /ℹ fail\s+(\d+)/, /#\s*fail\s+(\d+)/, /Tests:.*?(\d+) failed/, /(\d+) failed/]);
+  if (failed === null && passed !== null && /(\d+\s+passing|ℹ pass\s+\d+|#\s*pass\s+\d+)/.test(output)) failed = 0;
+  return { passed, failed };
+}
+function failureAttributable(v) {
+  if (!v.ran || v.passed !== false) return void 0;
+  if (v.tests_green) return false;
+  if (v.at_base?.ran) {
+    if (v.at_base.passed) return true;
+    const after = v.summary?.failed;
+    const before = v.at_base.summary?.failed;
+    if (after != null && before != null && after > before) return true;
+    return void 0;
+  }
+  return true;
+}
+async function runAtBase(cwd, base, command, timeoutMs) {
+  const started = Date.now();
+  const wt = fs11.mkdtempSync(path12.join(os4.tmpdir(), "tally-base-"));
+  const dir = path12.join(wt, "repo");
+  try {
+    const add = await runProcess("git", ["worktree", "add", "--detach", dir, base], { cwd, timeoutMs: 12e4 });
+    if (add.code !== 0) return { ran: false, reason: `could not check out the base commit: ${(add.stderr || add.stdout).trim().slice(-200)}` };
+    const mods = path12.join(cwd, "node_modules");
+    if (fs11.existsSync(mods) && !fs11.existsSync(path12.join(dir, "node_modules"))) {
+      try {
+        fs11.symlinkSync(mods, path12.join(dir, "node_modules"), "junction");
+      } catch {
+      }
+    }
+    const isWin = process.platform === "win32";
+    const r = await runProcess(isWin ? "cmd.exe" : "sh", isWin ? ["/d", "/s", "/c", `"${command}"`] : ["-c", command], { cwd: dir, timeoutMs, env: scrubEnv(), replaceEnv: true });
+    const out = (r.stdout + "\n" + r.stderr).trim();
+    return { ran: true, passed: !r.timedOut && r.code === 0, exit_code: r.code, summary: parseTestSummary(out), duration_ms: Date.now() - started };
+  } catch (err) {
+    return { ran: false, reason: err instanceof Error ? err.message : String(err) };
+  } finally {
+    try {
+      fs11.rmSync(path12.join(dir, "node_modules"), { force: true });
+    } catch {
+    }
+    await runProcess("git", ["worktree", "remove", "--force", dir], { cwd, timeoutMs: 6e4 }).catch(() => void 0);
+    fs11.rmSync(wt, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
 function scrubEnv(env = process.env) {
   const out = {};
   for (const [k, v] of Object.entries(env)) {
@@ -6220,18 +6275,27 @@ async function runVerification(cwd, opts) {
   const isWin = process.platform === "win32";
   const r = await runProcess(isWin ? "cmd.exe" : "sh", isWin ? ["/d", "/s", "/c", `"${detected.command}"`] : ["-c", detected.command], { cwd, timeoutMs: opts.timeoutMs, env: scrubEnv(), replaceEnv: true });
   const out = (r.stdout + "\n" + r.stderr).trim();
-  return {
+  const passed = !r.timedOut && r.code === 0;
+  const summary = parseTestSummary(out);
+  const result = {
     ran: true,
     command: detected.command,
     basis: detected.basis,
-    passed: !r.timedOut && r.code === 0,
+    passed,
     exit_code: r.code,
     timed_out: r.timedOut,
     duration_ms: Date.now() - started,
     output_tail: out.length > 3e3 ? "\u2026" + out.slice(-3e3) : out,
     env_scrubbed: true,
-    consent: true
+    consent: true,
+    summary,
+    tests_green: !passed && !r.timedOut && summary.passed !== null && summary.passed > 0 && summary.failed === 0
   };
+  if (!passed && opts.baseHead) {
+    result.at_base = await runAtBase(cwd, opts.baseHead, detected.command, opts.timeoutMs);
+  }
+  result.failure_attributable = failureAttributable(result);
+  return result;
 }
 var NO_CONSENT_REASON, ENV_KEEP, SECRET_LIKE;
 var init_verify = __esm({
@@ -6346,7 +6410,10 @@ async function resolveCheck(check, ctx) {
     case "tests_pass": {
       if (!ver.ran) return { status: "unverifiable", evidence: `tests not run (${ver.reason ?? "unknown"})`, files: [] };
       if (ver.passed && !runLooksConclusive(ver.output_tail ?? "", ctx.cwd, ver.command)) return { status: "unverifiable", evidence: `independent run of \`${ver.command}\` exited 0 but its output shows no test results; a runner that ran nothing is not evidence`, files: [] };
-      return ver.passed ? { status: "met", evidence: `independent run of \`${ver.command}\` passed`, files: [] } : { status: "unmet", evidence: `independent run of \`${ver.command}\` ${ver.timed_out ? "timed out" : `failed (exit ${ver.exit_code})`}`, files: [] };
+      if (ver.passed) return { status: "met", evidence: `independent run of \`${ver.command}\` passed`, files: [] };
+      if (ver.tests_green) return { status: "unverifiable", evidence: `the runner reports ${ver.summary?.passed} passing, 0 failing, but \`${ver.command}\` exited ${ver.exit_code} in a later stage; the tests passed, the command did not`, files: [] };
+      const baseNote = ver.at_base?.ran ? ver.at_base.passed ? "; the base commit passes the same command" : `; the base commit fails it too (exit ${ver.at_base.exit_code}${ver.at_base.summary?.failed != null ? `, ${ver.at_base.summary.failed} failing` : ""}${ver.summary?.failed != null ? ` vs ${ver.summary.failed} failing now` : ""})` : "";
+      return { status: "unmet", evidence: `independent run of \`${ver.command}\` ${ver.timed_out ? "timed out" : `failed (exit ${ver.exit_code}${ver.summary?.failed != null ? `, ${ver.summary.failed} failing` : ""})`}${baseNote}`, files: [] };
     }
     case "file_exists": {
       const p = path13.join(ctx.cwd, check.path);
@@ -7531,7 +7598,7 @@ function testProvenance(opts) {
   if (v.ran && totalPassed === null) notes.push("the runner output did not state a passed count");
   if (!v.ran) notes.push(`independent run not made: ${v.reason ?? "unknown"}`);
   if (added.length || modified.length) notes.push("a green test written by the same agent that wrote the code is weaker evidence than a pre-existing one");
-  return { preexisting_files: preexisting, agent_created: { added_files: added, modified_files: modified, cases_added: casesAdded }, independent: { ran: v.ran, command: v.command, passed: v.passed, total_passed: totalPassed, reason: v.reason }, agent_runs: agentRuns, note: notes.join("; ") };
+  return { preexisting_files: preexisting, agent_created: { added_files: added, modified_files: modified, cases_added: casesAdded }, independent: { ran: v.ran, command: v.command, passed: v.passed, total_passed: totalPassed, reason: v.reason, tests_green: v.tests_green, fails_at_base: v.at_base?.ran ? v.at_base.passed === false : void 0, attributable: v.failure_attributable }, agent_runs: agentRuns, note: notes.join("; ") };
 }
 function parsePassedCount(output) {
   const pats = [/(\d+)\s+passing/, /ℹ pass\s+(\d+)/, /#\s*pass\s+(\d+)/, /Tests:\s+(\d+) passed/, /(\d+) passed/, /ok\s+\d+\s+\S+\s+[\d.]+s/];
@@ -7605,7 +7672,9 @@ function buildAssurance(opts) {
     }
     const alreadyHasRun = items.some((i) => i.kind === "file_check" && /independent run/.test(i.summary));
     const runInconclusive = provenance.independent.passed === true && !runLooksConclusive(j.verification.output_tail ?? "", cwd, provenance.independent.command);
-    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: "independent_run", strength: "deterministic", summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? runInconclusive ? "exited 0 but reported no test count (inconclusive)" : "passed" : "FAILED"}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ""}`, ref: provenance.independent.command, ok: runInconclusive ? void 0 : provenance.independent.passed });
+    const notAttributable = provenance.independent.passed === false && j.verification.failure_attributable === false;
+    const failText = j.verification.tests_green ? `exited ${j.verification.exit_code} after ${j.verification.summary?.passed} passing, 0 failing (a later stage failed, not the tests)` : j.verification.at_base?.ran && j.verification.at_base.passed === false ? "FAILED (the base commit fails it too)" : "FAILED";
+    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: "independent_run", strength: "deterministic", summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? runInconclusive ? "exited 0 but reported no test count (inconclusive)" : "passed" : failText}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ""}`, ref: provenance.independent.command, ok: runInconclusive || notAttributable ? void 0 : provenance.independent.passed });
     if (c.resolved_by === "tier1" || c.resolved_by === "tier2") items.push({ kind: "model_judgment", strength: "interpreted", summary: c.evidence, confidence: c.confidence });
     if (c.override) items.push({ kind: "dispute", strength: "interpreted", summary: `${c.override.by}: ${c.override.status} (was ${c.override.original}): ${c.override.reason}` });
     const anyTestEvidence = items.some((i) => i.kind === "test_added" || i.kind === "test_modified" || i.kind === "test_names_it" || i.kind === "diff_hunk" && TEST_PATH_RE.test(i.ref ?? ""));
@@ -7703,7 +7772,7 @@ function renderVerify(a, opts = {}) {
   L.push("");
   L.push("Verification");
   const v = a.verification;
-  if (v.independent.ran) L.push(`${c(v.independent.passed ? "32" : "31", v.independent.passed ? "\u2713" : "\u2717")} ${v.independent.command}  ${c("90", `independent run${v.independent.total_passed !== null ? `, ${v.independent.total_passed} passed` : ""}`)}`);
+  if (v.independent.ran) L.push(`${c(v.independent.passed ? "32" : v.independent.attributable === false ? "33" : "31", v.independent.passed ? "\u2713" : v.independent.attributable === false ? "?" : "\u2717")} ${v.independent.command}  ${c("90", `independent run${v.independent.total_passed !== null ? `, ${v.independent.total_passed} passed` : ""}${v.independent.passed ? "" : v.independent.tests_green ? "; exited non-zero after a green test summary (a later stage failed, not the tests)" : v.independent.fails_at_base ? "; the base commit fails it too" : ""}`)}`);
   else L.push(`${c("90", "?")} independent run not made ${c("90", `(${v.independent.reason ?? "unknown"})`)}`);
   L.push(`  pre-existing tests: ${v.preexisting_files === null ? c("90", "unknown (no base tree)") : `${v.preexisting_files} file(s) at session start`}`);
   L.push(`  agent-created tests: ${v.agent_created.added_files.length} file(s) added, ${v.agent_created.modified_files.length} modified, ${v.agent_created.cases_added} case(s) added`);
@@ -7855,14 +7924,14 @@ var init_otel = __esm({
 });
 
 // src/coach/rules/security-watch.ts
-import os4 from "node:os";
+import os5 from "node:os";
 function norm3(p) {
   return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 function isRiskyWrite(file, repo) {
   if (file.startsWith(repo + "/")) return false;
   if (/(^|\/)(tmp|temp|appdata\/local\/temp)\//i.test(file)) return false;
-  const home2 = norm3(os4.homedir());
+  const home2 = norm3(os5.homedir());
   if (!home2 || !file.startsWith(home2 + "/")) return true;
   return file.slice(home2.length + 1).startsWith(".");
 }
@@ -7980,7 +8049,11 @@ var init_schema = __esm({
         reason: external_exports.string().optional(),
         env_scrubbed: external_exports.boolean().optional(),
         consent: external_exports.boolean().optional(),
-        inconclusive: external_exports.boolean().optional()
+        inconclusive: external_exports.boolean().optional(),
+        summary: external_exports.object({ passed: external_exports.number().nullable(), failed: external_exports.number().nullable() }).optional(),
+        tests_green: external_exports.boolean().optional(),
+        at_base: external_exports.object({ ran: external_exports.boolean(), passed: external_exports.boolean().optional(), exit_code: external_exports.number().nullable().optional(), summary: external_exports.object({ passed: external_exports.number().nullable(), failed: external_exports.number().nullable() }).optional(), reason: external_exports.string().optional(), duration_ms: external_exports.number().optional() }).optional(),
+        failure_attributable: external_exports.boolean().optional()
       }),
       evidence: external_exports.object({
         files_changed: external_exports.array(external_exports.string()),
@@ -8139,7 +8212,7 @@ Scope: changed areas no criterion names: ${a.scope.unnamed_areas.join(", ")} (fl
   L.push("## Independent verification");
   L.push("");
   if (j.verification.ran) {
-    L.push(`Ran \`${j.verification.command}\` (${j.verification.basis}): **${j.verification.passed ? "PASSED" : j.verification.timed_out ? "TIMED OUT" : "FAILED"}** in ${j.verification.duration_ms} ms.`);
+    L.push(`Ran \`${j.verification.command}\` (${j.verification.basis}): **${j.verification.passed ? "PASSED" : j.verification.timed_out ? "TIMED OUT" : "FAILED"}** in ${j.verification.duration_ms} ms.${j.verification.tests_green ? ` The runner reported ${j.verification.summary?.passed} passing and 0 failing; a later stage of the command failed, not the tests.` : ""}${j.verification.at_base?.ran ? ` At the base commit the same command ${j.verification.at_base.passed ? "passes" : `also fails (exit ${j.verification.at_base.exit_code})`}${j.verification.failure_attributable === false ? "; the failure predates this work." : "."}` : ""}`);
     if (!j.verification.passed && j.verification.output_tail) {
       L.push("");
       L.push("```");
@@ -8330,7 +8403,7 @@ function rescoreJudge(j, why) {
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of j.criteria) counts[effectiveStatus2(c)] += 1;
   const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
-  const testsFailed = j.verification.ran && j.verification.passed === false;
+  const testsFailed = j.verification.ran && j.verification.passed === false && j.verification.failure_attributable !== false;
   const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped: j.task.spec_capped, reviewCapped: reviewCaps(j.review), runInconclusive: j.verification.inconclusive === true, qualitySource: j.quality.source });
   const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
   const next = {
@@ -8430,7 +8503,7 @@ async function judgeSession(opts) {
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
   const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec, skipGit: opts.skipGit });
   const consent = opts.consent ?? testRerunConsent(opts.cfg, opts.cwd);
-  const ver = opts.verification ?? await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent, command: loadPolicy(opts.cwd).policy.test_command });
+  const ver = opts.verification ?? await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent, command: loadPolicy(opts.cwd).policy.test_command, baseHead: ev.git.base_head });
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
   const humanValue = task.estimate.hours * task.hourly_rate;
   const numbers = { cost: t.cost, waste: waste.total_usd, value: humanValue, budget: task.budget_usd };
@@ -8488,7 +8561,7 @@ async function judgeSession(opts) {
     applyModel(out1, judgmentIds, "tier1");
     tierCosts.push({ tier: "tier1", model: r1.model, cost_usd: round(r1.cost_usd), criteria: judgmentIds, prompt_tokens: pack.tokens });
     const tier1Quality = Math.max(0, Math.min(10, Number(prose?.quality_score ?? 5)));
-    const testsFailedNow = ver.ran && ver.passed === false;
+    const testsFailedNow = ver.ran && ver.passed === false && ver.failure_attributable !== false;
     const statuses = Object.fromEntries(task.criteria.map((c) => [c.id, resolved.get(c.id)?.status ?? "unverifiable"]));
     const verdictOf = (st) => {
       const vals = Object.values(st);
@@ -8533,7 +8606,7 @@ async function judgeSession(opts) {
   for (const c of criteria) counts[c.status] += 1;
   const scored = scoreCounts(counts, humanValue, t.cost);
   const { completion_pct, credited, roi } = scored;
-  const testsFailed = ver.ran && ver.passed === false;
+  const testsFailed = ver.ran && ver.passed === false && ver.failure_attributable !== false;
   const mech = mechanicalSummary({ ver, completion_pct, counts, waste: { total_usd: waste.total_usd, failed_loops: waste.failed_loops, repeated_reads: waste.repeated_reads, dead_weight: waste.dead_weight, compaction_churn: waste.compaction_churn }, cost: t.cost, budget: task.budget_usd, roi, unresolved: criteria.filter((c) => c.resolved_by === "rule").length });
   const finalProse = prose;
   const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };
@@ -9679,7 +9752,7 @@ __export(dispute_exports, {
   resolveSessionPrefix: () => resolveSessionPrefix,
   run: () => run6
 });
-import os5 from "node:os";
+import os6 from "node:os";
 import fs27 from "node:fs";
 import path28 from "node:path";
 function disputeCriterion(session, id, status, reason, by) {
@@ -9744,7 +9817,7 @@ async function run6(args) {
     return 1;
   }
   const full = resolveSessionPrefix(session);
-  const r = disputeCriterion(full, id, status, reason, flag(args, "by") ?? os5.userInfo().username);
+  const r = disputeCriterion(full, id, status, reason, flag(args, "by") ?? os6.userInfo().username);
   process.stdout.write(`Recorded: ${id} ${r.entry.criteria[0].judge} \u2192 ${status} (${reason}). The receipt is re-scored; the dispute is in the calibration log.
 
 `);
@@ -10119,7 +10192,7 @@ var init_ledger = __esm({
 
 // src/eval/run.ts
 import fs32 from "node:fs";
-import os6 from "node:os";
+import os7 from "node:os";
 import path32 from "node:path";
 import { spawnSync as spawnSync9, spawn as spawn3 } from "node:child_process";
 function sh(cwd, cmd, args, env = process.env) {
@@ -10198,7 +10271,7 @@ async function runEvalTask(opts) {
   const out = opts.out ?? ((s) => process.stdout.write(s + "\n"));
   const cfg = loadConfig();
   const runId = Math.random().toString(36).slice(2, 8);
-  const root = opts.resume?.root ?? opts.root ?? fs32.mkdtempSync(path32.join(os6.tmpdir(), "tally-eval-"));
+  const root = opts.resume?.root ?? opts.root ?? fs32.mkdtempSync(path32.join(os7.tmpdir(), "tally-eval-"));
   const dir = path32.join(root, opts.task.id);
   const notes = [];
   const version = readJson(path32.join(packageRoot(), "package.json"), {}).version ?? "0.0.0";
@@ -10267,7 +10340,7 @@ async function runEvalTask(opts) {
   });
   const patch = sh(dir, "git", ["diff", base, head, "--", ".", ":(exclude)package-lock.json", ":(exclude)**/package-lock.json"]).out;
   const patchBytes = Buffer.byteLength(patch, "utf8");
-  const resultsDir = path32.join(resultsRoot(), opts.task.class);
+  const resultsDir = path32.join(resultsRoot(opts.resultsRoot), opts.task.class);
   fs32.mkdirSync(resultsDir, { recursive: true });
   const patchFile = patchBytes > 0 && patchBytes <= 400 * 1024 ? path32.join(resultsDir, `${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}-${opts.task.id}-${runId}.patch`) : void 0;
   if (patchFile) fs32.writeFileSync(patchFile, patch);
@@ -10291,7 +10364,7 @@ async function runEvalTask(opts) {
     timings: { agent_s: a.durationS, judge_s: judgeS, grader_s: graderS },
     notes
   };
-  const file = writeResult(result);
+  const file = writeResult(result, opts.resultsRoot);
   if (g.criteria.length === judge.criteria.length) {
     const entry = entryFromJudge(judge, judge.criteria.map((c) => g.criteria.find((x) => x.id === c.id)?.status ?? "unverifiable"), g.verdict, "backfill");
     ensureDir(tallyHome());
@@ -12511,7 +12584,7 @@ __export(budget_exports, {
 });
 import fs43 from "node:fs";
 import path45 from "node:path";
-import os7 from "node:os";
+import os8 from "node:os";
 function hardStopFile(session) {
   return path45.join(sessionDir(session), "hard-stop.json");
 }
@@ -12539,7 +12612,7 @@ async function run14(args) {
     return 1;
   }
   if (sub === "approve") {
-    const r = approveBudget(session, flag(args, "by") ?? os7.userInfo().username, flag(args, "note"), process.cwd());
+    const r = approveBudget(session, flag(args, "by") ?? os8.userInfo().username, flag(args, "note"), process.cwd());
     process.stdout.write(r.lifted ? `Hard stop lifted for session ${session.slice(0, 8)}; tool calls are allowed again and the approval is recorded on the receipt.
 ` : `Approval recorded for session ${session.slice(0, 8)} (no hard stop was active).
 `);
@@ -13148,7 +13221,7 @@ var init_doctor = __esm({
 
 // src/demo/demo.ts
 import fs46 from "node:fs";
-import os8 from "node:os";
+import os9 from "node:os";
 import path47 from "node:path";
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -13224,7 +13297,7 @@ async function runDemo(opts = {}) {
   const cyan = (s) => paint(color, "\x1B[36m", s);
   const step = (n, s) => out(`
 ${bold(cyan(`[${n}] ${s}`))}`);
-  const home2 = opts.home ?? fs46.mkdtempSync(path47.join(os8.tmpdir(), "tally-demo-"));
+  const home2 = opts.home ?? fs46.mkdtempSync(path47.join(os9.tmpdir(), "tally-demo-"));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
   process.env.TALLY_HOME = path47.join(home2, "tally");
   process.env.CLAUDE_CONFIG_DIR = path47.join(home2, "claude");
@@ -13784,7 +13857,7 @@ var init_grade = __esm({
 
 // src/calibrate/eval.ts
 import fs49 from "node:fs";
-import os9 from "node:os";
+import os10 from "node:os";
 import path50 from "node:path";
 import { spawnSync as spawnSync14 } from "node:child_process";
 function fixturesRoot() {
@@ -13834,7 +13907,7 @@ function materializeRepo(c, root) {
 }
 async function runFixture(c, opts) {
   const cfg = opts.cfg ?? loadConfig();
-  const workRoot = opts.workRoot ?? fs49.mkdtempSync(path50.join(os9.tmpdir(), "tally-cal-"));
+  const workRoot = opts.workRoot ?? fs49.mkdtempSync(path50.join(os10.tmpdir(), "tally-cal-"));
   const { cwd, base } = materializeRepo(c, workRoot);
   const session = c.task.session;
   ensureDir(sessionDir(session));
@@ -13871,7 +13944,7 @@ async function runFixture(c, opts) {
 async function runEval(opts) {
   const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
   if (!cases.length) throw new Error("no calibration fixtures found");
-  const workRoot = fs49.mkdtempSync(path50.join(os9.tmpdir(), "tally-cal-"));
+  const workRoot = fs49.mkdtempSync(path50.join(os10.tmpdir(), "tally-cal-"));
   const results = [];
   for (const c of cases) {
     const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
@@ -13973,7 +14046,7 @@ __export(calibrate_exports, {
   run: () => run25
 });
 import fs50 from "node:fs";
-import os10 from "node:os";
+import os11 from "node:os";
 import path51 from "node:path";
 import readline3 from "node:readline";
 async function run25(args) {
@@ -14012,7 +14085,7 @@ async function run25(args) {
       process.stderr.write("Usage: tally calibrate grade <session> [--grader name]   (the session needs a receipt: tally backfill add or tally judge)\n");
       return 1;
     }
-    const grader = flag(args, "grader") ?? os10.userInfo().username;
+    const grader = flag(args, "grader") ?? os11.userInfo().username;
     const rl = readline3.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q) => new Promise((res) => rl.question(q, res));
     try {
@@ -14054,7 +14127,7 @@ async function run25(args) {
     }
     const prevHome = process.env.TALLY_HOME;
     const keep = has(args, "keep");
-    if (!keep) process.env.TALLY_HOME = fs50.mkdtempSync(path51.join(os10.tmpdir(), "tally-cal-home-"));
+    if (!keep) process.env.TALLY_HOME = fs50.mkdtempSync(path51.join(os11.tmpdir(), "tally-cal-home-"));
     try {
       const only = flag(args, "only")?.split(",").filter(Boolean);
       const s = await runEval({ live, record, rebaseline: has(args, "rebaseline"), only, deep: has(args, "deep") });
@@ -14212,7 +14285,7 @@ var init_link = __esm({
 
 // src/backfill/history.ts
 import fs51 from "node:fs";
-import os11 from "node:os";
+import os12 from "node:os";
 import path52 from "node:path";
 import { spawnSync as spawnSync16 } from "node:child_process";
 function revBefore(cwd, ref, ts, exec) {
@@ -14258,7 +14331,7 @@ function reconstructWindow(cwd, opts) {
   return { start_head, end_head, branch, commits_in_window, extended_to_pr, notes };
 }
 function addWorktree(cwd, sha, exec = gitExecRaw) {
-  const dir = fs51.mkdtempSync(path52.join(os11.tmpdir(), "tally-wt-"));
+  const dir = fs51.mkdtempSync(path52.join(os12.tmpdir(), "tally-wt-"));
   fs51.rmdirSync(dir);
   const r = exec("git", ["worktree", "add", "--detach", dir, sha], cwd);
   if (!r.ok) throw new Error(`git worktree add failed: ${r.stderr.trim().slice(0, 200)}`);

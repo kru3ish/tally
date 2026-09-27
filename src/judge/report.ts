@@ -63,7 +63,7 @@ Scope: changed areas no criterion names: ${a.scope.unnamed_areas.join(', ')} (fl
   L.push('## Independent verification');
   L.push('');
   if (j.verification.ran) {
-    L.push(`Ran \`${j.verification.command}\` (${j.verification.basis}): **${j.verification.passed ? 'PASSED' : j.verification.timed_out ? 'TIMED OUT' : 'FAILED'}** in ${j.verification.duration_ms} ms.`);
+    L.push(`Ran \`${j.verification.command}\` (${j.verification.basis}): **${j.verification.passed ? 'PASSED' : j.verification.timed_out ? 'TIMED OUT' : 'FAILED'}** in ${j.verification.duration_ms} ms.${j.verification.tests_green ? ` The runner reported ${j.verification.summary?.passed} passing and 0 failing; a later stage of the command failed, not the tests.` : ''}${j.verification.at_base?.ran ? ` At the base commit the same command ${j.verification.at_base.passed ? 'passes' : `also fails (exit ${j.verification.at_base.exit_code})`}${j.verification.failure_attributable === false ? '; the failure predates this work.' : '.'}` : ''}`);
     if (!j.verification.passed && j.verification.output_tail) {
       L.push('');
       L.push('```');

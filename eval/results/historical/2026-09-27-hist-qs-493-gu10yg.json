@@ -1,0 +1,211 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "gu10yg",
+  "date": "2026-09-27T16:26:55.637Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "016d027"
+  },
+  "task": {
+    "id": "hist-qs-493",
+    "class": "historical",
+    "repo": "https://github.com/ljharb/qs.git",
+    "base": "9d36d060303348e8fb31631ca16993eb18e39f24",
+    "head": "f8df9f55c09e87fcd46edbdb3683396cf61fb93a",
+    "issue": "https://github.com/ljharb/qs/issues/493",
+    "tags": [
+      "javascript",
+      "bug",
+      "qs",
+      "historical",
+      "parser"
+    ],
+    "contamination": "possible",
+    "human_fix": "https://github.com/ljharb/qs/pull/530"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "duration_s": 0,
+    "cost_usd": 1.6816
+  },
+  "config": {
+    "agent_model": "sonnet",
+    "max_turns": 80,
+    "timeout_min": 45,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "f8df9f5 [Fix] `parse`: treat a bracket pair nested inside a bracket group as literal"
+    ],
+    "files": [
+      {
+        "file": "lib/parse.js",
+        "added": 49,
+        "deleted": 9
+      },
+      {
+        "file": "test/parse.js",
+        "added": 63,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-hist-qs-493-gu10yg.patch",
+    "patch_bytes": 6078
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 1.246683,
+    "blind": true
+  },
+  "session": "5cb1ea66-3cf0-473d-b804-19c017d2deb9",
+  "tally_summary": {
+    "verified": 4,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 4,
+    "sufficient": 4,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "borderline",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 909,
+    "preexisting_files": 4,
+    "agent_added_files": 0,
+    "agent_cases_added": 0
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "qs.parse('search[withbracket[]]=foobar') returns {search: {withbracket[]: 'foobar'}}, qs.parse('a[b[]]=c') returns {a: {b[]: 'c'}}, and qs.parse('list[][x[]]=y') returns {list: [{x[]: 'y'}]}",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npx tape \"test/**/*.js\"` passed",
+          "test/parse.js -794,6 +794,69 mentions search[withbracket[]]=foobar",
+          "test/parse.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran the three exact cases against the built lib: qs.parse('search[withbracket[]]=foobar') → { search: { 'withbracket[]': 'foobar' } }, qs.parse('a[b[]]=c') → { a: { 'b[]': 'c' } }, qs.parse('list[][x[]]=y') → { list: [ { 'x[]': 'y' } ] }. Implementation replaces the two `/(\\[[^[\\]]*])/` regexes in splitKeyIntoSegments (lib/parse.js:266-307) with a balanced-bracket scanner (findGroupEnd/findBracketGroups, lib/parse.js:217-252), so a nested pair becomes literal content of the enclosing group. Related cases also behave per the stated rule: 'x[[]]=1' → { x: { '[]': '1' } }, 'a[b[]][c]=d' → { a: { "
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "Existing behavior unchanged: qs.parse('a[]=1&a[]=2') produces arrays as before, and options depth, strictDepth, allowDots, allowPrototypes work as documented",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "lib/parse.js changed",
+          "test/parse.js changed",
+          "test/parse.js -794,6 +794,69 mentions a[]=1&a[]=2",
+          "test/parse.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (909 passed)",
+          "[model] All 909 tests pass including new explicit test qs.parse('a[]=1&a[]=2') = { a: ['1', '2'] }; depth and strictDepth options tested with nested brackets; allowDots and allowPrototypes check logic unchanged; existing test suite would have caught behavioral breaks."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Differential fuzz: copied base lib (9d36d06) beside the new one and parsed 80k random keys built from [a b [ ] . 0 %] across 11 option sets (depth 0/1/2, strictDepth, allowDots, decodeDotInKeys, allowPrototypes, plainObjects, allowSparse) = 880,000 comparisons. 7,965 outputs differed and ALL of them were keys that (after the allowDots dot→bracket rewrite) contain a '[' nested inside an unclosed bracket group — i.e. exactly the class this fix redefines; zero unexplained diffs. Targeted checks: 'a[]=1&a[]=2' → ['1','2'] unchanged; 56/56 prototype-key cases (a[__proto__], a[hasOwnProperty], a[con"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "Test cases added for keys with literal [] characters inside bracket groups",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] test/parse.js matches /withbracket\\[\\]/ (\"withbracket[]\")",
+          "test/parse.js changed",
+          "test/parse.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (909 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/parse.js:797-858 adds three subtests. 'a bracket pair inside a bracket group is literal' covers 'search[withbracket[]]=foobar', 'a[b[]]=c', the percent-encoded form 'a%5Bb%5B%5D%5D=c', 'x[[]]=1', 'a[b[c]]=d', 'a[b[]][c]=d', duplicate-key combining, and two stringify→parse round-trips. 'an outermost bracket pair still pushes to an array' covers 'list[][x[]]=y', 'a[]=1&a[]=2', 'a[b[]][]=1&a[b[]][]=2'. 'depth options with a literal bracket pair' covers depth 0/1 and strictDepth throws/does-not-throw. Confirmed all three blocks actually execute in the tape output (assertions 225-240)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "Test suite passes with command npx tape \"test/**/*.js\" exiting with code 0",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npx tape \"test/**/*.js\"` exited 0 (independent run, repo policy test_command)",
+          "test/parse.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npx tape test/empty-keys-cases.js test/parse.js test/stringify.js test/utils.js` (the four files the glob matches; the shell sandbox rejected the literal glob string) prints '1..909 / # tests 909 / # pass 909 / # ok' with no failures, and the same command chained with && ran the follow-on echo, confirming exit code 0. eslint on lib/ and test/ (with the Windows-checkout-only linebreak-style rule off) reports 0 errors and only the 10 pre-existing no-continue/consistent-return warnings — no new lint problems."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 4,
+    "total": 4,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 4
+  },
+  "timings": {
+    "agent_s": 0,
+    "judge_s": 0,
+    "grader_s": 611
+  },
+  "notes": [
+    "resumed from C:\\Users\\Mehta\\AppData\\Local\\Temp\\tally-eval-HFFnLP\\hist-qs-493 with session 5cb1ea66; agent turns and duration are not known, cost is taken from the receipt",
+    "receipt from the manual judge; the runner did not judge again"
+  ]
+}

@@ -42,6 +42,8 @@ export interface RunOptions {
   hookJudgeWaitMs?: number;
   /* continue a run whose agent already finished: the worktree root (containing <task.id>/) and the agent's session id */
   resume?: { root: string; session: string };
+  /* where eval/results lives (default: the current directory); tests point it at a temp dir so they never touch the real ledger */
+  resultsRoot?: string;
   out?: (s: string) => void;
   /* injectable for tests */
   agent?: AgentRunner;
@@ -236,7 +238,7 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
   const files = sh(dir, 'git', ['diff', '--numstat', base, head]).out.trim().split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f ?? '', added: Number(a) || 0, deleted: Number(d) || 0 }; });
   const patch = sh(dir, 'git', ['diff', base, head, '--', '.', ':(exclude)package-lock.json', ':(exclude)**/package-lock.json']).out;
   const patchBytes = Buffer.byteLength(patch, 'utf8');
-  const resultsDir = path.join(resultsRoot(), opts.task.class);
+  const resultsDir = path.join(resultsRoot(opts.resultsRoot), opts.task.class);
   fs.mkdirSync(resultsDir, { recursive: true });
   const patchFile = patchBytes > 0 && patchBytes <= 400 * 1024 ? path.join(resultsDir, `${new Date().toISOString().slice(0, 10)}-${opts.task.id}-${runId}.patch`) : undefined;
   if (patchFile) fs.writeFileSync(patchFile, patch);
@@ -260,7 +262,7 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
     timings: { agent_s: a.durationS, judge_s: judgeS, grader_s: graderS },
     notes,
   };
-  const file = writeResult(result);
+  const file = writeResult(result, opts.resultsRoot);
   /* the grade also lands in calibration.jsonl, so the existing report and rescore tooling see it */
   if (g.criteria.length === judge.criteria.length) {
     const entry = entryFromJudge(judge, judge.criteria.map((c) => g.criteria.find((x) => x.id === c.id)?.status ?? 'unverifiable'), g.verdict, 'backfill');

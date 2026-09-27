@@ -154,7 +154,7 @@ export function rescoreJudge(j: Judge, why: string): Judge {
   const counts = { met: 0, partial: 0, unmet: 0, unverifiable: 0 };
   for (const c of j.criteria) counts[effectiveStatus(c)] += 1;
   const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
-  const testsFailed = j.verification.ran && j.verification.passed === false;
+  const testsFailed = j.verification.ran && j.verification.passed === false && j.verification.failure_attributable !== false;
   const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped: j.task.spec_capped, reviewCapped: reviewCaps(j.review as Review | undefined), runInconclusive: j.verification.inconclusive === true, qualitySource: j.quality.source });
   const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
   const next: Judge = {
@@ -247,7 +247,7 @@ export async function judgeSession(opts: {
   if (!task) task = implicitTask(opts.session, opts.cwd, t, opts.cfg);
   const ev = collectEvidence({ cwd: opts.cwd, transcript: t, events, exec: opts.exec, skipGit: opts.skipGit });
   const consent = opts.consent ?? testRerunConsent(opts.cfg, opts.cwd);
-  const ver = opts.verification ?? (await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent, command: loadPolicy(opts.cwd).policy.test_command }));
+  const ver = opts.verification ?? (await runVerification(opts.cwd, { timeoutMs: opts.cfg.judge.test_timeout_ms, enabled: opts.cfg.judge.run_tests, consent, command: loadPolicy(opts.cwd).policy.test_command, baseHead: ev.git.base_head }));
   const waste = computeWaste(t, { baselineTokens: opts.cfg.baseline_context_tokens });
   const humanValue = task.estimate.hours * task.hourly_rate;
 
@@ -321,7 +321,7 @@ export async function judgeSession(opts: {
     tierCosts.push({ tier: 'tier1', model: r1.model, cost_usd: round(r1.cost_usd), criteria: judgmentIds, prompt_tokens: pack.tokens });
     /* Escalation guard: cap confidence on partial/unmet correctness calls, and find criteria whose one-step move flips the verdict */
     const tier1Quality = Math.max(0, Math.min(10, Number((prose as { quality_score?: number } | null)?.quality_score ?? 5)));
-    const testsFailedNow = ver.ran && ver.passed === false;
+    const testsFailedNow = ver.ran && ver.passed === false && ver.failure_attributable !== false;
     const statuses: Record<string, Status> = Object.fromEntries(task.criteria.map((c) => [c.id, resolved.get(c.id)?.status ?? 'unverifiable']));
     const verdictOf = (st: Record<string, Status>): string => {
       const vals = Object.values(st);
@@ -375,7 +375,8 @@ export async function judgeSession(opts: {
   for (const c of criteria) counts[c.status] += 1;
   const scored = scoreCounts(counts, humanValue, t.cost);
   const { completion_pct, credited, roi } = scored;
-  const testsFailed = ver.ran && ver.passed === false;
+  /* a failed run counts against the work only when the failure is attributable to it (see failureAttributable) */
+  const testsFailed = ver.ran && ver.passed === false && ver.failure_attributable !== false;
   const mech = mechanicalSummary({ ver, completion_pct, counts, waste: { total_usd: waste.total_usd, failed_loops: waste.failed_loops, repeated_reads: waste.repeated_reads, dead_weight: waste.dead_weight, compaction_churn: waste.compaction_churn }, cost: t.cost, budget: task.budget_usd, roi, unresolved: criteria.filter((c) => c.resolved_by === 'rule').length });
   const finalProse = prose as { quality_score: number; quality_reason: string; verdict_reason: string; recommendations: string[] } | null;
   const out = finalProse ?? { quality_score: mech.quality.score, quality_reason: mech.quality.reason, verdict_reason: mech.verdict_reason, recommendations: mech.recommendations };

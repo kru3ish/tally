@@ -60,7 +60,7 @@ export interface TestProvenance {
   /* test files the agent added or modified (git diff base..HEAD), and test cases it added (added `it(`/`test(`/`def test_` lines) */
   agent_created: { added_files: string[]; modified_files: string[]; cases_added: number };
   /* the run Tally made itself */
-  independent: { ran: boolean; command?: string; passed?: boolean; total_passed: number | null; reason?: string };
+  independent: { ran: boolean; command?: string; passed?: boolean; total_passed: number | null; reason?: string; tests_green?: boolean; fails_at_base?: boolean; attributable?: boolean };
   /* test commands the agent ran during the session, from the event stream */
   agent_runs: Array<{ command: string; passed: boolean }>;
   note: string;
@@ -187,7 +187,7 @@ export function testProvenance(opts: { cwd: string; baseHead?: string; judge: Ju
   if (v.ran && totalPassed === null) notes.push('the runner output did not state a passed count');
   if (!v.ran) notes.push(`independent run not made: ${v.reason ?? 'unknown'}`);
   if (added.length || modified.length) notes.push('a green test written by the same agent that wrote the code is weaker evidence than a pre-existing one');
-  return { preexisting_files: preexisting, agent_created: { added_files: added, modified_files: modified, cases_added: casesAdded }, independent: { ran: v.ran, command: v.command, passed: v.passed, total_passed: totalPassed, reason: v.reason }, agent_runs: agentRuns, note: notes.join('; ') };
+  return { preexisting_files: preexisting, agent_created: { added_files: added, modified_files: modified, cases_added: casesAdded }, independent: { ran: v.ran, command: v.command, passed: v.passed, total_passed: totalPassed, reason: v.reason, tests_green: v.tests_green, fails_at_base: v.at_base?.ran ? v.at_base.passed === false : undefined, attributable: v.failure_attributable }, agent_runs: agentRuns, note: notes.join('; ') };
 }
 
 export function parsePassedCount(output: string): number | null {
@@ -280,7 +280,11 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
     const alreadyHasRun = items.some((i) => i.kind === 'file_check' && /independent run/.test(i.summary));
     /* a run that exits 0 but prints no passed count could be a runner that ran nothing: inconclusive, so it anchors no VERIFIED */
     const runInconclusive = provenance.independent.passed === true && !runLooksConclusive(j.verification.output_tail ?? '', cwd, provenance.independent.command);
-    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: 'independent_run', strength: 'deterministic', summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? (runInconclusive ? 'exited 0 but reported no test count (inconclusive)' : 'passed') : 'FAILED'}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ''}`, ref: provenance.independent.command, ok: runInconclusive ? undefined : provenance.independent.passed });
+    /* a failure that is not attributable to the work (tests green, later stage failed; or the base fails the same way) is
+       inconclusive evidence, not a negative */
+    const notAttributable = provenance.independent.passed === false && j.verification.failure_attributable === false;
+    const failText = j.verification.tests_green ? `exited ${j.verification.exit_code} after ${j.verification.summary?.passed} passing, 0 failing (a later stage failed, not the tests)` : j.verification.at_base?.ran && j.verification.at_base.passed === false ? 'FAILED (the base commit fails it too)' : 'FAILED';
+    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: 'independent_run', strength: 'deterministic', summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? (runInconclusive ? 'exited 0 but reported no test count (inconclusive)' : 'passed') : failText}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ''}`, ref: provenance.independent.command, ok: runInconclusive || notAttributable ? undefined : provenance.independent.passed });
     /* interpreted: the model's reading */
     if (c.resolved_by === 'tier1' || c.resolved_by === 'tier2') items.push({ kind: 'model_judgment', strength: 'interpreted', summary: c.evidence, confidence: c.confidence });
     if (c.override) items.push({ kind: 'dispute', strength: 'interpreted', summary: `${c.override.by}: ${c.override.status} (was ${c.override.original}): ${c.override.reason}` });
@@ -396,7 +400,7 @@ export function renderVerify(a: Assurance, opts: { color?: boolean; evidence?: b
   L.push('');
   L.push('Verification');
   const v = a.verification;
-  if (v.independent.ran) L.push(`${c(v.independent.passed ? '32' : '31', v.independent.passed ? '✓' : '✗')} ${v.independent.command}  ${c('90', `independent run${v.independent.total_passed !== null ? `, ${v.independent.total_passed} passed` : ''}`)}`);
+  if (v.independent.ran) L.push(`${c(v.independent.passed ? '32' : v.independent.attributable === false ? '33' : '31', v.independent.passed ? '✓' : v.independent.attributable === false ? '?' : '✗')} ${v.independent.command}  ${c('90', `independent run${v.independent.total_passed !== null ? `, ${v.independent.total_passed} passed` : ''}${v.independent.passed ? '' : v.independent.tests_green ? '; exited non-zero after a green test summary (a later stage failed, not the tests)' : v.independent.fails_at_base ? '; the base commit fails it too' : ''}`)}`);
   else L.push(`${c('90', '?')} independent run not made ${c('90', `(${v.independent.reason ?? 'unknown'})`)}`);
   L.push(`  pre-existing tests: ${v.preexisting_files === null ? c('90', 'unknown (no base tree)') : `${v.preexisting_files} file(s) at session start`}`);
   L.push(`  agent-created tests: ${v.agent_created.added_files.length} file(s) added, ${v.agent_created.modified_files.length} modified, ${v.agent_created.cases_added} case(s) added`);

@@ -159,7 +159,13 @@ export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidenc
       if (!ver.ran) return { status: 'unverifiable', evidence: `tests not run (${ver.reason ?? 'unknown'})`, files: [] };
       /* exit 0 with no sign that any test ran (a `test` script that just echoes) proves nothing */
       if (ver.passed && !runLooksConclusive(ver.output_tail ?? '', ctx.cwd, ver.command)) return { status: 'unverifiable', evidence: `independent run of \`${ver.command}\` exited 0 but its output shows no test results; a runner that ran nothing is not evidence`, files: [] };
-      return ver.passed ? { status: 'met', evidence: `independent run of \`${ver.command}\` passed`, files: [] } : { status: 'unmet', evidence: `independent run of \`${ver.command}\` ${ver.timed_out ? 'timed out' : `failed (exit ${ver.exit_code})`}`, files: [] };
+      if (ver.passed) return { status: 'met', evidence: `independent run of \`${ver.command}\` passed`, files: [] };
+      /* the tests themselves were green and a later stage failed (lint, coverage threshold, a posttest script) */
+      if (ver.tests_green) return { status: 'unverifiable', evidence: `the runner reports ${ver.summary?.passed} passing, 0 failing, but \`${ver.command}\` exited ${ver.exit_code} in a later stage; the tests passed, the command did not`, files: [] };
+      /* the base commit is reported next to the failure: "passes at base" makes the failure the work's; "fails at base too"
+         is left for the reader (a bug-fix task is meant to turn that red green; an unrelated pre-existing failure is not) */
+      const baseNote = ver.at_base?.ran ? (ver.at_base.passed ? '; the base commit passes the same command' : `; the base commit fails it too (exit ${ver.at_base.exit_code}${ver.at_base.summary?.failed != null ? `, ${ver.at_base.summary.failed} failing` : ''}${ver.summary?.failed != null ? ` vs ${ver.summary.failed} failing now` : ''})`) : '';
+      return { status: 'unmet', evidence: `independent run of \`${ver.command}\` ${ver.timed_out ? 'timed out' : `failed (exit ${ver.exit_code}${ver.summary?.failed != null ? `, ${ver.summary.failed} failing` : ''})`}${baseNote}`, files: [] };
     }
     case 'file_exists': {
       const p = path.join(ctx.cwd, check.path);

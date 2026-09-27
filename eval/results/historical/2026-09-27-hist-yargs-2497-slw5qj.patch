@@ -1,0 +1,147 @@
+diff --git a/lib/utils/apply-extends.ts b/lib/utils/apply-extends.ts
+index 0159a8e..0f77f5f 100644
+--- a/lib/utils/apply-extends.ts
++++ b/lib/utils/apply-extends.ts
+@@ -48,7 +48,7 @@ export function applyExtends(
+ 
+   return mergeExtends
+     ? mergeDeep(defaultConfig, config)
+-    : Object.assign({}, defaultConfig, config);
++    : shallowMerge(defaultConfig, config);
+ }
+ 
+ function checkForCircularExtends(cfgPath: string) {
+@@ -61,13 +61,30 @@ function getPathToDefaultConfig(cwd: string, pathToExtend: string) {
+   return shim.path.resolve(cwd, pathToExtend);
+ }
+ 
++// Assigning '__proto__' would let a configuration file tamper with the
++// prototype chain of the object being built, rather than adding a key to it,
++// see: https://github.com/yargs/yargs/issues/2497
++function copyOwnKeys(target: Dictionary, source: Dictionary) {
++  if (!source) return target;
++  for (const key of Object.keys(source)) {
++    if (key === '__proto__') continue;
++    target[key] = source[key];
++  }
++  return target;
++}
++
++function shallowMerge(config1: Dictionary, config2: Dictionary) {
++  return copyOwnKeys(copyOwnKeys({}, config1), config2);
++}
++
+ function mergeDeep(config1: Dictionary, config2: Dictionary) {
+   const target: Dictionary = {};
+   function isObject(obj: Dictionary | any): obj is Dictionary {
+     return obj && typeof obj === 'object' && !Array.isArray(obj);
+   }
+-  Object.assign(target, config1);
++  copyOwnKeys(target, config1);
+   for (const key of Object.keys(config2)) {
++    if (key === '__proto__') continue;
+     if (isObject(config2[key]) && isObject(target[key])) {
+       target[key] = mergeDeep(config1[key], config2[key]);
+     } else {
+diff --git a/test/fixtures/extends/config_proto.json b/test/fixtures/extends/config_proto.json
+new file mode 100644
+index 0000000..a7df403
+--- /dev/null
++++ b/test/fixtures/extends/config_proto.json
+@@ -0,0 +1,9 @@
++{
++  "__proto__": {
++    "polluted": true
++  },
++  "a": {
++    "b": 15
++  },
++  "b": 22
++}
+diff --git a/test/helpers.mjs b/test/helpers.mjs
+index d2f32ff..e02519f 100644
+--- a/test/helpers.mjs
++++ b/test/helpers.mjs
+@@ -1,4 +1,4 @@
+-/* global describe, it */
++/* global describe, it, afterEach */
+ 
+ import {expect} from 'chai';
+ import {applyExtends} from '../helpers/helpers.mjs';
+@@ -15,4 +15,45 @@ describe('applyExtends', () => {
+     expect(conf.batman).to.equal('Caped Crusader');
+     expect(conf.version).to.equal('1.0.2');
+   });
++
++  // see: https://github.com/yargs/yargs/issues/2497
++  describe('prototype pollution', () => {
++    afterEach(() => {
++      delete Object.prototype.polluted;
++    });
++
++    it('does not pollute the prototype chain with a "__proto__" key', () => {
++      const conf = applyExtends(
++        JSON.parse('{"__proto__":{"polluted":true},"a":1}'),
++        process.cwd()
++      );
++      expect({}.polluted).to.equal(undefined);
++      expect(conf.polluted).to.equal(undefined);
++      expect(conf.a).to.equal(1);
++    });
++
++    it('does not pollute the prototype chain when merging deeply', () => {
++      const conf = applyExtends(
++        JSON.parse('{"__proto__":{"polluted":true},"a":{"c":2}}'),
++        process.cwd(),
++        true
++      );
++      expect({}.polluted).to.equal(undefined);
++      expect(conf.polluted).to.equal(undefined);
++      expect(conf.a).to.deep.equal({c: 2});
++    });
++
++    it('does not pollute the prototype chain via an extended config', () => {
++      const conf = applyExtends(
++        {extends: './test/fixtures/extends/config_proto.json', a: {c: 2}},
++        process.cwd(),
++        true
++      );
++      expect({}.polluted).to.equal(undefined);
++      expect(conf.polluted).to.equal(undefined);
++      // ordinary keys, including nested objects, still merge:
++      expect(conf.b).to.equal(22);
++      expect(conf.a).to.deep.equal({b: 15, c: 2});
++    });
++  });
+ });
+diff --git a/test/yargs.mjs b/test/yargs.mjs
+index 00c6fc9..43ff6ac 100644
+--- a/test/yargs.mjs
++++ b/test/yargs.mjs
+@@ -1511,6 +1511,26 @@ describe('yargs dsl tests', () => {
+         argv.a.g.should.equal(3);
+       });
+ 
++      // see: https://github.com/yargs/yargs/issues/2497
++      it('does not pollute the prototype when an extended config has a __proto__ key', () => {
++        const argv = yargs()
++          .parserConfiguration({'deep-merge-config': true})
++          .config({
++            extends: './test/fixtures/extends/config_proto.json',
++            a: {c: 2},
++          })
++          .parse();
++
++        try {
++          expect({}.polluted).to.equal(undefined);
++          expect(argv.polluted).to.equal(undefined);
++          argv.b.should.equal(22);
++          argv.a.should.deep.equal({b: 15, c: 2});
++        } finally {
++          delete Object.prototype.polluted;
++        }
++      });
++
+       it('does not deep merge objects by default', () => {
+         const argv = yargs()
+           .config({

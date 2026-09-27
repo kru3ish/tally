@@ -2,13 +2,17 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
-## [Unreleased]
+## [0.6.1] - 2026-09-27
 
 ### Added
 
 - **Eval results preserve the work.** Each `eval/results/<class>/…json` now records the agent's run configuration (model, turn cap, timeout, permission mode, allowed tools, grader model), its commits, per-file line counts, and the patch itself in a `.patch` file next to the result (capped at 400 KB, lockfiles excluded), so a disagreement can be re-read against the diff after the worktree is gone.
 - **`tally eval run --resume-root <dir> --resume-session <id>`.** Continues a run whose agent already finished from its worktree and session (judge, blind grader, ledger), so a crash after the paid agent session does not force a second one. Used to finish the two historical tasks whose judge had crashed.
 - **Historical eval class.** Three specs pinned to the commit before a merged human fix (qs #467, qs #493, yargs #2497); the agent sees the issue text only, and the fix PR is recorded as `human_fix` for the record.
+
+### Changed
+
+- **A failed test command is attributed before it counts.** Tally now reads the runner's own summary (mocha, node:test, tap, jest, pytest) and, when the post-run fails, runs the same command once more at the session's base commit in a throwaway worktree (dependencies shared through a junction). Three outcomes: the tests were green and a later stage failed (lint, a coverage threshold, a `posttest` script) → `tests_pass` is UNVERIFIED with the counts on it and the verdict is not penalised; the base passes or fails with fewer failing tests → the failure is the work's, UNMET as before; the base fails with the same count → UNMET with both runs on the evidence line, because only the task says whether those were the tests the work was meant to fix. Found by the historical eval on yargs #2497, where `npm test` was already red at the base commit (23 prettier errors in files the agent never touched) and Tally marked the behavioural criterion UNMET while the blind grader, who ran the module, said met: a false UNMET. The receipt records `verification.summary`, `tests_green`, `at_base` and `failure_attributable`.
 
 ### Fixed
 

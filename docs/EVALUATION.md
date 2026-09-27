@@ -75,6 +75,14 @@ This is a model grading a model on constructed tasks. It shows the pipeline scor
 
 Two harness defects surfaced in this class and are fixed on `main`: every session was judged twice (the SessionEnd hook's judge and the runner's), and on yargs-2423 the two receipts disagreed on the verdict (borderline vs worth it) because the maintainer review is a model read; the runner now waits for the hook's receipt. The ledger entries above record the runner's receipt; the receipts on disk are the hook's. The verdict flip on identical evidence is itself a finding: the review tier's `merge` / `request_changes` answer is not stable across two reads of the same diff.
 
+**Historical class (2026-09-27): 3 public issues pinned to the commit before the merged human fix, 14 criteria.** Agent claude-opus-5 ($1.05 to $2.18, $4.91 in total); the agent saw the issue text only, never the fix. On the final build: exact criterion agreement 11/14; verdicts 2/3; **false VERIFIED 0; false UNMET 0**. Per task:
+
+- `hist-qs-467` (Date values dropped under a `filter`): 4/4 agree, both worth it. The agent changed the same two files as the human patch (lib/stringify.js, test/stringify.js).
+- `hist-qs-493` (literal `[]` inside a bracket group): 4/4 agree, both borderline; Tally's maintainer review named six changed behaviours without a test. The first attempt at judging this session crashed (a `file_contains` check on the `test` directory, EISDIR) and was resumed on the fixed build without a second agent run.
+- `hist-yargs-2497` (prototype pollution in `apply-extends`): 3/6 agree, Tally borderline, grader worth it. This task produced the day's one **false UNMET**, kept in the ledger against commit `6c4833e`: `npm test` was already red at the base commit (23 prettier errors from `posttest` lint in files the agent never touched), and `tests_pass` treated exit 1 as "tests failed", marking the behavioural criterion UNMET while the grader ran the module and saw the fix work. Tally now reads the runner's summary (823 passing, 0 failing) and re-runs the command at the base commit (819 passing, 0 failing, exit 1 there too); on the rerun the criterion is UNVERIFIED, "npm test exits successfully" stays UNMET (it does not), and the verdict is no longer sunk by a failure that predates the work. The remaining gap is the grader accepting behaviour it probed by hand as met where Tally has no deterministic evidence: UNVERIFIED is the honest ceiling there.
+
+Three tasks is a corpus, not a measurement. What the class showed is that historical tasks find failure modes constructed ones cannot: a red base, a directory named as a file, a runner whose exit code is not about tests.
+
 ## What Tally reliably detects (as of 0.5.0)
 
 - A criterion with no evidence in the diff (the forgotten README): UNMET on every fixture and every eval run so far.

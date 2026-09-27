@@ -163,7 +163,7 @@ describe('eval run', () => {
       return { sessionId: session, costUsd: null, turns: 4, durationS: 1 };
     };
     const grader = () => ({ criteria: [{ id: 'c1', status: 'met' as const, evidence: 'src.js returns 429 and the test asserts it' }], verdict: 'worth it' as const, quality_note: 'fine', model: 'fake-grader', cost_usd: 0, duration_s: 0 });
-    const r = await runEvalTask({ task: { id: 'one', class: 'fixture', repo: src, repoPath: src, task: 'Make src.js return 429 and update the test', taskText: 'Make src.js return 429 and update the test', criteria: [{ text: 'src.js returns 429', check: { kind: 'file_contains', path: 'src.js', pattern: '429' } }], test_command: 'node test.js', setup: [], tags: ['constructed'], selected_because: 'test', contamination: 'unlikely', added: '2026-09-27' }, agent, grader, root: path.join(work, 'tmp'), out: () => {} });
+    const r = await runEvalTask({ task: { id: 'one', class: 'fixture', repo: src, repoPath: src, task: 'Make src.js return 429 and update the test', taskText: 'Make src.js return 429 and update the test', criteria: [{ text: 'src.js returns 429', check: { kind: 'file_contains', path: 'src.js', pattern: '429' } }], test_command: 'node test.js', setup: [], tags: ['constructed'], selected_because: 'test', contamination: 'unlikely', added: '2026-09-27' }, agent, grader, root: path.join(work, 'tmp'), resultsRoot: work, out: () => {} });
     expect(r.schema).toBe('tally.eval.v1');
     expect(r.agent.product).toBe('claude-code');
     expect(r.agent.cost_usd).toBeNull();
@@ -209,6 +209,7 @@ describe('resume', () => {
         return { sessionId: session, costUsd: 0, turns: 0, durationS: 0 };
       },
       grader: () => ({ criteria: [{ id: 'c1', status: 'met', evidence: 'README says hello' }], verdict: 'worth it', quality_note: '', duration_s: 1 }),
+      resultsRoot: root,
       out: () => {},
     });
     expect(agentCalls).toBe(0);

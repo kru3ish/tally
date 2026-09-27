@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { isolate, tmpDir, root, basicFixture } from './helpers.js';
@@ -352,5 +353,96 @@ describe('the tree is evidence only when it is the receipt repository', () => {
     expect(after).toBeTruthy();
     expect(after!.criteria.length).toBe(3);
     expect(after!.verification.note).toMatch(/does not contain the receipt's base commit/);
+  });
+});
+
+describe('a failed run is attributed before it counts', () => {
+  it('parses runner summaries and decides attribution from them', async () => {
+    const { parseTestSummary, failureAttributable } = await import('../src/judge/verify.js');
+    expect(parseTestSummary('  823 passing (4s)\n  2 pending\n')).toEqual({ passed: 823, failed: 0 });
+    expect(parseTestSummary('  10 passing\n  3 failing\n')).toEqual({ passed: 10, failed: 3 });
+    expect(parseTestSummary('ℹ tests 7\nℹ pass 7\nℹ fail 0')).toEqual({ passed: 7, failed: 0 });
+    expect(parseTestSummary('Tests:       1 failed, 12 passed, 13 total')).toEqual({ passed: 12, failed: 1 });
+    expect(parseTestSummary('=== 5 passed, 1 failed in 0.3s')).toEqual({ passed: 5, failed: 1 });
+    expect(parseTestSummary('lint: 23 errors')).toEqual({ passed: null, failed: null });
+    const base = { ran: true, command: 'npm test', passed: false, exit_code: 1 };
+    expect(failureAttributable({ ...base, tests_green: true, summary: { passed: 823, failed: 0 } })).toBe(false);
+    expect(failureAttributable({ ...base, summary: { passed: 10, failed: 2 }, at_base: { ran: true, passed: false, summary: { passed: 12, failed: 2 } } })).toBeUndefined();
+    expect(failureAttributable({ ...base, summary: { passed: 10, failed: 3 }, at_base: { ran: true, passed: false, summary: { passed: 12, failed: 2 } } })).toBe(true);
+    expect(failureAttributable({ ...base, summary: { passed: null, failed: null }, at_base: { ran: true, passed: false } })).toBeUndefined();
+    expect(failureAttributable({ ...base, at_base: { ran: true, passed: true } })).toBe(true);
+    expect(failureAttributable({ ran: true, passed: true })).toBeUndefined();
+  });
+
+  it('a suite that was already red at the base commit is recorded next to the failure; the failure stays unmet and the reader sees both runs', async () => {
+    /* base: a pre-existing test fails; the agent's change leaves it failing and adds a passing test of its own */
+    const cwd = tmpDir('tally-redbase-');
+    git(cwd, ['init', '-q', '-b', 'main']);
+    fs.mkdirSync(path.join(cwd, 'src'));
+    fs.mkdirSync(path.join(cwd, 'test'));
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'app', scripts: { test: 'node test/run.js' } }));
+    fs.writeFileSync(path.join(cwd, 'src', 'login.js'), 'module.exports = function login() { return 200; };\n');
+    fs.writeFileSync(
+      path.join(cwd, 'test', 'run.js'),
+      [
+        "const fs = require('fs'); let pass = 0, fail = 0;",
+        "for (const f of fs.readdirSync(__dirname)) if (f.endsWith('.test.js')) { try { require('./' + f); pass++; } catch { fail++; } }",
+        "console.log(pass + ' passing'); console.log(fail + ' failing'); process.exit(fail ? 1 : 0);",
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(path.join(cwd, 'test', 'legacy.test.js'), "throw new Error('legacy assertion broken long before this session');\n");
+    fs.writeFileSync(path.join(cwd, 'README.md'), '# app\n');
+    git(cwd, ['add', '-A']);
+    git(cwd, ['commit', '-q', '-m', 'base (red)']);
+    const base = git(cwd, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(cwd, 'src', 'login.js'), 'let attempts = 0;\nmodule.exports = function login() { attempts += 1; return attempts > 5 ? 429 : 200; };\n');
+    fs.writeFileSync(path.join(cwd, 'test', 'ratelimit.test.js'), "const login = require('../src/login.js'); for (let i = 0; i < 5; i++) login(); if (login() !== 429) throw new Error('no 429');\n");
+    git(cwd, ['add', '-A']);
+    git(cwd, ['commit', '-q', '-m', 'agent work']);
+    const stub = stubFor(['met', 'met', 'unmet']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), criteria: [{ text: 'Login returns 429 after 5 failed attempts', source: 'explicit' }, { text: 'The test suite passes', source: 'explicit', check: { kind: 'tests_pass' } }, { text: 'README documents the limit', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } }] }) }, 'assure-redbase');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'assure-redbase', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'assure-redbase', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j.verification.passed).toBe(false);
+    expect(j.verification.summary).toEqual({ passed: 1, failed: 1 });
+    expect(j.verification.at_base?.ran).toBe(true);
+    expect(j.verification.at_base?.passed).toBe(false);
+    expect(j.verification.at_base?.summary).toEqual({ passed: 0, failed: 1 });
+    /* same failing count before and after: attribution is unknown, the criterion stays unmet, and the receipt says so */
+    expect(j.verification.failure_attributable).toBeUndefined();
+    const c2 = j.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.status).toBe('unmet');
+    expect(c2.evidence).toMatch(/1 failing\)/);
+    expect(c2.evidence).toMatch(/the base commit fails it too \(exit 1, 1 failing vs 1 failing now\)/);
+    expect(j.assurance!.criteria.find((c) => c.id === 'c2')!.status).toBe('UNMET');
+    expect(j.assurance!.verification.independent.fails_at_base).toBe(true);
+    const text = renderVerify(j.assurance!, { color: false });
+    expect(text).toMatch(/the base commit fails it too/);
+    /* no worktree left behind on this repository (other test files may have base runs in flight in the temp folder) */
+    expect(git(cwd, ['worktree', 'list']).trim().split('\n').length).toBe(1);
+  });
+
+  it('a green test summary followed by a non-zero exit is a later-stage failure, not a test failure', async () => {
+    const { cwd, base } = makeRepo({ agentAddsTest: true });
+    /* the test script runs the tests (green) and then a "lint" step that fails */
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: 'app', scripts: { test: 'node test/run.js && node test/lint.js' } }));
+    fs.writeFileSync(path.join(cwd, 'test', 'lint.js'), "console.error('lint: 23 errors'); process.exit(1);\n");
+    git(cwd, ['add', '-A']);
+    git(cwd, ['commit', '-q', '-m', 'lint in test script']);
+    const stub = stubFor(['met', 'met', 'unmet']);
+    const llm = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), criteria: [{ text: 'Login returns 429 after 5 failed attempts', source: 'explicit' }, { text: 'The test suite passes', source: 'explicit', check: { kind: 'tests_pass' } }, { text: 'README documents the limit', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } }] }) }, 'assure-green');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    await intake({ session: 'assure-green', cwd, text: 'Rate limit the login endpoint', cfg, llm, deps });
+    const j = await judgeSession({ session: 'assure-green', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    expect(j.verification.passed).toBe(false);
+    expect(j.verification.tests_green).toBe(true);
+    expect(j.verification.failure_attributable).toBe(false);
+    const c2 = j.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.status).toBe('unverifiable');
+    expect(c2.evidence).toMatch(/2 passing, 0 failing/);
   });
 });

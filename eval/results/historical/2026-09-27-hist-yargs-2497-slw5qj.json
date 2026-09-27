@@ -1,0 +1,264 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "slw5qj",
+  "date": "2026-09-27T17:02:11.747Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "6c4833e"
+  },
+  "task": {
+    "id": "hist-yargs-2497",
+    "class": "historical",
+    "repo": "https://github.com/yargs/yargs.git",
+    "base": "d507f534f6fa93f0e8507e28e1c2b65370799b7e",
+    "head": "84c4157d9213a7e1f914d8e8073c4b52cfa2c0cd",
+    "issue": "https://github.com/yargs/yargs/issues/2497",
+    "tags": [
+      "typescript",
+      "security",
+      "yargs",
+      "historical"
+    ],
+    "contamination": "likely",
+    "human_fix": "https://github.com/yargs/yargs/pull/2498"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "duration_s": 0,
+    "cost_usd": 2.1828
+  },
+  "config": {
+    "agent_model": "sonnet",
+    "max_turns": 80,
+    "timeout_min": 45,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "84c4157 fix(security): ignore __proto__ keys when merging extended configs"
+    ],
+    "files": [
+      {
+        "file": "lib/utils/apply-extends.ts",
+        "added": 19,
+        "deleted": 2
+      },
+      {
+        "file": "test/fixtures/extends/config_proto.json",
+        "added": 9,
+        "deleted": 0
+      },
+      {
+        "file": "test/helpers.mjs",
+        "added": 42,
+        "deleted": 1
+      },
+      {
+        "file": "test/yargs.mjs",
+        "added": 20,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-hist-yargs-2497-slw5qj.patch",
+    "patch_bytes": 4864
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 2.5118519999999998,
+    "blind": true
+  },
+  "session": "40d349d6-5b8e-431c-8828-8504d9d0970c",
+  "tally_summary": {
+    "verified": 3,
+    "supported": 1,
+    "unverified": 1,
+    "unmet": 1,
+    "total": 6,
+    "sufficient": 4,
+    "verdict": "borderline",
+    "completion_pct": 70
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": false,
+    "total_passed": null,
+    "preexisting_files": 59,
+    "agent_added_files": 1,
+    "agent_cases_added": 4
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Merging a configuration object containing `__proto__: {polluted: true}` does not pollute Object.prototype; after applyExtends executes, `({}).polluted` is undefined",
+      "tally": {
+        "status": "unverifiable",
+        "assurance": "UNVERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] the runner reports 823 passing, 0 failing, but `npm test` exited 1 in a later stage; the tests passed, the command did not",
+          "lib/utils/apply-extends.ts -48,7 +48,7 mentions applyExtends",
+          "test/helpers.mjs -15,4 +15,45 mentions applyExtends",
+          "test/helpers.mjs modified by the agent",
+          "independent run of `npm test` exited 1 after 823 passing, 0 failing (a later stage failed, not the tests)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran a probe script against the freshly compiled build calling helpers' applyExtends with JSON.parse('{\"__proto__\":{\"polluted\":true},\"a\":1}') (shallow) and with a nested variant (deep), plus via extends of the new test/fixtures/extends/config_proto.json in both merge modes. In every case Object.create(Object.prototype).polluted === undefined and conf.polluted === undefined. Object.getPrototypeOf(result) === Object.prototype still holds. Also probed the constructor.prototype vector and nested __proto__ keys (merged and unmerged) — no pollution; an unmerged sub-object retains a harmless own '__pr"
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "Ordinary keys and nested objects merge as before; the existing extends functionality for valid configurations is unchanged",
+      "tally": {
+        "status": "partial",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier2",
+        "evidence": [
+          "lib/utils/apply-extends.ts changed",
+          "test/helpers.mjs changed",
+          "test/fixtures/extends/config_proto.json changed",
+          "independent run of `npm test` exited 1 after 823 passing, 0 failing (a later stage failed, not the tests)",
+          "[model] The independent `npm test` run FAILED (prettier/eslint error, 23 problems), so we cannot rely on a green suite to confirm unchanged behavior; from the diff, mergeDeep/shallowMerge now build objects via `copyOwnKeys` (using `Object.keys()`) instead of `Object.assign`, which silently drops symbol-keyed and non-enumerable properties that `Object.assign` would have copied — a behavior change no test exercises — while the new `config_proto.json` fixture test does explicitly verify that ordinary keys and nested-object deep merging via `extends` still work as before (`conf.b === 22`, `conf.a` deep-equals `{b:15,c:2}`)."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Probes show normal merges unchanged: shallow extends of config_1.json -> {\"z\":15,\"a\":30,\"b\":22,\"c\":3}; deep extends of config_deep.json -> {\"a\":{\"b\":15,\"c\":3,\"d\":[1,2,3],\"e\":[1],\"f\":\"yes\"},\"test\":{\"yes\":1}}; extends with __proto__ still merges ordinary keys ({\"a\":{\"b\":15,\"c\":2},\"b\":22}). All 823 existing mocha tests pass, including the existing extends/deep-merge-config suites. One incidental behaviour change: the non-deep path moved from Object.assign to an Object.keys loop (lib/utils/apply-extends.ts:76), so symbol-keyed properties and setter semantics on the merge result are no longer repli"
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "A test case exists that verifies __proto__ keys do not pollute Object.prototype",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] test/fixtures/extends/config_proto.json matches /__proto__/ (\"__proto__\")",
+          "test/fixtures/extends/config_proto.json changed",
+          "test/fixtures/extends/config_proto.json added by the agent",
+          "test/helpers.mjs modified by the agent",
+          "test/yargs.mjs modified by the agent",
+          "independent run of `npm test` exited 1 after 823 passing, 0 failing (a later stage failed, not the tests)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/helpers.mjs adds a 'prototype pollution' describe with three tests (direct __proto__ shallow, direct __proto__ deep, and via extends of the new config_proto.json fixture), each asserting {}.polluted === undefined plus that ordinary/nested keys still merge, with afterEach cleanup. test/yargs.mjs:1514 adds an end-to-end test through yargs().parserConfiguration({'deep-merge-config': true}).config({extends: ...}). All four appear as passing in the run output (lines 317-319 and 894 of the captured log)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "npm test command exits successfully",
+      "tally": {
+        "status": "unmet",
+        "assurance": "UNMET",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npm test` failed (exit 1)",
+          "test/fixtures/extends/config_proto.json added by the agent",
+          "test/helpers.mjs modified by the agent",
+          "test/yargs.mjs modified by the agent",
+          "independent run of `npm test` exited 1 after 823 passing, 0 failing (a later stage failed, not the tests)"
+        ]
+      },
+      "grader": {
+        "status": "partial",
+        "evidence": "mocha itself is fully green: '823 passing (7s), 2 pending', 0 failing. But `npm test` exits non-zero because the posttest hook runs `npm run check` (gts lint), which reports 23 prettier/prettier errors. Those errors are all in lib/command.ts, lib/completion.ts, lib/usage.ts and lib/yargs-factory.ts; `git diff --name-only <base> HEAD` for those four paths returns nothing, so the failures pre-date the agent's work, and `npx gts lint lib/utils/apply-extends.ts test/helpers.mjs` reports no errors on the changed files. So the acceptance criterion as literally stated (npm test exits successfully) is"
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "The mergeDeep function in lib/utils/apply-extends.ts includes a guard preventing the __proto__ key from being merged",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] lib/utils/apply-extends.ts matches /__proto__/ (\"__proto__\")",
+          "lib/utils/apply-extends.ts changed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "lib/utils/apply-extends.ts:67-74 defines copyOwnKeys, which does `if (key === '__proto__') continue;` while copying own enumerable keys; mergeDeep uses it for config1 (line 85) and adds its own `if (key === '__proto__') continue;` in the config2 loop (line 87). The same helper backs the new shallowMerge (line 76-78), closing the previously-unguarded `Object.assign({}, defaultConfig, config)` path as well."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "npm run compile command exits successfully, compiling TypeScript sources to build/",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npm run compile` exited 0"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran `npm run compile` (rimraf build && tsc) in the repo: no output beyond the npm banner and exit code 0, and build/lib was populated (the subsequent probe scripts imported build/lib/utils/apply-extends.js successfully). `npm test`'s pretest also recompiles with tsconfig.test.json and did not fail."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 3,
+    "total": 6,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 4
+  },
+  "timings": {
+    "agent_s": 0,
+    "judge_s": 239,
+    "grader_s": 727
+  },
+  "notes": [
+    "resumed from C:\\Users\\Mehta\\AppData\\Local\\Temp\\tally-eval-UeixW7\\hist-yargs-2497 with session 40d349d6; agent turns and duration are not known, cost is taken from the receipt"
+  ]
+}
