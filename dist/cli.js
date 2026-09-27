@@ -10172,11 +10172,23 @@ async function runEvalTask(opts) {
     out(`[${opts.task.id}] intake`);
     await intake({ session, cwd: dir, ref: path32.join(dir, "task.md"), cfg, llm: makeLlm({ session }) });
   }
+  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent ? 0 : 10 * 60 * 1e3);
+  const hookJudged = () => {
+    const j = loadJudge(session);
+    return !!j && j.head === head && j.reason === "session_end";
+  };
+  if (waitMs > 0 && !hookJudged()) {
+    out(`[${opts.task.id}] waiting for the session-end judge started by the hook (up to ${Math.round(waitMs / 6e4)} min)`);
+    const until = Date.now() + waitMs;
+    while (Date.now() < until && !hookJudged()) await new Promise((r) => setTimeout(r, 5e3));
+  }
   const events = readEvents(session);
   const transcriptPath = events.find((e) => typeof e.data.transcript_path === "string")?.data.transcript_path;
   let judge = loadJudge(session);
+  if (judge && judge.head === head) notes.push(`receipt from the ${judge.reason === "session_end" ? "session-end hook" : judge.reason + " judge"}; the runner did not judge again`);
   if (!judge || judge.head !== head) {
     if (!transcriptPath || !fs32.existsSync(transcriptPath)) notes.push("no transcript found for the session; cost and turns come from the agent envelope only");
+    if (waitMs > 0) notes.push(`the hook's session-end judge did not produce a receipt within ${Math.round(waitMs / 6e4)} min; the runner judged`);
     out(`[${opts.task.id}] judge`);
     judge = await judgeSession({ session, cwd: dir, transcriptPath: transcriptPath ?? path32.join(sessionDir(session), "missing.jsonl"), cfg, llm: makeLlm({ session }), reason: "manual", consent: true, events });
   }

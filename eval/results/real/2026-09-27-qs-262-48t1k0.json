@@ -1,0 +1,223 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "48t1k0",
+  "date": "2026-09-27T15:30:43.118Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "152535e"
+  },
+  "task": {
+    "id": "qs-262",
+    "class": "real",
+    "repo": "C:/Users/Mehta/dev/tally-eval-gh/qs-262",
+    "base": "b7ce13b3a6528dc4af2346a00cad50fc79cabcb8",
+    "head": "d9180c79eb6200e46a330165415f9a5f0eb2e68d",
+    "issue": "https://github.com/ljharb/qs/issues/262",
+    "tags": [
+      "javascript",
+      "bug",
+      "parser"
+    ],
+    "contamination": "possible"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "turns": 27,
+    "duration_s": 305,
+    "cost_usd": 2.1916590000000005
+  },
+  "config": {
+    "agent_model": "opus",
+    "max_turns": 80,
+    "timeout_min": 40,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "d9180c7 [Fix] `parse`: honour explicit array indexes when mixed with `a[]` notation"
+    ],
+    "files": [
+      {
+        "file": "README.md",
+        "added": 24,
+        "deleted": 0
+      },
+      {
+        "file": "lib/parse.js",
+        "added": 1,
+        "deleted": 0
+      },
+      {
+        "file": "lib/utils.js",
+        "added": 24,
+        "deleted": 0
+      },
+      {
+        "file": "test/parse.js",
+        "added": 83,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-qs-262-48t1k0.patch",
+    "patch_bytes": 8197
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 1.8255255000000001,
+    "blind": true
+  },
+  "session": "0ee42d0a-5d48-4996-819e-e02926ead3df",
+  "tally_summary": {
+    "verified": 3,
+    "supported": 1,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 4,
+    "sufficient": 4,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 1158,
+    "preexisting_files": 4,
+    "agent_added_files": 0,
+    "agent_cases_added": 0
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "qs.parse(\"a[]=na&a[20]=20&a[0]=0&a[10]=10\") and qs.parse(\"a[20]=20&a[]=na&a[0]=0&a[10]=10\") return identical deterministic results where explicit numeric indexes are honored in ascending order and a[] values are not placed ahead of a[0]",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "lib/parse.js changed",
+          "lib/utils.js changed",
+          "test/parse.js changed",
+          "README.md -281,6 +281,30 mentions a[]=na&a[20]=20&a[0]=0&a[10]=10",
+          "test/parse.js -385,6 +385,89 mentions a[]=na&a[20]=20&a[0]=0&a[10]=10",
+          "test/parse.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (1158 passed)",
+          "[model] Test diff shows both orderings ('a[]=na&a[20]=20&a[0]=0&a[10]=10' and reordered variant) asserting identical result with `a[]` grouping at `a[0]`, and independent tape run confirms all 1158 tests (including these) passed."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Running the built lib at HEAD: qs.parse('a[]=na&a[20]=20&a[0]=0&a[10]=10') and qs.parse('a[20]=20&a[]=na&a[0]=0&a[10]=10') both return { a: { '0': ['na','0'], '10': '10', '20': '20' } } — identical, explicit indexes ascending (0,10,20), and the a[] value grouped at index 0 with a[0] rather than ahead of it (issue option (b)). The real fix is in the below-arrayLimit path: 'a[]=na&a[2]=2&a[0]=0&a[1]=1' and its reordered twin were ['na','1','2','0'] at base b7ce13b and are now [['na','0'],'1','2'] in both orders (lib/utils.js:223-235 sourceIsIndexed branch + utils.markIndexed call at lib/parse.js"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "The chosen semantics for mixed a[] / a[N] notation are documented in code comments or the README file",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] README.md matches /mixed.*notation|mixed.*array|a\\[\\].*a\\[\\d+\\]/ (\"Mixed notation\")",
+          "README.md changed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "README.md gains a '### Mixed notation' section (README.md:284-306) stating that a[] appends and a[N] places at index N, that explicit indices are honoured in ascending order, and that a collision groups both values at that index; it includes four runnable examples. I executed all four against the built lib and each matches the asserted output exactly. lib/utils.js:48-59 and :218-223 carry matching code comments explaining the side channel and the merge branch, and cross-reference the README section."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "Regression test cases covering mixed a[] / a[N] notation from the GitHub issue are added to the test suite",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "test/parse.js changed",
+          "test/parse.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (1158 passed)",
+          "[model] Test diff adds test function 'mixes `a[]` and `a[N]` deterministically (issue #262)' with 13 case assertions (mixed notation at arrayLimit boundary, under limit, collisions, nesting) and second test verifying pure-notation regression; all passed in independent run."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/parse.js:388-468 adds two subtests: 'mixes `a[]` and `a[N]` deterministically (issue #262)' (both issue strings, below-limit equivalents, a[]+a[0] collision, arrayLimit:0, nested a[0][]/a[0][0], throwOnLimitExceeded) and 'mixing `a[]` and `a[N]` leaves unmixed notations untouched (issue #262)' (pure a[], pure indexed, pure indexed past arrayLimit, append past arrayLimit). Both subtest headers appear in the tape output, so they execute."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "The full test suite passes, including all new regression tests, verifying mixed notation parsing and unchanged behavior for pure a[], pure indexed, and arrayLimit cases",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "lib/parse.js changed",
+          "lib/utils.js changed",
+          "test/parse.js changed",
+          "README.md -281,6 +281,30 mentions arrayLimit",
+          "lib/utils.js -202,12 +215,21 mentions arrayLimit",
+          "test/parse.js -385,6 +385,89 mentions arrayLimit",
+          "test/parse.js modified by the agent",
+          "independent run of `npx tape \"test/**/*.js\"` passed (1158 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npx tape \"test/**/*.js\"` at HEAD: 1158 tests, 1158 pass, 0 fail, including the new subtests. I independently differential-fuzzed base vs HEAD over 4050 query/option combinations: 0 diffs across a curated set of 176 pure-notation cases (pure a[], pure/duplicate/sparse explicit indexes, bare a=, nested keys) under arrayLimit 0/1/20, allowSparse, parseArrays:false, plainObjects, strictMerge — so pure-notation and pure arrayLimit behaviour is genuinely unchanged, not just untested. Note `npm test`'s pretest steps fail for environment reasons unrelated to this change: eslint reports linebreak-styl"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 4,
+    "total": 4,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 4
+  },
+  "timings": {
+    "agent_s": 305,
+    "judge_s": 186,
+    "grader_s": 290
+  },
+  "notes": []
+}

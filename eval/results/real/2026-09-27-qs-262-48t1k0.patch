@@ -1,0 +1,198 @@
+diff --git a/README.md b/README.md
+index 9b5ce1a..935fca6 100644
+--- a/README.md
++++ b/README.md
+@@ -281,6 +281,30 @@ var sparseArray = qs.parse('a[1]=2&a[3]=5', { allowSparse: true });
+ assert.deepEqual(sparseArray, { a: [, '2', , '5'] });
+ ```
+ 
++### Mixed notation
++
++`a[]` and `a[N]` mean different things: `a[]` appends to whatever the array holds so far, while `a[N]` places its value at index `N`. When a query string mixes both notations, explicit indices are always honoured in ascending order; if an explicit index lands on a slot that an earlier `a[]` already filled, both values are grouped together at that index rather than one of them being pushed to the end:
++
++```javascript
++var mixed = qs.parse('a[]=na&a[2]=2&a[0]=0&a[1]=1');
++assert.deepEqual(mixed, { a: [['na', '0'], '1', '2'] });
++
++// the result does not depend on the order of the parts
++var reordered = qs.parse('a[2]=2&a[]=na&a[0]=0&a[1]=1');
++assert.deepEqual(reordered, { a: [['na', '0'], '1', '2'] });
++
++// `a[]` after an explicit index simply appends, since nothing collides
++var appended = qs.parse('a[0]=0&a[]=na');
++assert.deepEqual(appended, { a: ['0', 'na'] });
++```
++
++This is the same grouping **qs** applies when the collection exceeds `arrayLimit` and becomes an object:
++
++```javascript
++var overflowed = qs.parse('a[]=na&a[20]=20&a[0]=0&a[10]=10');
++assert.deepEqual(overflowed, { a: { 0: ['na', '0'], 10: '10', 20: '20' } });
++```
++
+ Note that an empty string is also a value, and will be preserved:
+ 
+ ```javascript
+diff --git a/lib/parse.js b/lib/parse.js
+index 07a0804..8fd573d 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -211,6 +211,7 @@ var parseObject = function (chain, val, options, valuesParsed) {
+             } else if (isValidArrayIndex && index < options.arrayLimit) {
+                 obj = [];
+                 obj[index] = leaf;
++                utils.markIndexed(obj);
+             } else if (isValidArrayIndex && options.throwOnLimitExceeded) {
+                 throw new RangeError('Array limit exceeded. Only ' + options.arrayLimit + ' element' + (options.arrayLimit === 1 ? '' : 's') + ' allowed in an array.');
+             } else if (isValidArrayIndex) {
+diff --git a/lib/utils.js b/lib/utils.js
+index adde8c0..ded1bfc 100644
+--- a/lib/utils.js
++++ b/lib/utils.js
+@@ -45,6 +45,19 @@ var getConflictIndex = function getConflictIndex(obj) {
+     return conflictChannel.get(obj);
+ };
+ 
++// Track arrays that were produced by an explicit numeric index (`a[0]=x`) rather than by
++// append notation (`a[]=x`), so `merge` can tell the two apart when their indexes collide
++var indexedChannel = getSideChannel();
++
++var markIndexed = function markIndexed(obj) {
++    indexedChannel.set(obj, true);
++    return obj;
++};
++
++var isIndexed = function isIndexed(obj) {
++    return indexedChannel.has(obj);
++};
++
+ var hexTable = (function () {
+     var array = [];
+     for (var i = 0; i < 256; ++i) {
+@@ -202,12 +215,21 @@ var merge = function merge(target, source, options) {
+         }
+     }
+ 
++    // `a[]` means "append", `a[N]` means "at index N". When both notations are mixed, an
++    // explicit index that collides with a value already sitting there (typically one placed
++    // by `a[]`) groups both values at that index instead of being appended to the end, so
++    // explicit indexes always stay in ascending order. This matches what the
++    // overflow-object path (`arrayLimit` exceeded) has always done. See README "mixed notation".
++    var sourceIsIndexed = isArray(source) && isIndexed(source);
++
+     if (isArray(target) && isArray(source)) {
+         source.forEach(function (item, i) {
+             if (has.call(target, i)) {
+                 var targetItem = target[i];
+                 if (targetItem && typeof targetItem === 'object' && item && typeof item === 'object') {
+                     target[i] = merge(targetItem, item, options);
++                } else if (sourceIsIndexed) {
++                    target[i] = limitedPair(targetItem, item, options);
+                 } else {
+                     target[target.length] = item;
+                 }
+@@ -443,8 +465,10 @@ module.exports = {
+     decode: decode,
+     encode: encode,
+     isBuffer: isBuffer,
++    isIndexed: isIndexed,
+     isOverflow: isOverflow,
+     isRegExp: isRegExp,
++    markIndexed: markIndexed,
+     markOverflow: markOverflow,
+     maybeMap: maybeMap,
+     merge: merge
+diff --git a/test/parse.js b/test/parse.js
+index 596fa56..0d125e1 100644
+--- a/test/parse.js
++++ b/test/parse.js
+@@ -385,6 +385,89 @@ test('parse()', function (t) {
+         st.end();
+     });
+ 
++    t.test('mixes `a[]` and `a[N]` deterministically (issue #262)', function (st) {
++        st.deepEqual(
++            qs.parse('a[]=na&a[20]=20&a[0]=0&a[10]=10'),
++            { a: { 0: ['na', '0'], 10: '10', 20: '20' } },
++            'explicit indices are honoured in ascending order; `a[]` groups with `a[0]`'
++        );
++        st.deepEqual(
++            qs.parse('a[20]=20&a[]=na&a[0]=0&a[10]=10'),
++            { a: { 0: ['na', '0'], 10: '10', 20: '20' } },
++            'and the result does not depend on the order of the parts'
++        );
++
++        st.deepEqual(
++            qs.parse('a[]=na&a[2]=2&a[0]=0&a[1]=1'),
++            { a: [['na', '0'], '1', '2'] },
++            'the same grouping applies when no index exceeds arrayLimit'
++        );
++        st.deepEqual(
++            qs.parse('a[2]=2&a[]=na&a[0]=0&a[1]=1'),
++            { a: [['na', '0'], '1', '2'] },
++            'order-independent when no index exceeds arrayLimit'
++        );
++
++        st.deepEqual(
++            qs.parse('a[]=na&a[0]=0'),
++            { a: [['na', '0']] },
++            '`a[0]` colliding with an `a[]` value groups both at index 0'
++        );
++        st.deepEqual(
++            qs.parse('a[]=na&a[20]=20&a[0]=0'),
++            { a: { 0: ['na', '0'], 20: '20' } },
++            'the overflow-object path groups identically'
++        );
++        st.deepEqual(
++            qs.parse('a[20]=20&a[]=na&a[0]=0&a[10]=10', { arrayLimit: 0 }),
++            { a: { 0: { 0: 'na', 1: '0' }, 10: '10', 20: '20' } },
++            'arrayLimit: 0 keeps its documented grouping'
++        );
++
++        st.deepEqual(
++            qs.parse('a[0]=0&a[]=na'),
++            { a: ['0', 'na'] },
++            '`a[]` still appends after values already present'
++        );
++        st.deepEqual(
++            qs.parse('a[]=na&a[20]=20&a[10]=10'),
++            { a: { 0: 'na', 10: '10', 20: '20' } },
++            'no grouping happens when nothing collides with `a[]`'
++        );
++
++        st.deepEqual(
++            qs.parse('a[]=x&a[]=y&a[0]=z'),
++            { a: [['x', 'z'], 'y'] },
++            'a repeated `a[]` fills 0 and 1, and `a[0]` groups at index 0'
++        );
++        st.deepEqual(
++            qs.parse('a[0][]=x&a[0][0]=y'),
++            { a: [[['x', 'y']]] },
++            'the grouping applies at nested levels too'
++        );
++
++        st['throws'](
++            function () { qs.parse('a[]=na&a[0]=0', { arrayLimit: 1, throwOnLimitExceeded: true }); },
++            new RangeError('Array limit exceeded. Only 1 element allowed in an array.'),
++            'grouping respects throwOnLimitExceeded'
++        );
++        st.deepEqual(
++            qs.parse('a[]=na&a[0]=0', { arrayLimit: 1 }),
++            { a: [{ 0: 'na', 1: '0' }] },
++            'grouping respects arrayLimit without throwOnLimitExceeded'
++        );
++
++        st.end();
++    });
++
++    t.test('mixing `a[]` and `a[N]` leaves unmixed notations untouched (issue #262)', function (st) {
++        st.deepEqual(qs.parse('a[]=b&a[]=c&a[]=d'), { a: ['b', 'c', 'd'] }, 'pure `a[]` list');
++        st.deepEqual(qs.parse('a[2]=d&a[0]=b&a[1]=c'), { a: ['b', 'c', 'd'] }, 'pure indexed list');
++        st.deepEqual(qs.parse('a[20]=20&a[0]=0&a[10]=10'), { a: { 0: '0', 10: '10', 20: '20' } }, 'pure indexed list past arrayLimit');
++        st.deepEqual(qs.parse('a[0]=x&a[]=y', { arrayLimit: 1 }), { a: { 0: 'x', 1: 'y' } }, 'append past arrayLimit');
++        st.end();
++    });
++
+     t.deepEqual(qs.parse('a[12b]=c'), { a: { '12b': 'c' } }, 'supports keys that begin with a number');
+ 
+     t.test('supports encoded = signs', function (st) {

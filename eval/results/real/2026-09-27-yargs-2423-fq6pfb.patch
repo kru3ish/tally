@@ -1,0 +1,120 @@
+diff --git a/lib/command.ts b/lib/command.ts
+index ddd7e5a..5d37d3c 100644
+--- a/lib/command.ts
++++ b/lib/command.ts
+@@ -647,8 +647,10 @@ export class CommandInstance {
+       positionalMap[key].map(value => {
+         if (options.configuration['unknown-options-as-args'])
+           options.key[key] = true;
+-        unparsed.push(`--${key}`);
+-        unparsed.push(value);
++        // '--key=value' rather than '--key value', so that positional
++        // values which look like flags, e.g., '-l', are not swallowed
++        // by the parser.
++        unparsed.push(`--${key}=${value}`);
+       });
+     });
+ 
+diff --git a/lib/yargs-factory.ts b/lib/yargs-factory.ts
+index f3c1002..efc0c94 100644
+--- a/lib/yargs-factory.ts
++++ b/lib/yargs-factory.ts
+@@ -1987,8 +1987,14 @@ export class YargsInstance {
+     this.#options.configuration = this[kGetParserConfiguration]();
+ 
+     const populateDoubleDash = !!this.#options.configuration['populate--'];
++    // yargs-parser routes the arguments it halts on to the same place it
++    // routes arguments following '--'. Forcing 'populate--' on would
++    // therefore hide halted positionals from command and positional
++    // handling, see: https://github.com/yargs/yargs/issues/2423
+     const config = Object.assign({}, this.#options.configuration, {
+-      'populate--': true,
++      'populate--': this.#options.configuration['halt-at-non-option']
++        ? populateDoubleDash
++        : true,
+     });
+     const parsed = this.#shim.Parser.detailed(
+       args,
+diff --git a/test/command.mjs b/test/command.mjs
+index b488503..377c647 100644
+--- a/test/command.mjs
++++ b/test/command.mjs
+@@ -1752,6 +1752,78 @@ describe('Command', () => {
+     });
+   });
+ 
++  // Addresses: https://github.com/yargs/yargs/issues/2423
++  describe('halt-at-non-option', () => {
++    const sshLike = (args, opts = {}) =>
++      yargs(args)
++        .usage('$0 <host> [<cmd>...]', 'Run command via ssh', yargs =>
++          yargs
++            .positional('host', {type: 'string', demandOption: true})
++            .positional('cmd', {array: true, type: 'string'})
++            .options({
++              verbose: {type: 'boolean', alias: 'v', count: true},
++            })
++        )
++        .strict()
++        .parserConfiguration({'halt-at-non-option': true, ...opts})
++        .parseSync();
++
++    it('populates positionals of a default command', () => {
++      const argv = sshLike(['my-host', 'ls']);
++      argv.host.should.equal('my-host');
++      argv.cmd.should.eql(['ls']);
++      argv._.should.eql([]);
++    });
++
++    it('parses options preceding the first positional', () => {
++      const argv = sshLike(['--verbose', '-v', 'my-host', 'ls']);
++      argv.verbose.should.equal(2);
++      argv.host.should.equal('my-host');
++      argv.cmd.should.eql(['ls']);
++    });
++
++    it('halts on the first positional, leaving later arguments untouched', () => {
++      const argv = sshLike(['my-host', 'ls', '-l', '--verbose', '/tmp']);
++      argv.verbose.should.equal(0);
++      argv.host.should.equal('my-host');
++      argv.cmd.should.eql(['ls', '-l', '--verbose', '/tmp']);
++    });
++
++    it('populates positionals of a named command', done => {
++      yargs(['run', 'my-host', 'ls', '-l'])
++        .command('run <host> [cmd...]', 'run a command', noop, argv => {
++          argv.host.should.equal('my-host');
++          argv.cmd.should.eql(['ls', '-l']);
++          argv._.should.eql(['run']);
++          return done();
++        })
++        .strict()
++        .parserConfiguration({'halt-at-non-option': true})
++        .parse();
++    });
++
++    it("does not populate '--' for the halted arguments", () => {
++      const argv = sshLike(['my-host', 'ls']);
++      expect(argv['--']).to.equal(undefined);
++    });
++
++    it("leaves '--' handling untouched when disabled", done => {
++      yargs(['run', 'my-host', '--', 'ls', '-l'])
++        .command('run <host> [cmd...]', 'run a command', noop, argv => {
++          argv.host.should.equal('my-host');
++          argv.cmd.should.eql([]);
++          argv['--'].should.eql(['ls', '-l']);
++          return done();
++        })
++        .strict()
++        .parserConfiguration({
++          'halt-at-non-option': false,
++          'populate--': true,
++        })
++        .parse();
++    });
++  });
++
+   describe('deprecated command', () => {
+     describe('using arg', () => {
+       it('shows deprecated notice with boolean', () => {

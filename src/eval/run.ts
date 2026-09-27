@@ -38,6 +38,8 @@ export interface RunOptions {
   maxTurns?: number;
   timeoutMin?: number;
   keep?: boolean;
+  /* how long to wait for the receipt the SessionEnd hook produces before judging in the runner (0 = judge at once) */
+  hookJudgeWaitMs?: number;
   out?: (s: string) => void;
   /* injectable for tests */
   agent?: AgentRunner;
@@ -178,11 +180,27 @@ export async function runEvalTask(opts: RunOptions): Promise<EvalRunResult> {
     out(`[${opts.task.id}] intake`);
     await intake({ session, cwd: dir, ref: path.join(dir, 'task.md'), cfg, llm: makeLlm({ session }) });
   }
+  /* The SessionEnd hook already spawned Tally's own finalize/judge for this session. That receipt is the one a user would
+     get, so wait for it rather than judging a second time: two receipts for one session cost twice and, because the
+     maintainer review is a model read, can disagree with each other (yargs-2423: borderline from the runner's judge,
+     worth it from the hook's, thirty seconds apart). A fake agent (tests) triggers no hooks, so there is nothing to wait for. */
+  const waitMs = opts.hookJudgeWaitMs ?? (opts.agent ? 0 : 10 * 60 * 1000);
+  const hookJudged = (): boolean => {
+    const j = loadJudge(session);
+    return !!j && j.head === head && j.reason === 'session_end';
+  };
+  if (waitMs > 0 && !hookJudged()) {
+    out(`[${opts.task.id}] waiting for the session-end judge started by the hook (up to ${Math.round(waitMs / 60000)} min)`);
+    const until = Date.now() + waitMs;
+    while (Date.now() < until && !hookJudged()) await new Promise((r) => setTimeout(r, 5000));
+  }
   const events = readEvents(session);
   const transcriptPath = events.find((e) => typeof e.data.transcript_path === 'string')?.data.transcript_path as string | undefined;
   let judge = loadJudge(session);
+  if (judge && judge.head === head) notes.push(`receipt from the ${judge.reason === 'session_end' ? 'session-end hook' : judge.reason + ' judge'}; the runner did not judge again`);
   if (!judge || judge.head !== head) {
     if (!transcriptPath || !fs.existsSync(transcriptPath)) notes.push('no transcript found for the session; cost and turns come from the agent envelope only');
+    if (waitMs > 0) notes.push(`the hook's session-end judge did not produce a receipt within ${Math.round(waitMs / 60000)} min; the runner judged`);
     out(`[${opts.task.id}] judge`);
     judge = await judgeSession({ session, cwd: dir, transcriptPath: transcriptPath ?? path.join(sessionDir(session), 'missing.jsonl'), cfg, llm: makeLlm({ session }), reason: 'manual', consent: true, events });
   }

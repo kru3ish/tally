@@ -1,0 +1,187 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "fq6pfb",
+  "date": "2026-09-27T15:45:37.474Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "152535e"
+  },
+  "task": {
+    "id": "yargs-2423",
+    "class": "real",
+    "repo": "C:/Users/Mehta/dev/tally-eval-gh/yargs-2423",
+    "base": "60be6600673cb1549378e9477a06bab14344563c",
+    "head": "7962d85de3a2c82ffd75926cc547a7c690474dc1",
+    "issue": "https://github.com/yargs/yargs/issues/2423",
+    "tags": [
+      "typescript",
+      "bug",
+      "cli-parser"
+    ],
+    "contamination": "possible"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "turns": 48,
+    "duration_s": 475,
+    "cost_usd": 2.8228765
+  },
+  "config": {
+    "agent_model": "opus",
+    "max_turns": 80,
+    "timeout_min": 40,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "7962d85 fix: support halt-at-non-option with commands and positionals"
+    ],
+    "files": [
+      {
+        "file": "lib/command.ts",
+        "added": 4,
+        "deleted": 2
+      },
+      {
+        "file": "lib/yargs-factory.ts",
+        "added": 7,
+        "deleted": 1
+      },
+      {
+        "file": "test/command.mjs",
+        "added": 72,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-yargs-2423-fq6pfb.patch",
+    "patch_bytes": 4428
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 1.4151525000000003,
+    "blind": true
+  },
+  "session": "6e6d27ab-1653-4979-a1bb-1052777a699c",
+  "tally_summary": {
+    "verified": 3,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 3,
+    "sufficient": 3,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": null,
+    "preexisting_files": 59,
+    "agent_added_files": 0,
+    "agent_cases_added": 6
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "With `parserConfiguration({ \"halt-at-non-option\": true })`, parsing `my-host ls` where host and cmd are positional arguments succeeds producing `host: \"my-host\"` and `cmd: [\"ls\"]`; options like `--verbose` are parsed if they appear before the first positional, and arguments after the first positional are left untouched",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "lib/yargs-factory.ts -1987,8 +1987,14 mentions -at-non-option",
+          "test/command.mjs -1752,6 +1752,78 mentions --verbose",
+          "test/command.mjs modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran the issue's exact CLI against the built lib: ['my-host','ls'] → {host:\"my-host\", cmd:[\"ls\"], verbose:0, _:[]} with no \"Not enough non-option arguments\" error. Options before the first positional are parsed: ['-v','my-host','ls','-l','--verbose','/tmp'] → verbose:1, host:\"my-host\", cmd:[\"ls\",\"-l\",\"--verbose\",\"/tmp\"] (the later --verbose/-l are left untouched inside cmd, not consumed as flags). Mechanism is sound: yargs-factory.ts:1990-1997 no longer forces 'populate--' on when halt-at-non-option is set (so halted args reach _ and thus command/positional handling), and command.ts:647-653 emi"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "A regression test reproducing the reported issue is added to the existing test suite",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /halt-at-non-option/ (\"halt-at-non-option\")",
+          "test/command.mjs modified by the agent",
+          "independent run of `npm test` passed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/command.mjs:1755 adds describe('halt-at-non-option') with 6 tests inside the existing suite, referencing the issue URL. The first test is a faithful repro of the report (usage('$0 <host> [<cmd>...]') + positional host/cmd + verbose count + .strict() + halt-at-non-option, args ['my-host','ls']); others cover options before the positional, halting after the first positional, a named command, and that '--' is not populated / is untouched when the config is off. Ran them in isolation: 6 passing."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "The full existing test suite passes via `npm test`",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[command] `npm test` exited 0 (independent run)",
+          "test/command.mjs modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` completed with 838 passing, 2 pending, 0 failing, and the posttest `gts lint` + eslint checks passed. (Separately, `npm run test:esm` — not part of the graded test command — has 1 failing test, 'throws an error if commndDir() used in ESM mode'; it is unrelated to the diff, which touches only postProcessPositionals and the populate-- default, and looks environment-related.)"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 3,
+    "total": 3,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 3
+  },
+  "timings": {
+    "agent_s": 475,
+    "judge_s": 118,
+    "grader_s": 287
+  },
+  "notes": []
+}

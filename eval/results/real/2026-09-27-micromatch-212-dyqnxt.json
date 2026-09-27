@@ -1,0 +1,233 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "dyqnxt",
+  "date": "2026-09-27T15:17:27.364Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "e383641"
+  },
+  "task": {
+    "id": "micromatch-212",
+    "class": "real",
+    "repo": "C:/Users/Mehta/dev/tally-eval-gh/micromatch-212",
+    "base": "5f2dd4def4b13fd2559cb957b7d2274f014b5b16",
+    "head": "cb0479dce2a389bd06dc3cf5827114e17118b886",
+    "issue": "https://github.com/micromatch/micromatch/issues/212",
+    "tags": [
+      "javascript",
+      "bug",
+      "glob",
+      "dependency-root-cause"
+    ],
+    "contamination": "possible"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "turns": 72,
+    "duration_s": 899,
+    "cost_usd": 5.4742645
+  },
+  "config": {
+    "agent_model": "opus",
+    "max_turns": 80,
+    "timeout_min": 40,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "cb0479d fix brace ranges in patterns containing dots"
+    ],
+    "files": [
+      {
+        "file": "index.js",
+        "added": 97,
+        "deleted": 8
+      },
+      {
+        "file": "test/issue-related.js",
+        "added": 35,
+        "deleted": 0
+      }
+    ],
+    "patch_file": "2026-09-27-micromatch-212-dyqnxt.patch",
+    "patch_bytes": 7478
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 1.2509415,
+    "blind": true
+  },
+  "session": "7b1cd938-f1b5-45b0-8a74-91e921e01d10",
+  "tally_summary": {
+    "verified": 4,
+    "supported": 1,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 5,
+    "sufficient": 5,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 1950,
+    "preexisting_files": 45,
+    "agent_added_files": 0,
+    "agent_cases_added": 1
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "A test case verifying `isMatch('a.000', 'a.00{0..1}')` returns `true` is added to the test suite",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /a\\.000.*0\\./ (\"a.000', 'a.00{0.\")",
+          "index.js -11,6 +11,95 mentions true",
+          "index.js -46,7 +135,7 mentions true",
+          "index.js -125,7 +214,7 mentions isMatch",
+          "index.js -265,7 +354,7 mentions isMatch",
+          "index.js -301,7 +390,7 mentions isMatch",
+          "index.js -365,7 +454,7 mentions true",
+          "test/api.isMatch.js mentions isMatch"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "test/issue-related.js:73-75 adds `it('micromatch issue#212 - brace ranges on paths with dots')` whose first assertion is `assert(mm.isMatch('a.000', 'a.00{0..1}'))`, plus the complements `a.001` true and `a.002`/`aX000` false. Ran `npx mocha test/issue-related.js`: that test passes (8 passing). I independently confirmed `mm.isMatch('a.000','a.00{0..1}') === true` and `mm.makeRe('a.00{0..1}').source === '^(?:a\\\\.00(0|1))$'`, identical to the list form."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "If the root cause is in a dependency (braces or picomatch), the fix is applied as a compatible workaround in micromatch or via a pinned/patched dependency, and the root cause is documented in a commit message",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier2",
+        "evidence": [
+          "index.js changed",
+          "[model] index.js adds a documented compatibility shim (`expandRanges`/`rangeToList`/`convertRanges`) that rewrites brace ranges (`{0..1}`) into brace lists (`{0,1}`) before every `picomatch(...)`/`picomatch.makeRe(...)` call (isMatch, matcher, match loop, some, every, all, capture, makeRe). No dependency files are in the diff (`Files changed (2): index.js, test/issue-related.js`), so node_modules was left untouched as required. The root cause is documented in a 10-line block comment above the shim: \"picomatch <= 3 generates a corrupt regex source for brace ranges ... `a.00{0..1}` compiles to `/^(?:.00[0-1])$/` instead of `/^(?:a\\.00[0-1])$/`\" plus an issue link. The transcript shows the fix was committed on branch fix/brace-ranges-with-dots with `git commit -F -` and a multi-paragraph body beginning \"fix brace ranges in patterns containing dots\\n\\n`isMatch('a.000', 'a.00{0..1}')` returned ...\"; the body is truncated in the evidence pack so I can only partially confirm the root cause text landed in the commit message itself, but it is unambiguously documented in the source. Diagnosis was also empirically validated: the assistant patched node_modules/picomatch/lib/parse.js via experiment-patch.js, saw the bug disappear with 1949 tests still passing, then reverted and deleted the scratch files (`rm -f experiment-patch.js scratch.js`)."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Root cause is in picomatch and is documented in commit cb0479d's message (token-merge in picomatch lib/parse.js seeding `prev.output` with '' and appending `tok.value` instead of `tok.output`, latent until `state.backtrack` forces the output rebuild). I verified the claim: node_modules/picomatch is 2.3.2, lib/parse.js:483-486 is exactly the described merge, parse.js:1283 rebuilds output on backtrack, and `picomatch.makeRe('a.00{0..1}').source` is `^(?:.00[0-1])$` (leading `a` lost, dot unescaped) versus `^(?:a00[0-1])$` for the dotless pattern. The fix is a compatibility workaround inside micr"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "A regression test for brace range patterns on paths containing dots is present in the Mocha test suite",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[diff_contains] diff matches /\\{0\\./ (\"{0.\")",
+          "test/issue-related.js modified by the agent",
+          "independent run of `npm test` passed (1950 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "The same Mocha test (test/issue-related.js:73-106) is a genuine regression test for dotted brace ranges, not just the single reported case: alpha ranges (`a.b.{a..c}`), multi-segment paths (`foo/a.{1..10}/bar.js`), zero-padded ranges (`a.{01..05}.js`), makeRe equivalence between range and list forms (dotted and dotless), single-value ranges, nested `{x,{1..3}}`, an escaped literal brace, and `{ nobrace: true }`. It is picked up by the suite (`\"test\": \"mocha\"`, file under test/)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "All tests pass when running `npm test`",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/issue-related.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` in the repo: `1950 passing (192ms)`, `1 pending`, zero failing. Working tree was clean before and after my probing (I removed the scratch file I used; `git status --short` empty)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "No regressions in related functionality; enumeration form `isMatch('a.000', 'a.00{0,1}')` and non-dotted brace ranges like `isMatch('a000', 'a00{0..1}')` continue to work correctly",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier2",
+        "evidence": [
+          "test/issue-related.js changed",
+          "index.js changed",
+          "index.js -46,7 +135,7 mentions isMatch",
+          "index.js -125,7 +214,7 mentions isMatch",
+          "index.js -265,7 +354,7 mentions isMatch",
+          "index.js -301,7 +390,7 mentions isMatch",
+          "test/issue-related.js -69,4 +69,39 mentions 000",
+          "test/issue-related.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Verified directly: `mm.isMatch('a.000','a.00{0,1}')` true, `mm.isMatch('a000','a00{0..1}')` true, and `mm.makeRe('a00{0..1}')` now equals `mm.makeRe('a00{0,1}')`. Swept ~30 patterns comparing base behaviour (direct picomatch 2.3.2) against the patched micromatch: escaped braces (`a\\{0..1}`), non-range brace lists, `{x,1..3}` literals, `a{.,..}b`, posix classes, globstar+range, negation, and paths containing `..` segments are all unchanged; the differences are all in the correct direction (multi-digit ranges such as `a{1..999}` matching `a500`, `a{1..10}` matching `a7`/`a10`, and `!a.{2..3}` co"
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 5,
+    "total": 5,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 5
+  },
+  "timings": {
+    "agent_s": 899,
+    "judge_s": 136,
+    "grader_s": 282
+  },
+  "notes": []
+}
