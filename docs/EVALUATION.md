@@ -67,6 +67,14 @@ Numbers below are read from `eval/results/ledger.jsonl` (`tally eval report`). A
 
 This is a model grading a model on constructed tasks. It shows the pipeline scores clean small tasks correctly and that the adversarial blind grader catches Tally's over-claims; it does not show agreement with humans on messy work.
 
+**Real class, Tally 0.6.0 (`e2888fa`/`7c5f310`, 2026-09-27): 6 public issues, 27 criteria.** Agent claude-opus-5 (27 to 72 turns, $1.34 to $5.47, $16.36 in total). Exact criterion agreement 26/27; verdict agreement 3/6; **false VERIFIED 0; false UNMET 0**. Statuses: 20 VERIFIED, 7 SUPPORTED, no UNVERIFIED or UNMET. The disagreements:
+
+- `commander-2603` c2 "Argument parsing for genuine Electron applications remains unchanged": Tally partial (SUPPORTED), grader met. Tally stricter on a regression criterion; the grader ran the existing Electron tests and accepted them as proof.
+- Three verdicts held at borderline where the grader said worth it, all by the maintainer-review tier: `micromatch-212` (fix read as a workaround for an upstream picomatch bug; the criteria explicitly allowed one), `qs-262` (wide blast radius, two option combinations named as untested), `yargs-2423` (request changes on six untested surfaces). Every criterion on those three was met by both readers. This is the tier doing what 0.4 designed it to do; whether a maintainer would agree is unmeasured.
+- On the 2026-09-26 run of the same six issues (scripts in the author's workspace, not the shipped harness) the grader was the stricter side twice (workaround at the wrong layer, untested behaviour change). The direction flipped because this time Tally's review tier caught those and the grader did not; the two runs had different agent sessions and different fixes.
+
+Two harness defects surfaced in this class and are fixed on `main`: every session was judged twice (the SessionEnd hook's judge and the runner's), and on yargs-2423 the two receipts disagreed on the verdict (borderline vs worth it) because the maintainer review is a model read; the runner now waits for the hook's receipt. The ledger entries above record the runner's receipt; the receipts on disk are the hook's. The verdict flip on identical evidence is itself a finding: the review tier's `merge` / `request_changes` answer is not stable across two reads of the same diff.
+
 ## What Tally reliably detects (as of 0.5.0)
 
 - A criterion with no evidence in the diff (the forgotten README): UNMET on every fixture and every eval run so far.
