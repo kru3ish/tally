@@ -56,6 +56,7 @@ export const JudgeSchema = z.object({
     reason: z.string().optional(),
     env_scrubbed: z.boolean().optional(),
     consent: z.boolean().optional(),
+    inconclusive: z.boolean().optional(),
   }),
   evidence: z.object({
     files_changed: z.array(z.string()),

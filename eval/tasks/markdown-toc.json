@@ -1,0 +1,16 @@
+{
+  "id": "markdown-toc",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/markdown-toc",
+  "base": "9050e1a43a5ad36839974c21a6ad6db1e59fb585",
+  "task": "C:/Users/Mehta/dev/tally-eval/markdown-toc/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}

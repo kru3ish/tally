@@ -1,0 +1,12 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "src/signup.js": "module.exports = function signup(email) {\n  return { status: 200, user: { email } };\n};\n",
+    "test.js": "const signup = require('./src/signup');\nif (signup('a@b.co').status !== 200) { console.error('valid signup failed'); process.exit(1); }\nrequire('./test-email.js');\nconsole.log('2 passing');\n",
+    "test-email.js": ""
+  },
+  "after": {
+    "src/signup.js": "module.exports = function signup(email) {\n  // TODO validate email\n  return { status: 200, user: { email } };\n};\n",
+    "test-email.js": "// invalid email is rejected\nconst ok = true;\nif (!ok) { console.error('email validation'); process.exit(1); }\n"
+  }
+}

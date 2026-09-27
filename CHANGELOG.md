@@ -2,6 +2,27 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.6.0] - 2026-09-27
+
+Verification is Tally's own job: an autonomous, blind evaluation loop, adversarial fixtures, and a release checklist that runs itself.
+
+### Added
+
+- **`tally eval run|discover|report`.** For each task spec in `eval/tasks/`: an isolated clone or copy at the base commit, the task and policy committed as the base, a coding-agent session with Tally's hooks attached through `--settings`, Tally's judge and Evidence Map, then a **blind evaluator** in a separate `claude -p` process with fresh context that never sees Tally's answer. Results (statuses, evidence summaries, costs, commits, timings; no prompts or code) go to `eval/results/<class>/…json` and `eval/results/ledger.jsonl`, and the grade to `calibration.jsonl` under grader `blind-eval`. `eval discover` scores open issues in public repos into candidate specs with the selection reasons recorded; `eval report` aggregates by class and Tally version and never prints one headline number. Fourteen specs ship for the local corpus (8 constructed, 6 public issues).
+- **Adversarial fixtures.** Five new calibration fixtures encode the ways an assurance tool gets fooled: a test that asserts `true`, an implementation and a test that agree with each other and violate the task, a green suite that exercises none of the new behaviour, a `test` script that is `echo ok`, and an implementation written then reverted while the final message claims it. Expectations can set an `assurance_ceiling` (a met criterion with no test that names it may be SUPPORTED, never VERIFIED); anything above the ceiling counts as a false VERIFIED.
+- **False VERIFIED as a gate.** `tally calibrate eval` prints false VERIFIED and false UNMET, fails when false VERIFIED exceeds the recorded baseline (`--max-false-verified`), and `--rebaseline` records a deliberately lower number when the fixture set itself changed. `tally calibrate report` shows the same counts for human and blind grades.
+- **Inconclusive runs.** A `test` script that is only `echo`, `true` or `exit 0`, or a run with empty output, makes `tests_pass` UNVERIFIED, anchors no VERIFIED in the Evidence Map, holds the verdict at borderline ("exited 0 but ran no tests"), and is recorded on the receipt (`verification.inconclusive`) so a rescore keeps the cap.
+- **A test claim needs a test.** A criterion about tests that the model grades met, with no test file added, modified or naming the behaviour, is UNVERIFIED in the Evidence Map rather than SUPPORTED.
+- **Release checklist that executes** (`npm run release-check`): clean tree, build matches `dist/`, tests, `npm pack` + clean install in a fresh HOME (install, then doctor must be clean), plugin validate, install/uninstall byte-identical, demo, fixture baseline and false-VERIFIED gate, every stored receipt on the machine still loads and renders, README commands exist, versions agree, no secrets in fixtures or eval data, no leftover eval worktrees. `release-check:live` adds a live fixture run.
+- `docs/EVALUATION.md` gains: the autonomous loop, what Tally reliably detects, what remains difficult, known false-positive and false-negative classes, threats to validity, and the adversarial-fixture results with both disagreements kept.
+
+### Fixed
+
+- The inconclusive-run rule never fired: the `\b` in its regex had been written into the source as a literal backspace byte. Found by the adversarial fixture `adv-lying-test-command` on its first live run (it graded a `test: echo ok` script as met).
+- `tally calibrate eval --live --record` now keeps the first recording of a fixture that had none even when agreement is below the baseline; before, new fixtures could never be replayed until the whole set scored at least the old number.
+- `tally calibrate eval --verbose` crashed when a fixture's session id differed from its directory name.
+- Fixture count and baseline gates in the test suite cover the ten fixtures, and assert false VERIFIED is zero.
+
 ## [0.5.0] - 2026-09-27
 
 Tally becomes the reliability layer for AI coding agents: evidence first, model judgment labelled, any agent.

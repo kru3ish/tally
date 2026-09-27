@@ -1,0 +1,19 @@
+{
+  "id": "qs-262",
+  "class": "real",
+  "repo": "C:/Users/Mehta/dev/tally-eval-gh/qs-262",
+  "base": "1a4bff09901f435be5c8e0e93137e6c4899bffb0",
+  "issue": "https://github.com/ljharb/qs/issues/262",
+  "task": "C:/Users/Mehta/dev/tally-eval-gh/qs-262/task.md",
+  "test_command": "npx tape \"test/**/*.js\"",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "bug",
+    "parser"
+  ],
+  "selected_because": "open public bug with a stated expectation and a runnable suite; solved locally 2026-09-26 and blind-graded 28/29",
+  "contamination": "possible",
+  "contamination_note": "open issue at selection time; the thread may contain hints and a fork may hold a fix",
+  "added": "2026-09-27"
+}

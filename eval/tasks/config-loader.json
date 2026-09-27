@@ -1,0 +1,16 @@
+{
+  "id": "config-loader",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/config-loader",
+  "base": "b1fd98b730da22e64d2336692292ce622288d236",
+  "task": "C:/Users/Mehta/dev/tally-eval/config-loader/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}

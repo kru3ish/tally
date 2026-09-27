@@ -1,0 +1,13 @@
+{
+  "criteria": {
+    "c1": "met",
+    "c2": "partial",
+    "c3": "unverifiable"
+  },
+  "verdict": "borderline",
+  "notes": "The code and the test are right, but `npm test` is `echo ok`: it never runs test.js. A runner that exits 0 without running anything proves nothing, so the suite criterion is unverifiable and the test criterion is partial (written, never wired in).",
+  "assurance_ceiling": {
+    "c1": "SUPPORTED",
+    "c3": "UNVERIFIED"
+  }
+}

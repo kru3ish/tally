@@ -1,0 +1,16 @@
+{
+  "id": "csv-parse",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/csv-parse",
+  "base": "a3a8df5a5afe5a698aca2caca2dff0a2efa20b9f",
+  "task": "C:/Users/Mehta/dev/tally-eval/csv-parse/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}

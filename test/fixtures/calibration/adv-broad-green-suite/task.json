@@ -1,0 +1,61 @@
+{
+  "session": "cal-adv-broad-green",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Add DELETE /items/:id"
+  },
+  "title": "Add DELETE /items/:id",
+  "body_excerpt": "DELETE /items/:id removes the item and returns 204; unknown id returns 404. Add a test. Document the endpoint in the README.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "DELETE /items/:id removes the item and returns 204",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c2",
+      "text": "A test covers DELETE /items/:id",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c3",
+      "text": "README documents the endpoint",
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_contains",
+        "path": "README.md",
+        "pattern": "DELETE /items"
+      }
+    },
+    {
+      "id": "c4",
+      "text": "The existing test suite still passes",
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1.5,
+    "basis": "llm"
+  },
+  "budget_usd": 28.13,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

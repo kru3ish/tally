@@ -1,0 +1,13 @@
+{
+  "criteria": {
+    "c1": "met",
+    "c2": "unmet",
+    "c3": "met",
+    "c4": "met"
+  },
+  "verdict": "borderline",
+  "notes": "The handler is correct by inspection and the README is updated, but no test exercises DELETE. The suite is green because nothing tests the new behaviour, so c1 can be SUPPORTED at most.",
+  "assurance_ceiling": {
+    "c1": "SUPPORTED"
+  }
+}

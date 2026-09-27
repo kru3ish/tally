@@ -1,0 +1,201 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "nci32d",
+  "date": "2026-09-27T12:47:37.188Z",
+  "tally": {
+    "version": "0.5.0",
+    "commit": "486612b"
+  },
+  "task": {
+    "id": "slugify-lib",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/slugify-lib",
+    "base": "c8c8ac90bf05739f0d1f48cd4b6f38f8349f5761",
+    "head": "f896fc41a3ce0d440c96f663dc8accc4d6b72ed9",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 14,
+    "duration_s": 302,
+    "cost_usd": 0.2809934
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-haiku-4-5-20251001",
+    "cost_usd": 0.40486999999999995,
+    "blind": true
+  },
+  "session": "75de31da-bc81-4108-835a-65062164531b",
+  "tally_summary": {
+    "verified": 6,
+    "supported": 0,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 6,
+    "sufficient": 6,
+    "verdict": "worth it",
+    "completion_pct": 100
+  },
+  "grader_verdict": "worth it",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 4,
+    "preexisting_files": 1,
+    "agent_added_files": 1,
+    "agent_cases_added": 3
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "`slugify` function is exported from `src/index.js`",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] src/index.js matches /slugify/ (\"slugify\")",
+          "src/index.js changed",
+          "README.md -5,3 +5,4 mentions slugify",
+          "src/index.js -1,3 +1,12 mentions slugify",
+          "test/slugify.test.js -0,0 +1,15 mentions slugify",
+          "test/slugify.test.js added by the agent",
+          "independent run of `npm test` passed (4 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "src/index.js:5 declares `export function slugify(input)` alongside the pre-existing `capitalize` export. package.json has \"type\":\"module\", and test/slugify.test.js successfully does `import { slugify } from '../src/index.js'`; my own `node --input-type=module` script imported it the same way and it resolved."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "`slugify(\"Hello, World!\")` returns `\"hello-world\"` with lowercase letters, non-alphanumerics converted to single hyphens, and no leading or trailing hyphens",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/slugify.test.js -0,0 +1,15 mentions -world",
+          "test/slugify.test.js added by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran independently: slugify('Hello, World!') => 'hello-world'. Implementation lowercases, then `.replace(/[^a-z0-9]+/g,'-')` collapses runs of non-alphanumerics to a single hyphen, then `.replace(/^-+|-+$/g,'')` trims edges. Verified with extra probes: '  --Hello___World--  ' => 'hello-world', 'a  b' => 'a-b', '!!!' => ''."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "`slugify(\"Crème Brûlée\")` returns `\"creme-brulee\"` with accented characters transliterated to ASCII",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "README.md -5,3 +5,4 mentions ASCII",
+          "test/slugify.test.js -0,0 +1,15 mentions ASCII",
+          "test/slugify.test.js added by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran independently: slugify('Crème Brûlée') => 'creme-brulee'. Mechanism is `.normalize('NFKD')` followed by stripping U+0300–U+036F; I decoded the regex character class codepoints and confirmed they are U+300, U+2D (hyphen), U+36F — the combining diacritical marks range. Also verified 'Ünïcödé Tëst' => 'unicode-test', 'Ça va? Déjà vu!' => 'ca-va-deja-vu', 'naïve CAFÉ 42' => 'naive-cafe-42'. Note: only decomposable diacritics are handled — 'ß' becomes a hyphen ('ÆØÅ straße' => 'a-stra-e') and non-Latin scripts yield '' ('日本語' => ''), but neither is covered by the stated criteria."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "`slugify(\"\")` returns `\"\"` (empty string case)",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Ran independently: slugify('') => ''. Covered by test/slugify.test.js:14 ('returns an empty string for an empty input')."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c5",
+      "text": "`npm test` passes",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/slugify.test.js added by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) output: 4 tests, 4 pass, 0 fail, 0 cancelled/skipped/todo, duration 73ms. Named passing tests: 'capitalizes the first letter', 'slugifies a plain sentence', 'transliterates accented letters to ASCII', 'returns an empty string for an empty input'."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c6",
+      "text": "README documents `slugify` function in the API section",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_contains] README.md matches /slugify/ (\"slugify\")",
+          "README.md changed",
+          "README.md -5,3 +5,4 mentions slugify",
+          "src/index.js -1,3 +1,12 mentions slugify",
+          "test/slugify.test.js -0,0 +1,15 mentions slugify",
+          "test/slugify.test.js added by the agent",
+          "independent run of `npm test` passed (4 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "README.md gained one line under the existing `## API` heading: \"- `slugify(input)`: lower-cases, transliterates accented letters to ASCII, and replaces runs of non-alphanumeric characters with a single hyphen (no leading or trailing hyphen).\" It matches the format of the adjacent `capitalize(s)` bullet and accurately describes the implementation."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 6,
+    "total": 6,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 6
+  },
+  "timings": {
+    "agent_s": 302,
+    "judge_s": 1,
+    "grader_s": 55
+  },
+  "notes": []
+}

@@ -51,6 +51,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   judge: () => import('./commands/judge.js'),
   verify: () => import('./commands/verify.js'),
   adapters: () => import('./commands/adapters.js'),
+  eval: () => import('./commands/eval.js'),
   finalize: () => import('./commands/finalize.js'),
   followup: () => import('./commands/followup.js'),
   watch: () => import('./commands/watch.js'),
@@ -135,6 +136,11 @@ Calibration
   calibrate report [--source backfill|human|fixture]   agreement, confusion, lean, inter-grader, Coach precision
   calibrate rescore [--grader name]             refresh the judge side of graded sessions from their current receipts
   calibrate eval [--live] [--record] [--fail-below N]   Regression eval on the fixture sessions
+
+Evaluation (autonomous, blind)
+  eval run [--only id] [--class fixture|real|historical] [--agent-model m] [--grader-model m]   isolated repo → agent under Tally → Tally judges → blind evaluator → compare → eval/results
+  eval discover --repos o/r,o/r    candidate public issues, scored, as specs to curate into eval/tasks
+  eval report [--json]             the ledger by class and Tally version: exact agreement, false VERIFIED, false UNMET
 
 Other
   otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)

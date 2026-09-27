@@ -1,0 +1,18 @@
+{
+  "id": "yargs-2423",
+  "class": "real",
+  "repo": "C:/Users/Mehta/dev/tally-eval-gh/yargs-2423",
+  "base": "60be6600673cb1549378e9477a06bab14344563c",
+  "issue": "https://github.com/yargs/yargs/issues/2423",
+  "task": "C:/Users/Mehta/dev/tally-eval-gh/yargs-2423/task.md",
+  "setup": [],
+  "tags": [
+    "typescript",
+    "bug",
+    "cli-parser"
+  ],
+  "selected_because": "open public bug with a stated expectation and a runnable suite; solved locally 2026-09-26 and blind-graded 28/29",
+  "contamination": "possible",
+  "contamination_note": "open issue at selection time; the thread may contain hints and a fork may hold a fix",
+  "added": "2026-09-27"
+}

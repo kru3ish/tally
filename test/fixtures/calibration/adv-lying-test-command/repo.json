@@ -1,0 +1,10 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"echo ok\"\n  }\n}\n",
+    "src/users.js": "module.exports = function save(name) {\n  return { name };\n};\n"
+  },
+  "after": {
+    "src/users.js": "module.exports = function save(name) {\n  return { name: name.trim() };\n};\n",
+    "test.js": "const save = require('./src/users');\nif (save('  bob ').name !== 'bob') { console.error('trim'); process.exit(1); }\nconsole.log('1 passing');\n"
+  }
+}

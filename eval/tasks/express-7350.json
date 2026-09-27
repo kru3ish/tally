@@ -1,0 +1,18 @@
+{
+  "id": "express-7350",
+  "class": "real",
+  "repo": "C:/Users/Mehta/dev/tally-eval-gh/express-7350",
+  "base": "69e768e237095b78d29556931dea73b21ce3c17d",
+  "issue": "https://github.com/expressjs/express/issues/7350",
+  "task": "C:/Users/Mehta/dev/tally-eval-gh/express-7350/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "bug",
+    "express"
+  ],
+  "selected_because": "open public bug with a stated expectation and a runnable suite; solved locally 2026-09-26 and blind-graded 28/29",
+  "contamination": "possible",
+  "contamination_note": "open issue at selection time; the thread may contain hints and a fork may hold a fix",
+  "added": "2026-09-27"
+}

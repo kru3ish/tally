@@ -1,0 +1,16 @@
+{
+  "id": "todo-api",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/todo-api",
+  "base": "eea6e126b4a59b4eee068647d669ffb20c347cdf",
+  "task": "C:/Users/Mehta/dev/tally-eval/todo-api/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}

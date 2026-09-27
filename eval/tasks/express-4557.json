@@ -1,0 +1,19 @@
+{
+  "id": "express-4557",
+  "class": "real",
+  "repo": "C:/Users/Mehta/dev/tally-eval-gh/express-4557",
+  "base": "16f7520d872ce8ea0ca263f37a9ec4bdde5d51dc",
+  "issue": "https://github.com/expressjs/express/issues/4557",
+  "task": "C:/Users/Mehta/dev/tally-eval-gh/express-4557/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "bug",
+    "express",
+    "routing"
+  ],
+  "selected_because": "open public bug with a stated expectation and a runnable suite; solved locally 2026-09-26 and blind-graded 28/29",
+  "contamination": "possible",
+  "contamination_note": "open issue at selection time; the thread may contain hints and a fork may hold a fix",
+  "added": "2026-09-27"
+}

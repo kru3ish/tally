@@ -16,7 +16,7 @@ import { buildAssurance } from '../assurance/index.js';
 import { redactDeep } from '../redact.js';
 import { otelCostForSession } from '../cost/otel.js';
 import { testRerunConsent } from '../config.js';
-import { resolveCheck } from './checks.js';
+import { resolveCheck, runLooksConclusive } from './checks.js';
 import { scanSecurity } from '../coach/rules/security-watch.js';
 import { selectTiers, buildTier1Prompt, TIER1_SYSTEM, ESCALATION_SYSTEM, TIER_SCHEMA, approxTokens, mechanicalSummary, guardedConfidence, verdictSensitive, type Tier1Result, type Status } from './tiers.js';
 
@@ -120,7 +120,7 @@ export function scoreCounts(counts: Counts, humanValue: number, costUsd: number)
   return { completion_pct, credited, roi, verifiable, total };
 }
 
-export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean; verifiable?: number; unverifiable?: number; specCapped?: boolean; reviewCapped?: boolean; qualitySource?: 'mechanical' | 'tier1' | 'tier2' }): Verdict {
+export function computeVerdict(input: { completion_pct: number; roi: number | null; quality: number; testsFailed: boolean; verifiable?: number; unverifiable?: number; specCapped?: boolean; reviewCapped?: boolean; runInconclusive?: boolean; qualitySource?: 'mechanical' | 'tier1' | 'tier2' }): Verdict {
   const { completion_pct, roi, quality, testsFailed } = input;
   /* a quality score the small model reported on its own is the weakest number on the receipt: it can hold a verdict at
      borderline but cannot, by itself, say "not worth it"; the strong model's score, or a failed run, can */
@@ -135,8 +135,9 @@ export function computeVerdict(input: { completion_pct: number; roi: number | nu
   let verdict: Verdict = 'borderline';
   if (completion_pct < 40 || roiBad || qualityBad) verdict = 'not worth it';
   else if (completion_pct >= 70 && roiOk && quality >= 6 && !testsFailed) verdict = 'worth it';
-  /* caps, never lifts: a spec that needed clarification and was never confirmed, or a maintainer who would send it back */
-  if (verdict === 'worth it' && (input.specCapped || input.reviewCapped)) verdict = 'borderline';
+  /* caps, never lifts: a spec that needed clarification and was never confirmed, a maintainer who would send it back,
+     or a green run whose runner ran nothing (a "pass" that proves nothing cannot make the work worth it) */
+  if (verdict === 'worth it' && (input.specCapped || input.reviewCapped || input.runInconclusive)) verdict = 'borderline';
   return verdict;
 }
 
@@ -154,7 +155,7 @@ export function rescoreJudge(j: Judge, why: string): Judge {
   for (const c of j.criteria) counts[effectiveStatus(c)] += 1;
   const scored = scoreCounts(counts, j.value.human_value_usd, j.cost.total_usd);
   const testsFailed = j.verification.ran && j.verification.passed === false;
-  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped: j.task.spec_capped, reviewCapped: reviewCaps(j.review as Review | undefined), qualitySource: j.quality.source });
+  const verdict = computeVerdict({ completion_pct: scored.completion_pct, roi: scored.roi, quality: j.quality.score, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped: j.task.spec_capped, reviewCapped: reviewCaps(j.review as Review | undefined), runInconclusive: j.verification.inconclusive === true, qualitySource: j.quality.source });
   const changed = verdict !== j.verdict.verdict || scored.completion_pct !== j.completion_pct || JSON.stringify(counts) !== JSON.stringify(j.counts);
   const next: Judge = {
     ...j,
@@ -380,9 +381,19 @@ export async function judgeSession(opts: {
   }
   const specCapped = task.needs_clarification === true && task.confirmed !== true;
   const qualitySource = finalProse ? proseTier : 'mechanical';
+  /* only a run whose output was captured can be judged inconclusive; a receipt with no output recorded is unknown, not a lie */
+  const runInconclusive = ver.ran && ver.passed === true && typeof ver.output_tail === 'string' && !runLooksConclusive(ver.output_tail, opts.cwd, ver.command);
+  if (runInconclusive) ver.inconclusive = true;
   const uncapped = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, qualitySource });
-  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped, reviewCapped: reviewCaps(review), qualitySource });
-  const capNote = verdict !== uncapped ? (reviewCaps(review) ? ` Held at borderline: the maintainer review would request changes (${review?.layer === 'workaround' ? 'fix is a workaround, ' : ''}${review?.blast_radius === 'wide' ? 'wide blast radius, ' : ''}${review?.untested_surface?.length ? `${review.untested_surface.length} changed behaviour(s) without a test` : ''}).`.replace(/, \)\./, ').') : ` Held at borderline: spec quality ${task.spec_quality.score}/10 needed clarification and the task was never confirmed (tally task --confirm lifts this).`) : '';
+  const verdict = computeVerdict({ completion_pct, roi, quality, testsFailed, verifiable: scored.verifiable, unverifiable: counts.unverifiable, specCapped, reviewCapped: reviewCaps(review), runInconclusive, qualitySource });
+  const capNote =
+    verdict !== uncapped
+      ? reviewCaps(review)
+        ? ` Held at borderline: the maintainer review would request changes (${review?.layer === 'workaround' ? 'fix is a workaround, ' : ''}${review?.blast_radius === 'wide' ? 'wide blast radius, ' : ''}${review?.untested_surface?.length ? `${review.untested_surface.length} changed behaviour(s) without a test` : ''}).`.replace(/, \)\./, ').')
+        : specCapped
+          ? ` Held at borderline: spec quality ${task.spec_quality.score}/10 needed clarification and the task was never confirmed (tally task --confirm lifts this).`
+          : ` Held at borderline: \`${ver.command}\` exited 0 but ran no tests, so the green run proves nothing.`
+      : '';
   const tiersRan: Array<'tier0' | 'tier1' | 'tier2'> = ['tier0', ...tierCosts.map((c) => c.tier)];
   const tiers: Judge['tiers'] = {
     ran: tiersRan,

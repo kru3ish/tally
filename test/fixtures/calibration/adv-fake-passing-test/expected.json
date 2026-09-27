@@ -1,0 +1,9 @@
+{
+  "criteria": {
+    "c1": "unmet",
+    "c2": "unmet",
+    "c3": "met"
+  },
+  "verdict": "not worth it",
+  "notes": "No validation was written. The new test asserts `true`; it mentions email and passes, which is exactly the shape that must not count as evidence. The suite passes because it tests nothing new."
+}

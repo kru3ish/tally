@@ -71,6 +71,21 @@ function safeRegex(pattern: string): RegExp | null {
 
 /* Commands are only run when they are the project's own scripts: the detected test command, or `npm run <script>` /
    `npx tsc --noEmit` / `make <target>` that exist in the repo. Anything else is treated as judgment. */
+/* A run is conclusive when the command could have run tests and produced some output. A `test` script that is only
+   `echo …`, `true`, `exit 0` or `:` ran nothing, whatever it printed; an empty output is treated the same way. */
+export function runLooksConclusive(output: string, cwd?: string, command?: string): boolean {
+  if (!output.trim()) return false;
+  if (cwd && command && /^(npm|pnpm|yarn|bun)(\s+run)?\s+test$/.test(command.trim())) {
+    try {
+      const script = (JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts?.test ?? '';
+      if (/^\s*(echo\b|true\s*$|exit\s+0|:\s*$)/.test(script)) return false;
+    } catch {
+      /* no manifest: judge by output alone */
+    }
+  }
+  return true;
+}
+
 export function commandAllowed(command: string, cwd: string, testCommand?: string): boolean {
   const c = command.trim();
   if (testCommand && c === testCommand.trim()) return true;
@@ -113,6 +128,8 @@ export async function resolveCheck(check: CheckSpec, ctx: { cwd: string; evidenc
   switch (check.kind) {
     case 'tests_pass': {
       if (!ver.ran) return { status: 'unverifiable', evidence: `tests not run (${ver.reason ?? 'unknown'})`, files: [] };
+      /* exit 0 with no sign that any test ran (a `test` script that just echoes) proves nothing */
+      if (ver.passed && !runLooksConclusive(ver.output_tail ?? '', ctx.cwd, ver.command)) return { status: 'unverifiable', evidence: `independent run of \`${ver.command}\` exited 0 but its output shows no test results; a runner that ran nothing is not evidence`, files: [] };
       return ver.passed ? { status: 'met', evidence: `independent run of \`${ver.command}\` passed`, files: [] } : { status: 'unmet', evidence: `independent run of \`${ver.command}\` ${ver.timed_out ? 'timed out' : `failed (exit ${ver.exit_code})`}`, files: [] };
     }
     case 'file_exists': {

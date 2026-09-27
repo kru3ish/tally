@@ -84,16 +84,29 @@ export async function run(args: Args): Promise<number | void> {
     if (!keep) process.env.TALLY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-cal-home-'));
     try {
       const only = flag(args, 'only')?.split(',').filter(Boolean);
-      const s = await runEval({ live, record, only, deep: has(args, 'deep') });
+      const s = await runEval({ live, record, rebaseline: has(args, 'rebaseline'), only, deep: has(args, 'deep') });
       process.stdout.write(`Calibration eval (${live ? 'live judge model: ' + s.judge_model : 'recorded model output replayed through the pipeline'})\n\n`);
       for (const f of s.fixtures) process.stdout.write(`${f.verdict_match && f.matches === f.total ? 'ok  ' : 'diff'} ${f.name.padEnd(26)} ${f.matches}/${f.total} criteria · verdict ${f.judge_verdict}${f.verdict_match ? '' : ` (expected ${f.expected_verdict})`}${f.matches === f.total ? '' : '  [' + f.statuses.filter((x) => x.human !== x.judge).map((x) => `${x.id}: judge ${x.judge}, human ${x.human}`).join('; ') + ']'}\n`);
       process.stdout.write('\n' + renderCalibrationReport(s.report, 'Fixture agreement') + '\n');
       process.stdout.write('\nSelf-overhead (Tally spend as a share of each session)\n' + renderOverheadTable(s) + '\n');
-      if (has(args, 'verbose')) for (const f of s.fixtures) process.stdout.write('\n' + renderSummary(loadJudge(f.name.startsWith('cal-') ? f.name : `cal-${f.name}`) ?? ({} as never), false) + '\n');
+      if (has(args, 'verbose'))
+        for (const f of s.fixtures) {
+          const j = loadJudge(f.session);
+          process.stdout.write('\n' + (j ? renderSummary(j, false) : `${f.name}: no receipt found for session ${f.session}`) + '\n');
+        }
       const baseline = loadBaseline();
       const threshold = flag(args, 'fail-below') !== undefined ? Number(flag(args, 'fail-below')) : baseline ? baseline.criterion_agreement - 1e-9 : undefined;
       if (threshold !== undefined && s.criterion_agreement < threshold) {
         process.stderr.write(`\nFAIL: criterion agreement ${(s.criterion_agreement * 100).toFixed(1)}% is below ${(threshold * 100).toFixed(1)}%${baseline && flag(args, 'fail-below') === undefined ? ` (baseline recorded ${baseline.recorded_at?.slice(0, 10)})` : ''}.\n`);
+        return 1;
+      }
+      process.stdout.write(`false VERIFIED ${s.false_verified} · false UNMET ${s.false_unmet}${s.fixtures.some((f) => f.false_verified.length) ? '  (' + s.fixtures.filter((f) => f.false_verified.length).map((f) => `${f.name}: ${f.false_verified.join(', ')}`).join('; ') + ')' : ''}
+`);
+      const maxFalseVerified = flag(args, 'max-false-verified') !== undefined ? Number(flag(args, 'max-false-verified')) : baseline?.false_verified ?? 0;
+      if (s.false_verified > maxFalseVerified) {
+        process.stderr.write(`
+FAIL: ${s.false_verified} false VERIFIED (allowed ${maxFalseVerified}). A VERIFIED on a criterion the author graded unmet or partial is a bug, not a calibration target.
+`);
         return 1;
       }
       const maxShare = flag(args, 'max-share') !== undefined ? Number(flag(args, 'max-share')) : undefined;

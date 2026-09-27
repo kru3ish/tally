@@ -3,6 +3,7 @@ import path from 'node:path';
 import { tallyHome, appendLine, ensureDir } from '../paths.js';
 import { loadJudge } from '../judge/judge.js';
 import type { Judge } from '../judge/schema.js';
+import { statusFromJudge } from '../assurance/index.js';
 
 export const STATUSES = ['met', 'partial', 'unmet', 'unverifiable'] as const;
 export type Status = (typeof STATUSES)[number];
@@ -15,7 +16,7 @@ export interface CalibrationEntry {
   source: 'human' | 'fixture' | 'backfill' | 'dispute';
   grader?: string;
   task_title: string;
-  criteria: Array<{ id: string; text: string; judge: Status; human: Status; evidence: string }>;
+  criteria: Array<{ id: string; text: string; judge: Status; human: Status; evidence: string; assurance?: 'VERIFIED' | 'SUPPORTED' | 'UNVERIFIED' | 'UNMET' }>;
   judge_verdict: VerdictText | 'insufficient evidence';
   human_verdict?: VerdictText;
   judge_model?: string;
@@ -57,7 +58,7 @@ export function entryFromJudge(judge: Judge, human: Status[], humanVerdict: Verd
     session: judge.session,
     source,
     task_title: judge.task.title,
-    criteria: judge.criteria.map((c, i) => ({ id: c.id, text: c.text, judge: c.status, human: human[i]!, evidence: c.evidence })),
+    criteria: judge.criteria.map((c, i) => ({ id: c.id, text: c.text, judge: c.status, human: human[i]!, evidence: c.evidence, assurance: judge.assurance?.criteria.find((a) => a.id === c.id)?.status ?? statusFromJudge(c) })),
     judge_verdict: judge.verdict.verdict,
     human_verdict: humanVerdict,
     judge_model: judge.judge_model,
@@ -136,6 +137,8 @@ export interface CalibrationReport {
   verdict_disagreements: Array<{ session: string; task: string; human: VerdictText; judge: VerdictText }>;
   per_status: Record<Status, { human: number; judge: number; precision: number | null; recall: number | null }>;
   lean: { lenient: number; stricter: number; same: number };
+  /* the assurance statuses against the human grade: the two errors treated as bugs, and the two correct extremes */
+  assurance: { false_verified: number; false_unmet: number; correct_verified: number; correct_unmet: number; verified_vs_supported: number; unverified: number; graded_with_assurance: number };
   inter_grader: { sessions: number; criteria: number; agreement: number | null; graders: string[] } | null;
   coach: { total: number; useful: number; precision: number | null; per_rule: Array<{ rule: string; total: number; useful: number; precision: number }> };
   by_task_source: Array<{ source: string; entries: number; criteria: number; agreement: number | null }>;
@@ -185,6 +188,19 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
     per_status[s] = { human: humanCount, judge: judgeCount, precision: judgeCount ? confusion[s][s] / judgeCount : null, recall: humanCount ? confusion[s][s] / humanCount : null };
   }
   const lean = { lenient: 0, stricter: 0, same: 0 };
+  const assurance = { false_verified: 0, false_unmet: 0, correct_verified: 0, correct_unmet: 0, verified_vs_supported: 0, unverified: 0, graded_with_assurance: 0 };
+  for (const e of entries) {
+    for (const c of e.criteria) {
+      if (!c.assurance) continue;
+      assurance.graded_with_assurance += 1;
+      if (c.assurance === 'VERIFIED' && (c.human === 'unmet' || c.human === 'partial')) assurance.false_verified += 1;
+      if (c.assurance === 'VERIFIED' && c.human === 'met') assurance.correct_verified += 1;
+      if (c.assurance === 'UNMET' && c.human === 'met') assurance.false_unmet += 1;
+      if (c.assurance === 'UNMET' && c.human === 'unmet') assurance.correct_unmet += 1;
+      if (c.assurance === 'SUPPORTED' && c.human === 'met') assurance.verified_vs_supported += 1;
+      if (c.assurance === 'UNVERIFIED') assurance.unverified += 1;
+    }
+  }
   for (const e of entries)
     for (const c of e.criteria) {
       if (ORDER[c.judge] > ORDER[c.human]) lean.lenient += 1;
@@ -222,7 +238,7 @@ export function buildCalibrationReport(entries: CalibrationEntry[]): Calibration
   }).filter((x) => x.entries > 0);
   return {
     by_task_source,
-    lean,
+    lean, assurance,
     inter_grader: igSessions ? { sessions: igSessions, criteria: igCriteria, agreement: igCriteria ? igAgree / igCriteria : null, graders: [...graders] } : null,
     coach: { total: coachMarks.length, useful: coachMarks.filter((m) => m.mark === 'useful').length, precision: coachMarks.length ? coachMarks.filter((m) => m.mark === 'useful').length / coachMarks.length : null, per_rule: [...perRule.entries()].map(([rule, v]) => ({ rule, total: v.total, useful: v.useful, precision: v.useful / v.total })).sort((x, y) => y.total - x.total) },
     entries: entries.length,
@@ -252,6 +268,7 @@ export function renderCalibrationReport(r: CalibrationReport, title = 'Judge cal
   L.push(`criterion agreement   ${pct(r.criterion_agreement)} exact · ${pct(r.lenient_agreement)} within one step (partial/unverifiable neighbours) · n=${r.criteria}`);
   L.push(`verdict agreement     ${r.verdict_total ? `${pct(r.verdict_agreement)} exact · ${pct(r.verdict_lenient_agreement)} within one step (borderline next to either extreme)` : 'n/a (no human verdicts)'} · n=${r.verdict_total}${r.verdict_abstained ? ` · ${r.verdict_abstained} abstained (insufficient evidence)` : ''}`);
   L.push(`lean                  Tally more lenient than the human on ${r.lean.lenient}, stricter on ${r.lean.stricter}, same on ${r.lean.same}`);
+  if (r.assurance.graded_with_assurance) L.push(`assurance             false VERIFIED ${r.assurance.false_verified} · false UNMET ${r.assurance.false_unmet} · correct VERIFIED ${r.assurance.correct_verified} · correct UNMET ${r.assurance.correct_unmet} · SUPPORTED where human said met ${r.assurance.verified_vs_supported} · UNVERIFIED ${r.assurance.unverified} · n=${r.assurance.graded_with_assurance} (false VERIFIED is a bug, not a calibration target)`);
   if (r.inter_grader) L.push(`inter-grader          ${pct(r.inter_grader.agreement)} of ${r.inter_grader.criteria} criteria across ${r.inter_grader.sessions} session(s) graded by ${r.inter_grader.graders.join(' and ')}`);
   else L.push('inter-grader          n/a (no session graded by two people; use --grader <name>)');
   if (r.coach.total) {

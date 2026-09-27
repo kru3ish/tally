@@ -1,0 +1,12 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "README.md": "# acme-app\n\n## Endpoints\n\n- GET /items\n",
+    "src/items.js": "const items = new Map([[1, 'a']]);\nmodule.exports = { list: () => [...items.values()], remove: null, items };\n",
+    "test.js": "const api = require('./src/items');\nif (api.list().length !== 1) { console.error('list'); process.exit(1); }\nconsole.log('1 passing');\n"
+  },
+  "after": {
+    "src/items.js": "const items = new Map([[1, 'a']]);\nfunction remove(id) {\n  if (!items.has(id)) return { status: 404 };\n  items.delete(id);\n  return { status: 204 };\n}\nmodule.exports = { list: () => [...items.values()], remove, items };\n",
+    "README.md": "# acme-app\n\n## Endpoints\n\n- GET /items\n- DELETE /items/:id — 204, or 404 for an unknown id\n"
+  }
+}

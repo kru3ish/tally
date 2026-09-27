@@ -1,0 +1,9 @@
+{
+  "base": {
+    "package.json": "{\n  \"name\": \"acme-app\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"test\": \"node test.js\"\n  }\n}\n",
+    "README.md": "# acme-app\n",
+    "src/app.js": "module.exports = { handle: (m, p) => ({ status: 200 }) };\n",
+    "test.js": "const app = require('./src/app');\nif (app.handle('GET', '/').status !== 200) { console.error('root'); process.exit(1); }\nconsole.log('1 passing');\n"
+  },
+  "after": {}
+}

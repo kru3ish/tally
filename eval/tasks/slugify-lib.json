@@ -1,0 +1,16 @@
+{
+  "id": "slugify-lib",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/slugify-lib",
+  "base": "c8c8ac90bf05739f0d1f48cd4b6f38f8349f5761",
+  "task": "C:/Users/Mehta/dev/tally-eval/slugify-lib/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}

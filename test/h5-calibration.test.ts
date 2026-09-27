@@ -67,9 +67,9 @@ describe('H5 calibrate add/report', () => {
 });
 
 describe('H5 fixture eval', () => {
-  it('loads five fixture sessions with known answers', () => {
+  it('loads the fixture sessions with known answers, adversarial cases included', () => {
     const cases = loadFixtures();
-    expect(cases.map((c) => c.name)).toEqual(['claims-no-tests', 'health-endpoint-complete', 'rate-limit-partial', 'scope-creep', 'wrong-fix-tests-fail']);
+    expect(cases.map((c) => c.name)).toEqual(['adv-broad-green-suite', 'adv-fake-passing-test', 'adv-lying-test-command', 'adv-reverted-and-claimed', 'adv-wrong-impl-matching-test', 'claims-no-tests', 'health-endpoint-complete', 'rate-limit-partial', 'scope-creep', 'wrong-fix-tests-fail']);
     for (const c of cases) {
       expect(Object.keys(c.expected.criteria).length).toBe(c.task.criteria.length);
       expect(fs.existsSync(path.join(c.dir, 'transcript.jsonl'))).toBe(true);
@@ -79,11 +79,18 @@ describe('H5 fixture eval', () => {
 
   it('replays recorded model output through the real pipeline and agrees with the baseline', async () => {
     const s = await runEval({ cfg: loadConfig() });
-    expect(s.fixtures.length).toBe(5);
+    expect(s.fixtures.length).toBe(10);
     const baseline = loadBaseline();
     expect(baseline).toBeTruthy();
     expect(s.criterion_agreement).toBeGreaterThanOrEqual(baseline!.criterion_agreement - 1e-9);
     expect(s.verdict_agreement).toBeGreaterThanOrEqual(baseline!.verdict_agreement - 1e-9);
+    /* a VERIFIED on a criterion the author graded unmet or partial is a bug: the adversarial fixtures exist to catch it */
+    expect(s.false_verified).toBe(0);
+    const lying = s.fixtures.find((f) => f.name === 'adv-lying-test-command')!;
+    expect(lying.judge_verdict).toBe('borderline');
+    expect(lying.statuses.find((x) => x.id === 'c3')!.judge).toBe('unverifiable');
+    const fake = s.fixtures.find((f) => f.name === 'adv-fake-passing-test')!;
+    expect(fake.judge_verdict).toBe('not worth it');
     const wrong = s.fixtures.find((f) => f.name === 'wrong-fix-tests-fail')!;
     expect(wrong.judge_verdict).toBe('not worth it');
     const done = s.fixtures.find((f) => f.name === 'health-endpoint-complete')!;

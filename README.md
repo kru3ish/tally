@@ -14,7 +14,7 @@ Tally answers five questions about an agent's work:
 | **COMPARE** | Which agent, model or configuration works best here? | Agent and model recorded separately on every receipt; experiments; comparison views are roadmap v0.8 |
 | **GOVERN** | What must be true before work counts as complete? | `tally.json`: standing criteria, budget with a hard stop, verification command; more policies in v0.6 |
 
-This is a **preview** (v0.5.0). The pipeline is tested end to end on Linux, macOS and Windows; the Judge's agreement with humans is measured and small ([How accurate is the Judge?](#how-accurate-is-the-judge), [`docs/EVALUATION.md`](docs/EVALUATION.md)). Read the evidence lines before trusting a status.
+This is a **preview** (v0.6.0). The pipeline is tested end to end on Linux, macOS and Windows; the Judge's agreement with humans is measured and small ([How accurate is the Judge?](#how-accurate-is-the-judge), [`docs/EVALUATION.md`](docs/EVALUATION.md)). Read the evidence lines before trusting a status.
 
 ## What Tally can prove
 
@@ -234,17 +234,18 @@ All dollar figures are **API-equivalent** at list price from `pricing.json` (wit
 
 Early, and measured two ways. Neither is a benchmark.
 
-**Fixture regression (n = 5 sessions, 19 criteria).** Five authored sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. Last live run, 2026-09-26 with haiku as tier 1 (recorded outputs replayed in CI):
+**Fixture regression (n = 10 sessions, 36 criteria: 5 ordinary, 5 adversarial).** Authored sessions with answers known by construction (`test/fixtures/calibration/`) are judged live and compared with the authored grades. The adversarial five are built to fool an assurance tool: a test that asserts `true`, an implementation and test that agree with each other and not the task, a green suite that never exercises the new behaviour, a `test` script that is `echo ok`, and work written then reverted while the final message claims it. Baseline recorded 2026-09-27 with haiku as tier 1 (recorded outputs replayed in CI):
 
 | Measure | Result |
 |---|---|
-| Criterion agreement (exact) | 19 / 19 |
-| Verdict agreement | 5 / 5 |
-| Criteria resolved mechanically, at $0 | 9 of 19 |
-| Escalated to tier 2 | 8 criteria on 4 sessions (verdict-sensitive, correctness, or a tier-1 quality score below 4) |
-| Tally's own spend, share of session spend | 2.1–13.6%, average 6.1% (the high case is a pessimistic tier-1 quality score being confirmed by the strong model on a $0.73 session) |
+| Criterion agreement (exact) | 34 / 36 |
+| Verdict agreement | 9 / 10 |
+| False VERIFIED (a VERIFIED on a criterion the author graded unmet or partial) | 0 |
+| Criteria resolved mechanically, at $0 | 17 of 36 |
+| Escalated to tier 2 | 14 criteria on 7 sessions (verdict-sensitive, correctness, or a tier-1 quality score below 4) |
+| Tally's own spend, share of session spend | 0–13.9%, average 6.7% |
 
-Across seven live runs the same fixtures scored between 17/19 and 19/19 (the 17 was one run of the strong model disagreeing with the author on the rate-limit fixture, which is why a low quality score now confirms prose only and does not re-open statuses); CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the average self-share exceeds 8%.
+The two misses are kept, not re-graded: on the broad-green-suite fixture the Judge accepted "a test covers DELETE" because a modified test file and a green run exist (the Evidence Map holds it at SUPPORTED, so it is not a false VERIFIED, but the status is wrong); on the wrong-implementation fixture the Judge said unmet where the author said partial, and the Judge's reading is the stricter one. The ordinary five alone scored 19/19 and 5/5 on 2026-09-26. The adversarial set found a real bug on its first live run, a regex byte that stopped the lying-runner rule from ever firing; `docs/EVALUATION.md` has the account. CI replays the recorded model output through the deterministic pipeline and fails if criterion agreement drops below `baseline.json`, if false VERIFIED rises above it, or if the average self-share exceeds 8%.
 
 **Real sessions, blind-graded (n = 11 sessions, 51 criteria, 1 grader(s), as of 2026-09-22; re-scored under 0.2.0's rules on 2026-09-23).** Backfilled receipts from the author's own repos, graded before seeing Tally's answer: criterion agreement 51% exact (61% within one step); the Judge abstains on 3 of 11 (insufficient evidence), and on the other 8 the verdict is exact on 1 and within one step on 6; Tally stricter on 14 of 51; Coach: 54 of 83 replayed suggestions marked useful (65%). Regenerate with `tally calibrate report --source backfill`, and add your own with `tally backfill add <session>` then `tally calibrate grade <session> --grader you`.
 
@@ -353,7 +354,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## Known limitations
 
-- **Calibration is early and exact verdicts rarely match the author.** Five authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement; 3 abstentions, and on the rest verdicts 1 of 8 exact, 6 of 8 within one step. No external graders yet. Treat verdicts as a second opinion, read the criteria lines, and dispute what is wrong.
+- **Calibration is early and exact verdicts rarely match the author.** Ten authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement; 3 abstentions, and on the rest verdicts 1 of 8 exact, 6 of 8 within one step. No external graders yet. Treat verdicts as a second opinion, read the criteria lines, and dispute what is wrong.
 - **Cut from this release:** plugin evals (`claude plugin eval`, `evals/`), moving data into `${CLAUDE_PLUGIN_DATA}` (receipts stay in `~/.tally`), best-of-N model comparison on the same task, private eval suites from receipts, visual verification of UI tasks, and per-line human/AI attribution. Each is listed in DECISIONS.md with the reason.
 - Sessions with no commits are judged from the transcript reconstruction; edits made by tools Tally does not parse (an MCP file server, an editor) are invisible, and tests are not run.
 - Inferred tasks are only as good as the first prompts; confirm or edit them before trusting completion %.
@@ -368,10 +369,15 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 The plan to v1.0 is in [`docs/ROADMAP_RELIABILITY_LAYER.md`](docs/ROADMAP_RELIABILITY_LAYER.md): ship readiness and scope and risk analysis (v0.6), repository and mistake memory that survives switching agents (v0.7), a stable adapter SDK and comparison views with sample sizes (v0.8), mutation verification in an isolated worktree (v0.9). Architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md); adding an agent in [`docs/ADAPTER_SDK.md`](docs/ADAPTER_SDK.md); how the numbers are measured in [`docs/EVALUATION.md`](docs/EVALUATION.md); how to help in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Evaluation
+
+Tally verifies itself. `tally eval run` runs a coding-agent session on an isolated copy of a task repository with Tally attached, lets Tally judge it, then starts a blind evaluator (a separate model process that never sees Tally's answer) and compares. `tally eval discover` finds candidate public issues; `tally eval report` prints the ledger by class and version, with false VERIFIED and false UNMET counted separately. Adversarial fixtures (a test that asserts `true`, an implementation and test that agree with each other and violate the task, a runner that runs nothing, a reverted change the agent still claims) live in `test/fixtures/calibration/adv-*` and replay in CI. Methodology, current numbers and known failure classes: [`docs/EVALUATION.md`](docs/EVALUATION.md).
+
 ## Development
 
 ```bash
-npm test            # typecheck, bundle with esbuild, then vitest (161 tests)
+npm test              # typecheck, bundle with esbuild, then vitest
+npm run release-check # the release checklist, executed: build, tests, clean install, plugin, demo, fixtures, compat, docs, secrets
 npm run build       # dist/cli.js + dist/hook.js, committed because the marketplace clones this repo
 npm run fixtures    # regenerates test/fixtures/session-basic
 ```

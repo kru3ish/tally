@@ -1,0 +1,68 @@
+{
+  "recorded_at": "2026-09-27T12:58:33.181Z",
+  "calls": [
+    {
+      "tier": 1,
+      "model": "claude-haiku-4-5",
+      "cost_usd": 0.017827,
+      "prompt_tokens": 259,
+      "data": {
+        "criteria": [
+          {
+            "id": "c1",
+            "status": "met",
+            "evidence": "Git diff shows src/users.js updated with name.trim() call: return { name: name.trim() };",
+            "files": [
+              "src/users.js"
+            ],
+            "confidence": 0.98
+          },
+          {
+            "id": "c2",
+            "status": "partial",
+            "evidence": "test.js added with correct trimming test (save('  bob ').name !== 'bob'), but independent test run shows npm test script executes only 'echo ok', not test.js, indicating test file exists but is not integrated into the test suite",
+            "files": [
+              "test.js"
+            ],
+            "confidence": 0.8
+          }
+        ],
+        "quality_score": 8,
+        "verdict_reason": "c1 is fully met: the trim implementation is correct and clearly visible in the diff. c2 is only partially met: while test.js contains correct test logic that would verify trimming, the independent test run definitively shows npm test executes only 'echo ok' and does not run test.js. The test code exists and is sound (8/10 quality) but the test is not actually integrated into the automated test suite, leaving the verification incomplete. Code quality is solid but test automation integration is missing.",
+        "recommendations": [
+          "Update package.json test script to run test.js (e.g., 'test': 'node test.js')",
+          "Consider adopting a proper test framework (Jest/Mocha) for better test discovery, reporting, and maintainability",
+          "Add additional test cases covering edge cases (empty strings, single spaces, Unicode whitespace)"
+        ]
+      }
+    },
+    {
+      "tier": 2,
+      "model": "claude-haiku-4-5",
+      "cost_usd": 0.019682,
+      "prompt_tokens": 259,
+      "data": {
+        "criteria": [
+          {
+            "id": "c1",
+            "status": "met",
+            "evidence": "src/users.js modified to return { name: name.trim() }, applying trim before the object is saved.",
+            "files": [
+              "src/users.js"
+            ],
+            "confidence": 1
+          },
+          {
+            "id": "c2",
+            "status": "partial",
+            "evidence": "test.js added with trimming test (save('  bob ').name check), but independent verification shows npm test only runs 'echo ok' and does not execute test.js.",
+            "files": [
+              "test.js"
+            ],
+            "confidence": 0.6
+          }
+        ]
+      }
+    }
+  ]
+}

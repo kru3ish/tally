@@ -23,6 +23,7 @@ function effectiveStatus(c: { status: 'met' | 'partial' | 'unmet' | 'unverifiabl
 }
 import type { AgentIdentity, ModelIdentity } from '../core/events.js';
 import { modelIdentity } from '../core/events.js';
+import { runLooksConclusive } from '../judge/checks.js';
 
 export type AssuranceStatus = 'VERIFIED' | 'SUPPORTED' | 'UNVERIFIED' | 'UNMET';
 
@@ -270,18 +271,28 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
     }
     /* deterministic: the independent run, for anything about tests, regressions or the suite, and for behaviour a test hunk names */
     const alreadyHasRun = items.some((i) => i.kind === 'file_check' && /independent run/.test(i.summary));
-    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: 'independent_run', strength: 'deterministic', summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? 'passed' : 'FAILED'}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ''}`, ref: provenance.independent.command, ok: provenance.independent.passed });
+    /* a run that exits 0 but prints no passed count could be a runner that ran nothing: inconclusive, so it anchors no VERIFIED */
+    const runInconclusive = provenance.independent.passed === true && !runLooksConclusive(j.verification.output_tail ?? '', cwd, provenance.independent.command);
+    if (!alreadyHasRun && provenance.independent.ran && (aboutTests || testHunkNamesIt || /\b(unchanged|regression|still|existing|passes|suite)\b/i.test(c.text))) items.push({ kind: 'independent_run', strength: 'deterministic', summary: `independent run of \`${provenance.independent.command}\` ${provenance.independent.passed ? (runInconclusive ? 'exited 0 but reported no test count (inconclusive)' : 'passed') : 'FAILED'}${provenance.independent.total_passed !== null ? ` (${provenance.independent.total_passed} passed)` : ''}`, ref: provenance.independent.command, ok: runInconclusive ? undefined : provenance.independent.passed });
     /* interpreted: the model's reading */
     if (c.resolved_by === 'tier1' || c.resolved_by === 'tier2') items.push({ kind: 'model_judgment', strength: 'interpreted', summary: c.evidence, confidence: c.confidence });
     if (c.override) items.push({ kind: 'dispute', strength: 'interpreted', summary: `${c.override.by}: ${c.override.status} (was ${c.override.original}): ${c.override.reason}` });
 
+    /* a criterion about tests cannot rest on a model's word: when no test file was added, modified or names the behaviour,
+       the deterministic scan is a negative that outranks the model's "met" */
+    const anyTestEvidence = items.some((i) => (i.kind === 'test_added' || i.kind === 'test_modified' || i.kind === 'test_names_it') || (i.kind === 'diff_hunk' && TEST_PATH_RE.test(i.ref ?? '')));
+    const testClaimWithoutTest = aboutTests && eff === 'met' && c.resolved_by !== 'tier0' && !anyTestEvidence;
+    if (testClaimWithoutTest) items.push({ kind: 'test_names_it', strength: 'deterministic', summary: 'no test file was added, modified or names what this criterion is about', ok: false });
     const det = items.filter((i) => i.strength === 'deterministic');
     const detPositive = det.filter((i) => i.ok !== false && i.kind !== 'file_check');
     /* a test the agent touched, or a test hunk that names the behaviour, plus a green independent run: proof the test ran */
-    const anchoredByTest = (det.some((i) => i.kind === 'test_added' || i.kind === 'test_modified') || testHunkNamesIt) && det.some((i) => (i.kind === 'independent_run' || (i.kind === 'file_check' && /independent run/.test(i.summary))) && i.ok);
+    const anchoredByTest = (det.some((i) => i.kind === 'test_added' || i.kind === 'test_modified') || testHunkNamesIt) && det.some((i) => (i.kind === 'independent_run' || (i.kind === 'file_check' && /independent run/.test(i.summary))) && i.ok === true) && !runInconclusive;
     let status: AssuranceStatus;
     let basis: CriterionAssurance['basis'];
-    if (eff === 'met') {
+    if (testClaimWithoutTest) {
+      status = 'UNVERIFIED';
+      basis = 'deterministic+model';
+    } else if (eff === 'met') {
       if (c.resolved_by === 'tier0') {
         status = 'VERIFIED';
         basis = 'deterministic';

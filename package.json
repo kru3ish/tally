@@ -1,6 +1,6 @@
 {
   "name": "@kru3ish/tally",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Per-task receipts and live coaching for Claude Code (preview): acceptance criteria in, what shipped / what it cost / whether it held up out.",
   "type": "module",
   "bin": {
@@ -25,7 +25,9 @@
     "test": "npm run typecheck && npm run build && vitest run",
     "test:watch": "vitest",
     "fixtures": "tsx scripts/gen-fixtures.ts",
-    "prepare": "node scripts/bundle.mjs"
+    "prepare": "node scripts/bundle.mjs",
+    "release-check": "node scripts/release-check.mjs --skip-live",
+    "release-check:live": "node scripts/release-check.mjs"
   },
   "repository": {
     "type": "git",

@@ -1,0 +1,50 @@
+{
+  "session": "cal-adv-fake-test",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Reject invalid emails on signup"
+  },
+  "title": "Reject invalid emails on signup",
+  "body_excerpt": "POST /signup must reject an email without \"@\" with HTTP 400. Add a test that covers the rejection. Existing tests keep passing.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "signup rejects an email without \"@\" with HTTP 400",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c2",
+      "text": "A test covers the invalid-email rejection",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c3",
+      "text": "The existing test suite still passes",
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1,
+    "basis": "llm"
+  },
+  "budget_usd": 18.75,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

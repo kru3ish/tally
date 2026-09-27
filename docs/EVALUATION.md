@@ -20,7 +20,12 @@ Statuses on receipts written before 0.5 map to the four assurance statuses by ru
 
 ## Datasets
 
-**Authored fixtures** (`test/fixtures/calibration/`, n = 5 sessions, 19 criteria). Small JavaScript repos with answers known by construction. Judged live and recorded; CI replays the recorded model output through the deterministic pipeline and fails if agreement drops below `baseline.json` or the average self-share exceeds 8%. Last live run 2026-09-26: 19/19 criteria, 5/5 verdicts, self-share 2.1–13.6%, average 6.1%.
+**Authored fixtures** (`test/fixtures/calibration/`, n = 10 sessions, 36 criteria: 5 ordinary, 5 adversarial). Small JavaScript repos with answers known by construction. Judged live and recorded; CI replays the recorded model output through the deterministic pipeline and fails if criterion agreement drops below `baseline.json`, if false VERIFIED exceeds the baseline's count, or if the average self-share exceeds 8%. Baseline recorded 2026-09-27: 34/36 criteria (94%), 9/10 verdicts, **false VERIFIED 0, false UNMET 0**, self-share 0–13.9%, average 6.7%. The two disagreements are kept as failures, not re-graded:
+
+- `adv-broad-green-suite` c2 "A test covers DELETE /items/:id": author unmet, Judge met. The agent extended the suite with tests that never exercise DELETE; a green run plus a modified test file convinced the small model. The Evidence Map holds the criterion at SUPPORTED (no test names the behaviour), so it is not a false VERIFIED, but the criterion status is wrong.
+- `adv-wrong-impl-matching-test` c2 "A test covers the 429 after 5 failed attempts": author partial, Judge unmet. The test asserts a 50-attempt threshold; the Judge's reading ("verifies the wrong threshold, no test exercises attempt 5 or 6") is arguably the stricter and better one. Kept as graded.
+
+Before the adversarial set existed, the ordinary five scored 19/19 criteria and 5/5 verdicts (2026-09-26). The adversarial fixtures found one real bug on their first live run: the rule that treats an `echo`-only `test` script as inconclusive never fired, because the regex's `\b` had been written into the source as a literal backspace byte by a patch script. Fixture `adv-lying-test-command` c3 was graded met instead of unverifiable until the byte was fixed; it is now unverifiable, and the same run caps the verdict at borderline.
 
 **Author's real sessions, human-graded** (n = 11 sessions, 51 criteria, one grader). Backfilled receipts from the author's own repositories, graded before seeing Tally's answer. Criterion agreement 51% exact, 61% within one step; 3 abstentions; on the other 8, verdicts exact 1, within one step 6; Tally stricter on 14 of 51. The first pass scored 35%; the gain came from fixing a bias in the mechanical checks against repos with no git tree, not from re-grading.
 
@@ -35,7 +40,57 @@ Statuses on receipts written before 0.5 map to the four assurance statuses by ru
 - Fixtures are recorded model output replayed deterministically. Live re-runs vary: across seven live runs the fixtures scored 17/19 to 19/19; the 17 came from the strong model disagreeing with the author on one criterion, which is why a pessimistic tier-1 quality score now confirms prose only and does not re-open statuses.
 - Nothing here is a benchmark. Sample sizes are printed next to every figure on purpose.
 
-## Reproduce
+## The autonomous loop: `tally eval`
+
+Since 0.5 the evaluation runs without a person in the loop and leaves a reproducible record.
+
+```bash
+tally eval run --only express-7350        # one task; --class real|fixture|historical for a set
+tally eval discover --repos expressjs/express,yargs/yargs   # scored candidate issues → eval/candidates/
+tally eval report                          # the ledger by class and Tally version
+```
+
+`eval run` copies or clones the repository at the task's base commit, commits the task text and the Tally policy as the new base, runs a coding-agent session with Tally's hooks attached through `--settings` (independent of what is installed on the machine), lets Tally freeze the contract and judge, then starts the **blind evaluator**: a separate `claude -p` process with fresh context, no settings sources and no MCP, given only the task, the repository, the base commit and the test command. It grades every criterion; only then are the two compared. Each run writes `eval/results/<class>/<date>-<task>-<run>.json` (statuses, evidence summaries, costs, commits, timings; no prompts, no code) and a line in `eval/results/ledger.jsonl`, and adds the grade to `~/.tally/calibration.jsonl` under grader `blind-eval`.
+
+Task specs live in `eval/tasks/*.json` (see `src/eval/tasks.ts` for the schema). Each records why it was selected and how likely its solution is to be in model training data. Three classes are kept apart in every report: **fixture** (constructed), **real** (public issue in an isolated clone of the current repository), **historical** (public issue at the commit before the human fix; the later fix is external evidence, never the required answer). The corpus keeps the tasks Tally does badly on; deleting a failure to improve a number is the one thing this document forbids.
+
+Builder and evaluator are separate model invocations with separate context. They are still the same model family, so agreement between them is not agreement with a human. The human-graded set stays the reference.
+
+## What Tally reliably detects (as of 0.5.0)
+
+- A criterion with no evidence in the diff (the forgotten README): UNMET on every fixture and every eval run so far.
+- A claimed test run that Tally's own run contradicts: the independent run is the only run that counts; the agent's runs are listed as claims.
+- Work the agent did not do: when the diff is empty or reverted, criteria go UNMET or UNVERIFIED, never VERIFIED.
+- A spec too vague to judge: `insufficient evidence` / the contract stays NEEDS CONFIRMATION and the verdict is capped.
+- Over-narrow intake checks: a regex or guessed path that misses no longer produces an UNMET on its own.
+
+## What remains difficult
+
+- **Quality of fix.** Both verdict misses on the real-issue set were fixes that met every criterion with a green suite and that a maintainer would still send back (a workaround for a dependency bug; behaviour changed with no test). The maintainer-review tier reads for this; its precision is unmeasured beyond those two cases.
+- **Regression claims.** "Existing behaviour unchanged" is judged, not verified; the honest status is usually UNVERIFIED, and users may read that as failure.
+- **Behaviour a test names but does not exercise.** A test file that mentions `429` and a green run is treated as strong evidence. A test that mentions the value without asserting it would produce a false VERIFIED. Mutation verification (roadmap v0.9) is the fix; until then this is a known false-positive class.
+- **Runners that lie.** A `test` script that exits 0 without running tests would satisfy `tests_pass`. Tally treats a script that is only `echo`, `true` or `exit 0`, or a run with empty output, as inconclusive (UNVERIFIED, and it anchors nothing); a script that runs a real command which happens to test nothing would still pass. Fixture `adv-lying-test-command` encodes this.
+
+## Known false-positive classes (Tally says VERIFIED, a human says no)
+
+1. A test names the behaviour but asserts something weaker (see above).
+2. A mechanical `file_contains` / `diff_contains` pattern that matches text unrelated to the criterion (a comment, a string constant). Mitigation: patterns are only written by intake for criteria that name a file, command or value.
+3. A disputed override that was itself wrong; disputes are recorded as interpreted evidence and marked on the receipt.
+
+## Known false-negative classes (Tally says UNMET or UNVERIFIED, a human says met)
+
+1. Documentation criteria satisfied in a file the intake did not anticipate (a docs site instead of README).
+2. Behaviour verified by a test the agent ran but Tally could not (no consent, or a suite that needs network); status UNVERIFIED with the reason.
+3. Work done in a commit the session's base does not cover (base detection wrong after a rebase).
+
+## Threats to validity
+
+- Model grading a model: the blind evaluator shares a model family with the Judge, so correlated blind spots are possible. Human grading is small (n=11, one grader).
+- Task selection bias: every task so far was chosen by the same person or model that built Tally. `eval discover` records selection reasons so a reader can see the bias; it does not remove it.
+- Contamination: open issues may have fixes in forks or later commits that a model has seen; each spec carries a contamination note. These runs measure the whole Tally-plus-agent workflow, not raw model capability.
+- Recorded fixtures replay recorded model output; live runs vary. CI replays; releases re-record.
+
+
 
 ```bash
 npm test                                   # includes the fixture replay

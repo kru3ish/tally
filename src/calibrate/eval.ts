@@ -24,7 +24,9 @@ export interface FixtureCase {
   dir: string;
   task: Task;
   repo: { base: Record<string, string>; after: Record<string, string>; delete?: string[] };
-  expected: { criteria: Record<string, Status>; verdict: VerdictText; notes?: string };
+  /* assurance_ceiling: the highest assurance status the author accepts for a criterion (a met criterion with no test that
+     names it should be SUPPORTED, not VERIFIED); anything above the ceiling counts as a false VERIFIED */
+  expected: { criteria: Record<string, Status>; verdict: VerdictText; notes?: string; assurance_ceiling?: Record<string, 'UNVERIFIED' | 'SUPPORTED' | 'VERIFIED'> };
   recorded?: { calls: RecordedCall[] };
 }
 
@@ -106,6 +108,9 @@ export interface FixtureResult {
   total: number;
   verdict_match: boolean;
   calls: RecordedCall[];
+  /* assurance statuses against the authored answers: VERIFIED where the author said unmet/partial is the bug */
+  false_verified: string[];
+  false_unmet: string[];
 }
 
 export async function runFixture(c: FixtureCase, opts: { cfg?: Config; live?: boolean; llm?: LlmClient; workRoot?: string; deep?: boolean }): Promise<FixtureResult> {
@@ -138,11 +143,17 @@ export async function runFixture(c: FixtureCase, opts: { cfg?: Config; live?: bo
   const human = judge.criteria.map((cr) => c.expected.criteria[cr.id] ?? 'unverifiable');
   const entry = entryFromJudge(judge, human, c.expected.verdict, 'fixture');
   const matches = entry.criteria.filter((x) => x.human === x.judge).length;
-  return { name: c.name, session, judge, entry, matches, total: entry.criteria.length, verdict_match: judge.verdict.verdict === c.expected.verdict, calls };
+  const RANK: Record<string, number> = { UNMET: 0, UNVERIFIED: 1, SUPPORTED: 2, VERIFIED: 3 };
+  const assuranceOf = (id: string) => judge.assurance?.criteria.find((a) => a.id === id)?.status ?? 'UNVERIFIED';
+  const false_verified = judge.criteria.filter((cr, i) => (assuranceOf(cr.id) === 'VERIFIED' && (human[i] === 'unmet' || human[i] === 'partial')) || (c.expected.assurance_ceiling?.[cr.id] !== undefined && RANK[assuranceOf(cr.id)]! > RANK[c.expected.assurance_ceiling[cr.id]!]!)).map((cr) => cr.id);
+  const false_unmet = judge.criteria.filter((cr, i) => (judge.assurance?.criteria.find((a) => a.id === cr.id)?.status ?? 'UNVERIFIED') === 'UNMET' && human[i] === 'met').map((cr) => cr.id);
+  return { name: c.name, session, judge, entry, matches, total: entry.criteria.length, verdict_match: judge.verdict.verdict === c.expected.verdict, calls, false_verified, false_unmet };
 }
 
 export interface EvalSummary {
-  fixtures: Array<{ name: string; matches: number; total: number; verdict_match: boolean; judge_verdict: string; expected_verdict: string; statuses: Array<{ id: string; human: Status; judge: Status; resolved_by: string }>; session_usd: number; tally_usd: number; share_pct: number; tiers: string[]; tier_reason: string }>;
+  fixtures: Array<{ name: string; session: string; matches: number; total: number; verdict_match: boolean; judge_verdict: string; expected_verdict: string; statuses: Array<{ id: string; human: Status; judge: Status; resolved_by: string; assurance?: string }>; session_usd: number; tally_usd: number; share_pct: number; tiers: string[]; tier_reason: string; false_verified: string[]; false_unmet: string[] }>;
+  false_verified: number;
+  false_unmet: number;
   report: CalibrationReport;
   criterion_agreement: number;
   verdict_agreement: number;
@@ -154,7 +165,7 @@ export interface EvalSummary {
   baseline_updated?: boolean;
 }
 
-export async function runEval(opts: { live?: boolean; record?: boolean; cfg?: Config; llmFor?: (c: FixtureCase) => LlmClient; only?: string[]; deep?: boolean }): Promise<EvalSummary> {
+export async function runEval(opts: { live?: boolean; record?: boolean; rebaseline?: boolean; cfg?: Config; llmFor?: (c: FixtureCase) => LlmClient; only?: string[]; deep?: boolean }): Promise<EvalSummary> {
   const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
   if (!cases.length) throw new Error('no calibration fixtures found');
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-cal-'));
@@ -167,12 +178,15 @@ export async function runEval(opts: { live?: boolean; record?: boolean; cfg?: Co
   const report = buildCalibrationReport(results.map((r) => r.entry));
   const fixtures = results.map((r) => ({
     name: r.name,
+    session: r.session,
     matches: r.matches,
     total: r.total,
     verdict_match: r.verdict_match,
     judge_verdict: r.judge.verdict.verdict,
     expected_verdict: r.entry.human_verdict ?? '',
-    statuses: r.judge.criteria.map((c, i) => ({ id: c.id, human: r.entry.criteria[i]!.human, judge: c.status, resolved_by: c.resolved_by })),
+    statuses: r.judge.criteria.map((c, i) => ({ id: c.id, human: r.entry.criteria[i]!.human, judge: c.status, resolved_by: c.resolved_by, assurance: r.judge.assurance?.criteria.find((a) => a.id === c.id)?.status })),
+    false_verified: r.false_verified,
+    false_unmet: r.false_unmet,
     session_usd: r.judge.cost.total_usd,
     tally_usd: r.judge.cost.tally_own_usd,
     share_pct: r.judge.cost.tally_share_pct,
@@ -185,6 +199,8 @@ export async function runEval(opts: { live?: boolean; record?: boolean; cfg?: Co
     fixtures,
     report,
     criterion_agreement: report.criterion_agreement ?? 0,
+    false_verified: results.reduce((n, r) => n + r.false_verified.length, 0),
+    false_unmet: results.reduce((n, r) => n + r.false_unmet.length, 0),
     verdict_agreement: report.verdict_agreement ?? 0,
     avg_share_pct: fixtures.length ? fixtures.reduce((s, f) => s + f.share_pct, 0) / fixtures.length : 0,
     total_session_usd: totalSession,
@@ -192,21 +208,26 @@ export async function runEval(opts: { live?: boolean; record?: boolean; cfg?: Co
     live: !!opts.live,
     judge_model: results.flatMap((r) => r.judge.tiers.calls.map((c) => c.model)).filter((m, i, a) => a.indexOf(m) === i).join('+') || 'mechanical',
   };
-  if (opts.record) {
-    /* the baseline is a floor: it is only rewritten when agreement holds or improves, never lowered by a worse run */
+  if (opts.record || opts.rebaseline) {
+    /* the baseline is a floor: a recording only rewrites it when agreement holds or improves. --rebaseline is the
+       deliberate exception, for when the fixture set itself changed (new adversarial cases) and the honest number is lower. */
     const old = loadBaseline();
+    const writeOutput = (r: (typeof results)[number]) => fs.writeFileSync(path.join(cases.find((c) => c.name === r.name)!.dir, 'model-output.json'), JSON.stringify({ recorded_at: new Date().toISOString(), calls: r.calls }, null, 2) + '\n');
+    /* a fixture with no recording yet cannot be replayed at all, so its first live output is kept whatever the agreement did;
+       the honest number then shows up in the next full replay instead of hiding behind a missing file */
+    if (opts.record && opts.live) for (const r of results) if (!cases.find((c) => c.name === r.name)!.recorded) writeOutput(r);
     /* a subset run (--only) records its fixtures' model output but never rewrites the shared baseline, which describes the full set */
-    if (!old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
+    if (opts.rebaseline || !old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
       /* model outputs and baseline are written together so a replay always reproduces the recorded agreement */
-      for (const r of results) fs.writeFileSync(path.join(cases.find((c) => c.name === r.name)!.dir, 'model-output.json'), JSON.stringify({ recorded_at: new Date().toISOString(), calls: r.calls }, null, 2) + '\n');
-      if (!opts.only?.length) fs.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: new Date().toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + '\n');
+      if (opts.record && opts.live) for (const r of results) writeOutput(r);
+      if (!opts.only?.length) fs.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: new Date().toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, false_verified: summary.false_verified, false_unmet: summary.false_unmet, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + '\n');
       summary.baseline_updated = true;
     } else summary.baseline_updated = false;
   }
   return summary;
 }
 
-export function loadBaseline(): { recorded_at?: string; judge_model?: string; criterion_agreement: number; verdict_agreement: number; avg_share_pct?: number } | null {
+export function loadBaseline(): { recorded_at?: string; judge_model?: string; criterion_agreement: number; verdict_agreement: number; avg_share_pct?: number; false_verified?: number; false_unmet?: number } | null {
   const f = baselineFile();
   if (!fs.existsSync(f)) return null;
   return JSON.parse(fs.readFileSync(f, 'utf8')) as { recorded_at?: string; judge_model?: string; criterion_agreement: number; verdict_agreement: number; avg_share_pct?: number };

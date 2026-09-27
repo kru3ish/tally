@@ -1,0 +1,68 @@
+{
+  "session": "cal-adv-reverted",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Add request logging middleware"
+  },
+  "title": "Add request logging middleware",
+  "body_excerpt": "Every request is logged as \"METHOD path\" via a middleware in src/logging.js, wired into src/app.js. Document it in the README.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "A logging middleware in src/logging.js logs \"METHOD path\" for every request",
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_exists",
+        "path": "src/logging.js"
+      }
+    },
+    {
+      "id": "c2",
+      "text": "The middleware is wired into src/app.js",
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_changed",
+        "path": "src/app.js"
+      }
+    },
+    {
+      "id": "c3",
+      "text": "README documents the logging",
+      "source": "explicit",
+      "kind": "mechanical",
+      "check": {
+        "kind": "file_changed",
+        "path": "README.md"
+      }
+    },
+    {
+      "id": "c4",
+      "text": "The existing test suite still passes",
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1,
+    "basis": "llm"
+  },
+  "budget_usd": 18.75,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

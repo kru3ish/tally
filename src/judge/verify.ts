@@ -49,6 +49,8 @@ export interface VerificationResult {
   reason?: string;
   env_scrubbed?: boolean;
   consent?: boolean;
+  /* exit 0 but the runner ran nothing (a `test` script that only echoes, or no output at all): a pass that proves nothing */
+  inconclusive?: boolean;
 }
 
 export const NO_CONSENT_REASON = 'tests not run: no consent';

@@ -250,3 +250,35 @@ describe('assurance engine', () => {
     expect(ci.stdout).toContain('Tally Verify');
   });
 });
+
+describe('adversarial rules', () => {
+  it('a runner that runs nothing is inconclusive; a real runner with output is conclusive', async () => {
+    const { runLooksConclusive } = await import('../src/judge/checks.js');
+    const cwd = tmpDir('tally-runner-');
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'echo ok' } }));
+    expect(runLooksConclusive('ok', cwd, 'npm test')).toBe(false);
+    expect(runLooksConclusive('', cwd, 'node test.js')).toBe(false);
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'node test.js' } }));
+    expect(runLooksConclusive('ok', cwd, 'npm test')).toBe(true);
+    expect(runLooksConclusive('1 passing', cwd, 'npm test')).toBe(true);
+    fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ scripts: { test: 'exit 0' } }));
+    expect(runLooksConclusive('anything', cwd, 'npm test')).toBe(false);
+  });
+
+  it('a "test covers X" criterion with no test evidence is UNVERIFIED even when the model says met', async () => {
+    const { cwd, base } = makeRepo({ agentAddsTest: false });
+    /* the model claims a test covers the behaviour; no test file changed and none names 429 */
+    const llm = new StubLlm(stubFor(['met', 'met', 'unmet']), 'assure-adv');
+    const cfg = loadConfig();
+    cfg.judge.maintainer_review = 'off';
+    const stub = stubFor(['met', 'met', 'unmet']);
+    const llm2 = new StubLlm({ ...stub, intake: () => ({ ...stub.intake(), criteria: [{ text: 'Login returns 429 after 5 failed attempts', source: 'explicit' }, { text: 'A test covers the 429 path', source: 'explicit' }, { text: 'README documents the limit', source: 'explicit', check: { kind: 'file_changed', path: 'README.md' } }] }) }, 'assure-adv');
+    void llm;
+    await intake({ session: 'assure-adv', cwd, text: 'Rate limit the login endpoint', cfg, llm: llm2, deps });
+    const j = await judgeSession({ session: 'assure-adv', cwd, transcriptPath: path.join(basicFixture, 'transcript.jsonl'), cfg, llm: llm2, reason: 'push', events: fixtureEvents(cwd, base), consent: true });
+    const c2 = j.assurance!.criteria.find((c) => c.id === 'c2')!;
+    expect(c2.judge_status).toBe('met');
+    expect(c2.status).toBe('UNVERIFIED');
+    expect(c2.evidence.some((e) => e.kind === 'test_names_it' && e.ok === false)).toBe(true);
+  });
+});

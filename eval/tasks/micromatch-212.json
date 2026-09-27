@@ -1,0 +1,19 @@
+{
+  "id": "micromatch-212",
+  "class": "real",
+  "repo": "C:/Users/Mehta/dev/tally-eval-gh/micromatch-212",
+  "base": "5f2dd4def4b13fd2559cb957b7d2274f014b5b16",
+  "issue": "https://github.com/micromatch/micromatch/issues/212",
+  "task": "C:/Users/Mehta/dev/tally-eval-gh/micromatch-212/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "bug",
+    "glob",
+    "dependency-root-cause"
+  ],
+  "selected_because": "open public bug with a stated expectation and a runnable suite; solved locally 2026-09-26 and blind-graded 28/29",
+  "contamination": "possible",
+  "contamination_note": "open issue at selection time; the thread may contain hints and a fork may hold a fix",
+  "added": "2026-09-27"
+}

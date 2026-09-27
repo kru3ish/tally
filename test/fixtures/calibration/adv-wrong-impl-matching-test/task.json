@@ -1,0 +1,50 @@
+{
+  "session": "cal-adv-wrong-impl",
+  "cwd": "C:\\Users\\dev\\acme-app",
+  "created_at": "2026-09-10T14:00:05.000Z",
+  "frozen": true,
+  "source": {
+    "kind": "text",
+    "ref": "Lock login after 5 failed attempts"
+  },
+  "title": "Lock login after 5 failed attempts",
+  "body_excerpt": "Return 429 from login once an account has 5 failed attempts. Add a test. Existing tests keep passing.",
+  "labels": [],
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "login returns 429 after 5 failed attempts",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c2",
+      "text": "A test covers the 429 after 5 failed attempts",
+      "source": "explicit",
+      "kind": "judgment"
+    },
+    {
+      "id": "c3",
+      "text": "The existing test suite still passes",
+      "source": "inferred",
+      "kind": "mechanical",
+      "check": {
+        "kind": "tests_pass"
+      }
+    }
+  ],
+  "spec_quality": {
+    "score": 8,
+    "missing": [],
+    "questions": []
+  },
+  "needs_clarification": false,
+  "estimate": {
+    "hours": 1.5,
+    "basis": "llm"
+  },
+  "budget_usd": 28.13,
+  "hourly_rate": 75,
+  "tally_cost_usd": 0.004,
+  "model": "fixture"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "wordcount-cli",
+  "class": "fixture",
+  "repo": "C:/Users/Mehta/dev/tally-eval/wordcount-cli",
+  "base": "f883d9b8e561fee01678c5825f3f557dd3e4ad33",
+  "task": "C:/Users/Mehta/dev/tally-eval/wordcount-cli/task.md",
+  "setup": [],
+  "tags": [
+    "javascript",
+    "constructed"
+  ],
+  "selected_because": "constructed small task with explicit acceptance criteria; exercises the whole pipeline cheaply",
+  "contamination": "unlikely",
+  "contamination_note": "written for this corpus on 2026-09-26",
+  "added": "2026-09-27"
+}
