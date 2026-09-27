@@ -1,0 +1,204 @@
+{
+  "schema": "tally.eval.v1",
+  "run_id": "cxyj2p",
+  "date": "2026-09-27T14:02:03.897Z",
+  "tally": {
+    "version": "0.6.0",
+    "commit": "e2888fa"
+  },
+  "task": {
+    "id": "logger-vague",
+    "class": "fixture",
+    "repo": "C:/Users/Mehta/dev/tally-eval/logger-vague",
+    "base": "d6bd418affa1ed1c8e9ec4f9d3ce48d734b9394d",
+    "head": "1e5f99dbf0651571dfbf7cc2b66f5019da6dc1cb",
+    "tags": [
+      "javascript",
+      "constructed"
+    ],
+    "contamination": "unlikely"
+  },
+  "agent": {
+    "product": "claude-code",
+    "model": "claude-sonnet-5",
+    "turns": 12,
+    "duration_s": 68,
+    "cost_usd": 0.2820268
+  },
+  "config": {
+    "agent_model": "sonnet",
+    "max_turns": 80,
+    "timeout_min": 45,
+    "permission_mode": "acceptEdits",
+    "allowed_tools": [
+      "Bash(npm test*)",
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(mkdir *)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(go *)",
+      "Bash(cargo *)",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "TodoWrite"
+    ],
+    "grader_model": "opus"
+  },
+  "work": {
+    "commits": [
+      "1e5f99d Add log levels, timestamps, JSON output, and meta/error support to logger"
+    ],
+    "files": [
+      {
+        "file": "src/logger.js",
+        "added": 58,
+        "deleted": 2
+      },
+      {
+        "file": "test/logger.test.js",
+        "added": 99,
+        "deleted": 1
+      }
+    ],
+    "patch_file": "2026-09-27-logger-vague-cxyj2p.patch",
+    "patch_bytes": 5059
+  },
+  "grader": {
+    "product": "claude-code",
+    "model": "claude-opus-5",
+    "cost_usd": 0.5673425,
+    "blind": true
+  },
+  "session": "69a45e03-5ad2-4f57-a134-bf2af8838ed6",
+  "tally_summary": {
+    "verified": 2,
+    "supported": 2,
+    "unverified": 0,
+    "unmet": 0,
+    "total": 4,
+    "sufficient": 4,
+    "verdict": "borderline",
+    "completion_pct": 100
+  },
+  "grader_verdict": "borderline",
+  "tests": {
+    "independent_ran": true,
+    "independent_passed": true,
+    "total_passed": 7,
+    "preexisting_files": 1,
+    "agent_added_files": 0,
+    "agent_cases_added": 6
+  },
+  "criteria": [
+    {
+      "id": "c1",
+      "text": "Existing test suite passes after changes to the logger",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[tests_pass] independent run of `npm test` passed",
+          "test/logger.test.js modified by the agent"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`npm test` (node --test) passes 7/7, 0 fail. The baseline test `does not throw` is preserved verbatim in test/logger.test.js:5-7 and passes; the agent added 6 further tests covering timestamp format, warn/error console routing, Error meta serialization, LOG_LEVEL suppression, LOG_FORMAT=json, and the logger convenience object."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c2",
+      "text": "File `src/logger.js` is modified from the baseline",
+      "tally": {
+        "status": "met",
+        "assurance": "VERIFIED",
+        "resolved_by": "tier0",
+        "evidence": [
+          "[file_changed] src/logger.js is in the diff",
+          "src/logger.js changed",
+          "test/logger.test.js -1,7 +1,105 mentions src/logger.js",
+          "test/logger.test.js modified by the agent",
+          "independent run of `npm test` passed (7 passed)"
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "`git diff --stat d6bd418 HEAD` shows src/logger.js +60/-3. Baseline was a 3-line `export function log(level, msg) { console.log('[' + level + '] ' + msg); }`; HEAD (1e5f99d) is a 59-line module with LEVELS, CONSOLE_METHOD, currentLevel(), isJsonFormat(), serializeMeta(), a rewritten log(), and an exported `logger` object."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c3",
+      "text": "Logger includes at least one production-grade feature (e.g., log levels, timestamps, formatted output, or structured logging)",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/logger.js changed",
+          "test/logger.test.js changed",
+          "test/logger.test.js modified by the agent",
+          "[model] The diff shows implementation of log levels (LEVELS object with debug/info/warn/error), ISO timestamps (new Date().toISOString()), formatted output in both text and JSON modes, and structured metadata/Error serialization. All 7 tests pass independently, including specific tests validating timestamps, log level filtering via LOG_LEVEL env var, JSON output via LOG_FORMAT=json, and error metadata serialization."
+        ]
+      },
+      "grader": {
+        "status": "met",
+        "evidence": "Multiple production features present and test-covered: numeric level thresholds with LOG_LEVEL env filtering (src/logger.js:1,10-13,35-37), ISO-8601 timestamps (line 39), structured JSON output via LOG_FORMAT=json (lines 15-17,43-48) — verified emitting {timestamp,level,message,userId:42}, per-level console method routing (lines 3-8,41), and Error meta serialization to name/message/stack (lines 20-22)."
+      },
+      "agree": true,
+      "false_verified": false,
+      "false_unmet": false
+    },
+    {
+      "id": "c4",
+      "text": "No breaking changes to existing logger functionality or API that would require updates to calling code",
+      "tally": {
+        "status": "met",
+        "assurance": "SUPPORTED",
+        "resolved_by": "tier1",
+        "evidence": [
+          "src/logger.js changed",
+          "test/logger.test.js changed",
+          "independent run of `npm test` passed (7 passed)",
+          "[model] The original function call `log('info', 'x')` in the test suite passes without modification after the changes, demonstrating backward compatibility. The new meta parameter is optional (defaults to undefined via serializeMeta handling), so all existing function calls remain valid. The convenience logger export is additive and does not affect existing log() consumers."
+        ]
+      },
+      "grader": {
+        "status": "partial",
+        "evidence": "The signature stays backward compatible (`log(level, msg)` still exported, meta optional), but observable behaviour changed in ways that can require caller updates, and I confirmed each by running the module. (1) Unknown levels are silently coerced: `log('trace','trace message')` printed `[trace] trace message` at baseline but now prints `[INFO] trace message` (line 33) — silent loss of the caller's level. (2) `log('debug', ...)` printed at baseline but is now suppressed unless LOG_LEVEL=debug is set. (3) warn/error moved from stdout to stderr — with `2>/dev/null` only the info line survived, "
+      },
+      "agree": false,
+      "false_verified": false,
+      "false_unmet": false
+    }
+  ],
+  "agreement": {
+    "exact": 3,
+    "total": 4,
+    "false_verified": 0,
+    "false_unmet": 0,
+    "verified_vs_supported": 3
+  },
+  "timings": {
+    "agent_s": 68,
+    "judge_s": 33,
+    "grader_s": 363
+  },
+  "notes": []
+}

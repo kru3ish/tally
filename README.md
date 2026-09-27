@@ -10,9 +10,9 @@ Tally answers five questions about an agent's work:
 |---|---|---|
 | **VERIFY** | Did the agent complete the requested task? | Task Contract frozen at intake; Evidence Map per criterion; `tally verify` |
 | **OBSERVE** | How did it behave while doing so? | Loops, re-reads, context pressure, test runs, security-relevant actions; the Coach in autopilot |
-| **REMEMBER** | What should future agents know about this repository? | Lessons on receipts, `tally playbook`; repository memory is roadmap v0.7 |
-| **COMPARE** | Which agent, model or configuration works best here? | Agent and model recorded separately on every receipt; experiments; comparison views are roadmap v0.8 |
-| **GOVERN** | What must be true before work counts as complete? | `tally.json`: standing criteria, budget with a hard stop, verification command; more policies in v0.6 |
+| **REMEMBER** | What should future agents know about this repository? | Lessons on receipts, `tally playbook`; repository memory is roadmap v0.8 |
+| **COMPARE** | Which agent, model or configuration works best here? | Agent and model recorded separately on every receipt; experiments; comparison views are roadmap v0.9 |
+| **GOVERN** | What must be true before work counts as complete? | `tally.json`: standing criteria, budget with a hard stop, verification command; ship-readiness policies are roadmap v0.7 |
 
 This is a **preview** (v0.6.0). The pipeline is tested end to end on Linux, macOS and Windows; the Judge's agreement with humans is measured and small ([How accurate is the Judge?](#how-accurate-is-the-judge), [`docs/EVALUATION.md`](docs/EVALUATION.md)). Read the evidence lines before trusting a status.
 
@@ -369,7 +369,7 @@ Where a built-in already does the job, Tally points you to it: `/insights` for t
 
 ## Roadmap
 
-The plan to v1.0 is in [`docs/ROADMAP_RELIABILITY_LAYER.md`](docs/ROADMAP_RELIABILITY_LAYER.md): ship readiness and scope and risk analysis (v0.6), repository and mistake memory that survives switching agents (v0.7), a stable adapter SDK and comparison views with sample sizes (v0.8), mutation verification in an isolated worktree (v0.9). Architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md); adding an agent in [`docs/ADAPTER_SDK.md`](docs/ADAPTER_SDK.md); how the numbers are measured in [`docs/EVALUATION.md`](docs/EVALUATION.md); how to help in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+The plan to v1.0 is in [`docs/ROADMAP_RELIABILITY_LAYER.md`](docs/ROADMAP_RELIABILITY_LAYER.md): v0.6 became the evaluation release (this document is its evidence); ship readiness and scope and risk analysis (v0.7), repository and mistake memory that survives switching agents (v0.8), a stable adapter SDK and comparison views with sample sizes (v0.9), mutation verification in an isolated worktree (v1.0). Architecture in [`ARCHITECTURE.md`](ARCHITECTURE.md); adding an agent in [`docs/ADAPTER_SDK.md`](docs/ADAPTER_SDK.md); how the numbers are measured in [`docs/EVALUATION.md`](docs/EVALUATION.md); how to help in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Evaluation
 

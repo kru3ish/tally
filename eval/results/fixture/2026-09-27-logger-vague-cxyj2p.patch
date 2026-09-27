@@ -1,0 +1,177 @@
+diff --git a/src/logger.js b/src/logger.js
+index 34ec375..653efa5 100644
+--- a/src/logger.js
++++ b/src/logger.js
+@@ -1,3 +1,59 @@
+-export function log(level, msg) {
+-  console.log('[' + level + '] ' + msg);
++const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
++
++const CONSOLE_METHOD = {
++  debug: 'debug',
++  info: 'log',
++  warn: 'warn',
++  error: 'error',
++};
++
++function currentLevel() {
++  const configured = (process.env.LOG_LEVEL || 'info').toLowerCase();
++  return LEVELS[configured] !== undefined ? configured : 'info';
+ }
++
++function isJsonFormat() {
++  return (process.env.LOG_FORMAT || '').toLowerCase() === 'json';
++}
++
++function serializeMeta(meta) {
++  if (meta instanceof Error) {
++    return { error: { name: meta.name, message: meta.message, stack: meta.stack } };
++  }
++  if (meta && typeof meta === 'object') {
++    return meta;
++  }
++  if (meta === undefined) {
++    return {};
++  }
++  return { data: meta };
++}
++
++export function log(level, msg, meta) {
++  const normalizedLevel = LEVELS[level] !== undefined ? level : 'info';
++
++  if (LEVELS[normalizedLevel] < LEVELS[currentLevel()]) {
++    return;
++  }
++
++  const timestamp = new Date().toISOString();
++  const metaObj = serializeMeta(meta);
++  const consoleMethod = CONSOLE_METHOD[normalizedLevel] || 'log';
++
++  if (isJsonFormat()) {
++    console[consoleMethod](
++      JSON.stringify({ timestamp, level: normalizedLevel, message: msg, ...metaObj })
++    );
++    return;
++  }
++
++  const suffix = Object.keys(metaObj).length ? ' ' + JSON.stringify(metaObj) : '';
++  console[consoleMethod](`[${timestamp}] [${normalizedLevel.toUpperCase()}] ${msg}${suffix}`);
++}
++
++export const logger = {
++  debug: (msg, meta) => log('debug', msg, meta),
++  info: (msg, meta) => log('info', msg, meta),
++  warn: (msg, meta) => log('warn', msg, meta),
++  error: (msg, meta) => log('error', msg, meta),
++};
+diff --git a/test/logger.test.js b/test/logger.test.js
+index 9f3ccf7..d00fd87 100644
+--- a/test/logger.test.js
++++ b/test/logger.test.js
+@@ -1,7 +1,105 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+-import { log } from '../src/logger.js';
++import { log, logger } from '../src/logger.js';
+ 
+ test('does not throw', () => {
+   assert.doesNotThrow(() => log('info', 'x'));
+ });
++
++test('logs message with timestamp and level', () => {
++  const calls = [];
++  const original = console.log;
++  console.log = (msg) => calls.push(msg);
++  try {
++    log('info', 'hello');
++  } finally {
++    console.log = original;
++  }
++  assert.equal(calls.length, 1);
++  assert.match(calls[0], /^\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\] \[INFO\] hello$/);
++});
++
++test('routes warn and error to their console methods', () => {
++  const warnCalls = [];
++  const errorCalls = [];
++  const originalWarn = console.warn;
++  const originalError = console.error;
++  console.warn = (msg) => warnCalls.push(msg);
++  console.error = (msg) => errorCalls.push(msg);
++  try {
++    log('warn', 'careful');
++    log('error', 'boom');
++  } finally {
++    console.warn = originalWarn;
++    console.error = originalError;
++  }
++  assert.equal(warnCalls.length, 1);
++  assert.match(warnCalls[0], /\[WARN\] careful/);
++  assert.equal(errorCalls.length, 1);
++  assert.match(errorCalls[0], /\[ERROR\] boom/);
++});
++
++test('serializes an Error meta into the log line', () => {
++  const calls = [];
++  const original = console.error;
++  console.error = (msg) => calls.push(msg);
++  try {
++    log('error', 'failed', new Error('bad thing'));
++  } finally {
++    console.error = original;
++  }
++  assert.match(calls[0], /"message":"bad thing"/);
++});
++
++test('respects LOG_LEVEL to suppress lower-priority logs', () => {
++  const calls = [];
++  const original = console.log;
++  console.log = (msg) => calls.push(msg);
++  const previous = process.env.LOG_LEVEL;
++  process.env.LOG_LEVEL = 'error';
++  try {
++    log('info', 'should be suppressed');
++  } finally {
++    console.log = original;
++    if (previous === undefined) {
++      delete process.env.LOG_LEVEL;
++    } else {
++      process.env.LOG_LEVEL = previous;
++    }
++  }
++  assert.equal(calls.length, 0);
++});
++
++test('emits JSON when LOG_FORMAT=json', () => {
++  const calls = [];
++  const original = console.log;
++  console.log = (msg) => calls.push(msg);
++  const previous = process.env.LOG_FORMAT;
++  process.env.LOG_FORMAT = 'json';
++  try {
++    log('info', 'structured', { userId: 42 });
++  } finally {
++    console.log = original;
++    if (previous === undefined) {
++      delete process.env.LOG_FORMAT;
++    } else {
++      process.env.LOG_FORMAT = previous;
++    }
++  }
++  const parsed = JSON.parse(calls[0]);
++  assert.equal(parsed.level, 'info');
++  assert.equal(parsed.message, 'structured');
++  assert.equal(parsed.userId, 42);
++});
++
++test('logger convenience methods delegate to log', () => {
++  const calls = [];
++  const original = console.log;
++  console.log = (msg) => calls.push(msg);
++  try {
++    logger.info('via logger');
++  } finally {
++    console.log = original;
++  }
++  assert.match(calls[0], /\[INFO\] via logger/);
++});

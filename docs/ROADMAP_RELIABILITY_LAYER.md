@@ -73,7 +73,7 @@ The four statuses map onto the stored `met / partial / unmet / unverifiable` plu
 
 Sequencing follows what the repository can support today, not a wish list.
 
-### v0.5 Assurance (this iteration)
+### v0.5 Assurance (shipped 2026-09-27)
 
 - `src/core/events.ts`: the normalised event model with `agent` and `model` as separate objects, derived from the raw store and the transcript. Tests prove the projection on the fixture session and on Codex, Gemini and Cursor payloads.
 - `src/core/contract.ts`: Task Contract as a first-class object projected from `task.json` (goal, criteria, constraints, verification, unknowns, status, revisions). `tally task --show` renders it; `--confirm` and `--edit` record revisions.
@@ -83,7 +83,16 @@ Sequencing follows what the repository can support today, not a wish list.
 - Adapter capabilities and `tally adapters`.
 - Docs: this roadmap, `ARCHITECTURE.md`, `ADAPTER_SDK.md`, `EVALUATION.md`, a README that leads with the five questions.
 
-### v0.6 Ship quality
+### v0.6 Evaluation (shipped 2026-09-27)
+
+Pulled forward: before adding more assurance features, the project needed a way to find out when the existing ones over-claim.
+
+- `tally eval run|discover|report`: isolated repository, coding-agent session with Tally attached, Tally's judge, a blind evaluator in a separate process, comparison, a committed ledger by class (`eval/results/`).
+- Five adversarial calibration fixtures with `assurance_ceiling`; false VERIFIED counted and gated in CI; `--rebaseline` for honest lower numbers.
+- Deterministic safeguards the evaluation forced: a runner that runs nothing is inconclusive and caps the verdict; a test claim needs a test; a touched test file is provenance, not an anchor; a tree is scanned only if it holds the receipt's base commit; generic tokens are not names.
+- `scripts/release-check.mjs`: the release checklist as an executable.
+
+### v0.7 Ship quality
 
 - `tally ship`: evidence-based readiness (contract, criteria, tests, lint, scope, regression evidence, documentation, policy) with blocking and weak evidence listed and next actions.
 - Scope expansion: expected areas from the contract versus areas touched, flagged not judged.
@@ -92,23 +101,23 @@ Sequencing follows what the repository can support today, not a wish list.
 - Plan drift where an agent exposes a plan (Claude Code's TodoWrite, Cursor's plan events).
 - Policy expansion in `tally.json`: `requirements`, `paths.require_human_review`, generated-file protection, verification required before ship. Deterministic enforcement only.
 
-### v0.7 Memory
+### v0.8 Memory
 
 - Repository memory under `.tally/memory/` with provenance (source, supporting sessions, confidence, first and last observed); explainable with `tally memory` and `tally memory explain <id>`.
 - Mistake memory: recurring failure patterns across sessions, surfaced as historical warnings at session start, agent-agnostic.
 - Instruction-file recommendations (CLAUDE.md, AGENTS.md, tool equivalents) proposed from repeated evidence, never auto-applied unless configured.
 
-### v0.8 Ecosystem
+### v0.9 Ecosystem
 
 - Adapter SDK declared stable-ish; adapters for OpenCode and Aider where their hooks or logs allow; Copilot where technically possible.
 - Comparison infrastructure over the receipt store: agent product, model, provider, agent version, policy, repository, task type; always with sample sizes.
 
-### v0.9 Deep assurance
+### v1.0 Deep assurance
 
 - Mutation verification in an isolated worktree (`tally verify --deep` gains mutations; opt-in; never touches the user's tree).
 - Richer regression analysis; mature evaluation suite with false-VERIFIED as the headline error.
 
-### v1.0
+### Beyond
 
 The reliability layer: an agent is replaceable, Tally retains the truth.
 
