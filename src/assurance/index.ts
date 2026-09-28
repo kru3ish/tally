@@ -414,7 +414,7 @@ export function renderVerify(a: Assurance, opts: { color?: boolean; evidence?: b
   L.push('Result');
   const s = a.summary;
   L.push(`${s.sufficient}/${s.total} criteria have sufficient evidence (${s.verified} verified, ${s.supported} supported).`);
-  if (s.unmet) L.push(c('31', `${s.unmet} criterion${s.unmet > 1 ? 'a are' : ' is'} unmet.`));
+  if (s.unmet) L.push(c('31', `${s.unmet} ${s.unmet > 1 ? 'criteria are' : 'criterion is'} unmet.`));
   if (s.unverified) L.push(c('90', `${s.unverified} could not be verified from the evidence.`));
   L.push('');
   L.push(c('90', `Experimental: verdict ${a.experimental.verdict}, completion ${a.experimental.completion_pct}%, quality ${a.experimental.quality}/10, ROI ${a.experimental.roi ?? 'n/a'}. ${a.experimental.note}`));

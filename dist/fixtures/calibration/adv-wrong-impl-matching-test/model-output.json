@@ -1,0 +1,76 @@
+{
+  "recorded_at": "2026-09-27T12:58:33.181Z",
+  "calls": [
+    {
+      "tier": 1,
+      "model": "claude-haiku-4-5",
+      "cost_usd": 0.012379000000000001,
+      "prompt_tokens": 298,
+      "data": {
+        "criteria": [
+          {
+            "id": "c1",
+            "status": "unmet",
+            "evidence": "Code sets LIMIT = 50 and returns 429 only when attempts > 50, not after 5 failed attempts as required.",
+            "files": [
+              "src/login.js"
+            ],
+            "confidence": 1
+          },
+          {
+            "id": "c2",
+            "status": "unmet",
+            "evidence": "Test file checks login(51) and login(50), covering behavior at the 50-attempt threshold, not the required 5-attempt scenario.",
+            "files": [
+              "test-lock.js"
+            ],
+            "confidence": 1
+          }
+        ],
+        "quality_score": 2,
+        "verdict_reason": "Both criteria fail decisively. The implementation uses LIMIT = 50 instead of the required 5, causing the function to lock accounts only after 51 attempts rather than 5. The test suite, while syntactically correct and passing, validates this incorrect threshold rather than the stated requirement. The assistant's vague claim (\"too many failed attempts\") masks a fundamental requirement misunderstanding. The code is functional but implements the wrong specification entirely.",
+        "recommendations": [
+          "Change LIMIT from 50 to 5 in src/login.js to match the stated requirement.",
+          "Update test-lock.js to verify the 5-attempt threshold: test login(5) returning 200 and login(6) returning 429.",
+          "Confirm the 5-attempt lockout threshold with stakeholders before deployment, as the current 50-attempt value suggests possible miscommunication."
+        ]
+      }
+    },
+    {
+      "tier": 2,
+      "model": "claude-sonnet-5",
+      "cost_usd": 0.047019200000000004,
+      "prompt_tokens": 430,
+      "data": {
+        "criteria": [
+          {
+            "id": "c1",
+            "status": "unmet",
+            "confidence": 0.97,
+            "evidence": "src/login.js sets 'const LIMIT = 50;' and returns 429 only when attempts > LIMIT (i.e., after 51 failed attempts). The acceptance criterion explicitly requires 429 after 5 failed attempts. The diff shows no code path that locks at 5 attempts -- the threshold is off by 10x from the frozen spec.",
+            "files": [
+              "src/login.js"
+            ]
+          },
+          {
+            "id": "c2",
+            "status": "unmet",
+            "confidence": 0.95,
+            "evidence": "test-lock.js asserts login(51) should be 429 and login(50) should be 200, which verifies the wrong 50-attempt threshold, not the required 5-attempt lockout. No test exercises attempts=5 or attempts=6, so there is no coverage of the actual specified behavior. The npm test run (2 passing) confirms the tests pass, but only against the wrong requirement.",
+            "files": [
+              "test-lock.js"
+            ]
+          }
+        ],
+        "quality_score": 1.5,
+        "quality_reason": "The suite is green (2 passing, independently verified), but this is a case of tests validating the wrong requirement rather than proof of correctness. The core business rule -- lock after 5 failed attempts -- was implemented with LIMIT=50, a 10x deviation from the frozen spec, and the accompanying test was written to match the wrong constant (51/50) instead of the specified (5/6) boundary. This is a critical correctness defect masked by a passing test suite; the assistant's final claim (\"Done... after too many failed attempts\") is vague and does not disclose the mismatched threshold. The diff is otherwise minimal and scoped (+5/-1, 2 files) with no unrelated churn or debris, but that discipline doesn't offset an implementation that does not satisfy either acceptance criterion.",
+        "recommendations": [
+          "When acceptance criteria specify an exact numeric threshold (e.g., '5 failed attempts'), grep the diff for that literal number before marking the task done -- a passing test alone is not proof the correct constant was used.",
+          "Write test assertions that mirror the acceptance criterion's exact wording (attempts=5/6 boundary), not arbitrary values like 50/51, and name tests after the spec requirement they check.",
+          "As an independent verifier, always compare test input values against the acceptance criteria text, not just the pass/fail exit code, since a green suite can validate the wrong behavior."
+        ],
+        "verdict_reason": "Both frozen acceptance criteria are unmet: the delivered code locks accounts after 50 failed attempts, not the required 5, and the added test was written to match that wrong constant rather than the spec. The independently-run test suite passes (2 passing, 337ms), but this only proves internal consistency between the buggy implementation and its matching-but-wrong test -- it does not demonstrate the specified behavior. Despite low measured spend ($0.43) and zero flagged waste, the claimed $112.50 human-equivalent value is not earned because the feature does not do what was asked; shipping this would leave accounts vulnerable to 45 extra brute-force attempts. This is a low-ROI outcome: cheap and fast, but functionally wrong on the one number that mattered."
+      }
+    }
+  ]
+}

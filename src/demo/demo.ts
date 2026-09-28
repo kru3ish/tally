@@ -19,6 +19,7 @@ import type { Suggestion, HistoryEntry } from '../coach/types.js';
 import type { Exec } from '../judge/evidence.js';
 import { parseTranscriptFile } from '../transcript/parse.js';
 import { renderVerify } from '../assurance/index.js';
+import { loadFixtures, runFixture } from '../calibrate/eval.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +29,38 @@ export interface DemoOptions {
   keep?: boolean;
   home?: string;
   fast?: boolean;
+  /* wrap output to this many columns (default: the terminal width, at most 100, at least 60) */
+  width?: number;
+}
+
+/* the calibration fixture the demo replays for the self-agreeing-test case, from dist/ (npm install) or the checkout */
+function calibrationDir(): string {
+  for (const c of [path.join(here, 'fixtures', 'calibration'), path.join(here, '..', '..', 'test', 'fixtures', 'calibration'), path.join(here, '..', 'fixtures', 'calibration')]) if (fs.existsSync(path.join(c, 'adv-wrong-impl-matching-test', 'expected.json'))) return c;
+  throw new Error('calibration fixture not found; run npm run build or run from a source checkout');
+}
+
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+export function visibleLength(s: string): number {
+  return s.replace(ANSI_RE, '').length;
+}
+
+/* wrap one line at a word boundary to `width` visible columns, continuation lines indented past the tree prefix */
+export function wrapLine(line: string, width: number): string[] {
+  if (visibleLength(line) <= width) return [line];
+  const indentMatch = /^(\s*(?:[│├└─┌┐┘\-•·]\s*)*)/.exec(line.replace(ANSI_RE, ''));
+  const indent = ' '.repeat(Math.min((indentMatch?.[1] ?? '').length + 2, Math.floor(width / 2)));
+  const words = line.split(' ');
+  const out: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (visibleLength(next) > width && cur) {
+      out.push(cur);
+      cur = indent + w;
+    } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
 }
 
 export interface DemoResult {
@@ -41,6 +74,8 @@ export interface DemoResult {
   verdict: string;
   finalVerdict: string;
   reportPath: string;
+  /* true when the demo made its own temp dir and removed it at the end */
+  removed: boolean;
 }
 
 function fixturesDir(): string {
@@ -103,7 +138,11 @@ function hookPayload(e: TallyEvent, session: string, cwd: string, transcriptPath
 }
 
 export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
-  const out = opts.out ?? ((s: string) => process.stdout.write(s + '\n'));
+  const width = opts.width ?? Math.max(60, Math.min(100, process.stdout.columns || 80));
+  const rawOut = opts.out ?? ((s: string) => process.stdout.write(s + '\n'));
+  const out = (s: string): void => {
+    for (const line of s.split('\n')) for (const w of wrapLine(line, width)) rawOut(w);
+  };
   const color = opts.color ?? !!process.stdout.isTTY;
   const bold = (s: string) => paint(color, '\x1b[1m', s);
   const dim = (s: string) => paint(color, '\x1b[90m', s);
@@ -112,6 +151,7 @@ export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
   const cyan = (s: string) => paint(color, '\x1b[36m', s);
   const step = (n: number, s: string) => out(`\n${bold(cyan(`[${n}] ${s}`))}`);
 
+  const ownHome = !opts.home;
   const home = opts.home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'tally-demo-'));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
   process.env.TALLY_HOME = path.join(home, 'tally');
@@ -325,12 +365,25 @@ export async function runDemo(opts: DemoOptions = {}): Promise<DemoResult> {
     out(`  original verdict: ${bold(after.followup!.original_verdict)}  →  final: ${bold(after.followup!.final_verdict)}  (${after.followup!.final_status})`);
     for (const n of after.followup!.notes) out(dim(`  - ${n}`));
 
+    step(7, 'A test that agrees with its own mistake');
+    out(dim('  [labelled case] the task said "429 after 5 failed attempts"; the agent implemented 50, wrote a test asserting 50, and the suite is green.'));
+    out(dim('  A green run plus a test that names the behaviour is not proof the threshold is right. Replayed from a recorded adversarial fixture.'));
+    const advCase = loadFixtures(calibrationDir()).find((c) => c.name === 'adv-wrong-impl-matching-test');
+    if (advCase) {
+      const adv = await runFixture(advCase, { cfg });
+      if (adv.judge.assurance) out(renderVerify(adv.judge.assurance, { color }));
+      out(dim(`  author's grading: ${Object.entries(advCase.expected.criteria).map(([id, s]) => `${id} ${s}`).join(', ')}; the receipt above is what Tally said. Deterministic evidence cannot lift c1 above SUPPORTED here (assurance ceiling).`));
+    } else out(yellow('  (fixture not bundled in this build)'));
+
     out('');
     out(bold('Done.') + ` ${shown} coach suggestions, ${applied.length} applied (${applied.join(', ')}), ${injected.length} injected (${injected.join(', ')}), ship detected: ${shipDetected ? 'yes' : 'no'}, verdict ${judge.verdict.verdict} → ${after.followup!.final_verdict}.`);
-    out(dim(`Demo data: ${home}${opts.keep ? ' (kept)' : ' (delete it whenever you like)'}`));
+    const reportPath = path.join(sessionDir(session), 'report.md');
+    if (ownHome && !opts.keep) out(dim(`Temp files removed. \`tally demo --keep\` keeps the receipt and the fake repo for a look.`));
+    else out(dim(`Demo data: ${home}${opts.keep ? ' (kept)' : ''}  ·  receipt: ${reportPath}`));
 
-    return { home, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup!.final_verdict, reportPath: path.join(sessionDir(session), 'report.md') };
+    return { home, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup!.final_verdict, reportPath, removed: ownHome && !opts.keep };
   } finally {
+    if (ownHome && !opts.keep) fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     for (const [k, v] of Object.entries(prev)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;

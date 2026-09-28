@@ -8004,7 +8004,7 @@ function renderVerify(a, opts = {}) {
   L.push("Result");
   const s = a.summary;
   L.push(`${s.sufficient}/${s.total} criteria have sufficient evidence (${s.verified} verified, ${s.supported} supported).`);
-  if (s.unmet) L.push(c("31", `${s.unmet} criterion${s.unmet > 1 ? "a are" : " is"} unmet.`));
+  if (s.unmet) L.push(c("31", `${s.unmet} ${s.unmet > 1 ? "criteria are" : "criterion is"} unmet.`));
   if (s.unverified) L.push(c("90", `${s.unverified} could not be verified from the evidence.`));
   L.push("");
   L.push(c("90", `Experimental: verdict ${a.experimental.verdict}, completion ${a.experimental.completion_pct}%, quality ${a.experimental.quality}/10, ROI ${a.experimental.roi ?? "n/a"}. ${a.experimental.note}`));
@@ -13537,49 +13537,267 @@ var init_doctor = __esm({
   }
 });
 
-// src/demo/demo.ts
+// src/calibrate/eval.ts
 import fs47 from "node:fs";
 import os10 from "node:os";
 import path47 from "node:path";
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-function fixturesDir() {
-  for (const c of [path47.join(here2, "fixtures", "session-basic"), path47.join(here2, "..", "..", "test", "fixtures", "session-basic"), path47.join(here2, "..", "fixtures", "session-basic")]) if (fs47.existsSync(c)) return c;
-  throw new Error("fixtures not found; run from a source checkout");
+function fixturesRoot() {
+  return path47.join(packageRoot(), "test", "fixtures", "calibration");
+}
+function baselineFile() {
+  return path47.join(fixturesRoot(), "baseline.json");
+}
+function loadFixtures(root = fixturesRoot()) {
+  if (!fs47.existsSync(root)) return [];
+  return fs47.readdirSync(root).filter((d) => fs47.existsSync(path47.join(root, d, "expected.json"))).sort().map((name) => {
+    const dir = path47.join(root, name);
+    const read = (f) => JSON.parse(fs47.readFileSync(path47.join(dir, f), "utf8"));
+    const recordedPath = path47.join(dir, "model-output.json");
+    let recorded;
+    if (fs47.existsSync(recordedPath)) {
+      const raw = read("model-output.json");
+      recorded = Array.isArray(raw.calls) ? { calls: raw.calls } : void 0;
+    }
+    return { name, dir, task: TaskSchema.parse(read("task.json")), repo: read("repo.json"), expected: read("expected.json"), recorded };
+  });
 }
 function git2(cwd, ...args) {
   const r = spawnSync15("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+  return r.stdout.trim();
+}
+function materializeRepo(c, root) {
+  const cwd = path47.join(root, c.name);
+  fs47.mkdirSync(cwd, { recursive: true });
+  git2(cwd, "init", "-q", "-b", "main");
+  git2(cwd, "config", "user.email", "fixture@tally.local");
+  git2(cwd, "config", "user.name", "tally fixture");
+  for (const [f, content] of Object.entries(c.repo.base)) {
+    fs47.mkdirSync(path47.dirname(path47.join(cwd, f)), { recursive: true });
+    fs47.writeFileSync(path47.join(cwd, f), content);
+  }
+  git2(cwd, "add", "-A");
+  git2(cwd, "commit", "-q", "-m", "base");
+  const base = git2(cwd, "rev-parse", "HEAD");
+  for (const [f, content] of Object.entries(c.repo.after)) {
+    fs47.mkdirSync(path47.dirname(path47.join(cwd, f)), { recursive: true });
+    fs47.writeFileSync(path47.join(cwd, f), content);
+  }
+  for (const f of c.repo.delete ?? []) if (fs47.existsSync(path47.join(cwd, f))) fs47.unlinkSync(path47.join(cwd, f));
+  return { cwd, base };
+}
+async function runFixture(c, opts) {
+  const cfg = opts.cfg ?? loadConfig();
+  const ownRoot = !opts.workRoot;
+  const workRoot = opts.workRoot ?? fs47.mkdtempSync(path47.join(os10.tmpdir(), "tally-cal-"));
+  try {
+    return await runFixtureIn(c, { ...opts, cfg, workRoot });
+  } finally {
+    if (ownRoot) fs47.rmSync(workRoot, { recursive: true, force: true, maxRetries: 3 });
+  }
+}
+async function runFixtureIn(c, opts) {
+  const { cfg, workRoot } = opts;
+  const { cwd, base } = materializeRepo(c, workRoot);
+  const session = c.task.session;
+  ensureDir(sessionDir(session));
+  const transcriptPath = path47.join(sessionDir(session), "transcript.jsonl");
+  fs47.copyFileSync(path47.join(c.dir, "transcript.jsonl"), transcriptPath);
+  const events = readEventsFile(path47.join(c.dir, "events.jsonl")).map((e) => e.type === "session_start" ? { ...e, session, cwd, data: { ...e.data, git_head: base } } : { ...e, session, cwd });
+  const calls = [];
+  let llm;
+  if (opts.llm) llm = opts.llm;
+  else if (opts.live) {
+    const real = makeLlm({ session });
+    llm = {
+      complete: async (req) => {
+        const r = await real.complete(req);
+        if (req.kind === "judge") calls.push({ tier: req.tier ?? 2, model: r.model, cost_usd: r.cost_usd, prompt_tokens: Math.ceil(req.prompt.length / 4), data: r.data });
+        return r;
+      }
+    };
+  } else {
+    if (!c.recorded) throw new Error(`${c.name}: no model-output.json recorded; run \`tally calibrate eval --live --record\` once`);
+    llm = new ReplayLlm(c.recorded.calls, session);
+  }
+  const task = { ...c.task, cwd };
+  const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason: "push", events, task, consent: true, deep: opts.deep });
+  const human = judge.criteria.map((cr) => c.expected.criteria[cr.id] ?? "unverifiable");
+  const entry = entryFromJudge(judge, human, c.expected.verdict, "fixture");
+  const matches = entry.criteria.filter((x) => x.human === x.judge).length;
+  const RANK = { UNMET: 0, UNVERIFIED: 1, SUPPORTED: 2, VERIFIED: 3 };
+  const assuranceOf = (id) => judge.assurance?.criteria.find((a) => a.id === id)?.status ?? "UNVERIFIED";
+  const false_verified = judge.criteria.filter((cr, i) => assuranceOf(cr.id) === "VERIFIED" && (human[i] === "unmet" || human[i] === "partial") || c.expected.assurance_ceiling?.[cr.id] !== void 0 && RANK[assuranceOf(cr.id)] > RANK[c.expected.assurance_ceiling[cr.id]]).map((cr) => cr.id);
+  const false_unmet = judge.criteria.filter((cr, i) => (judge.assurance?.criteria.find((a) => a.id === cr.id)?.status ?? "UNVERIFIED") === "UNMET" && human[i] === "met").map((cr) => cr.id);
+  return { name: c.name, session, judge, entry, matches, total: entry.criteria.length, verdict_match: judge.verdict.verdict === c.expected.verdict, calls, false_verified, false_unmet };
+}
+async function runEval(opts) {
+  const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
+  if (!cases.length) throw new Error("no calibration fixtures found");
+  const workRoot = fs47.mkdtempSync(path47.join(os10.tmpdir(), "tally-cal-"));
+  const results = [];
+  for (const c of cases) {
+    const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
+    results.push(r);
+  }
+  fs47.rmSync(workRoot, { recursive: true, force: true });
+  const report = buildCalibrationReport(results.map((r) => r.entry));
+  const fixtures = results.map((r) => ({
+    name: r.name,
+    session: r.session,
+    matches: r.matches,
+    total: r.total,
+    verdict_match: r.verdict_match,
+    judge_verdict: r.judge.verdict.verdict,
+    expected_verdict: r.entry.human_verdict ?? "",
+    statuses: r.judge.criteria.map((c, i) => ({ id: c.id, human: r.entry.criteria[i].human, judge: c.status, resolved_by: c.resolved_by, assurance: r.judge.assurance?.criteria.find((a) => a.id === c.id)?.status })),
+    false_verified: r.false_verified,
+    false_unmet: r.false_unmet,
+    session_usd: r.judge.cost.total_usd,
+    tally_usd: r.judge.cost.tally_own_usd,
+    share_pct: r.judge.cost.tally_share_pct,
+    tiers: r.judge.tiers.ran,
+    tier_reason: r.judge.tiers.reason
+  }));
+  const totalSession = fixtures.reduce((s, f) => s + f.session_usd, 0);
+  const totalTally = fixtures.reduce((s, f) => s + f.tally_usd, 0);
+  const summary = {
+    fixtures,
+    report,
+    criterion_agreement: report.criterion_agreement ?? 0,
+    false_verified: results.reduce((n, r) => n + r.false_verified.length, 0),
+    false_unmet: results.reduce((n, r) => n + r.false_unmet.length, 0),
+    verdict_agreement: report.verdict_agreement ?? 0,
+    avg_share_pct: fixtures.length ? fixtures.reduce((s, f) => s + f.share_pct, 0) / fixtures.length : 0,
+    total_session_usd: totalSession,
+    total_tally_usd: totalTally,
+    live: !!opts.live,
+    judge_model: results.flatMap((r) => r.judge.tiers.calls.map((c) => c.model)).filter((m, i, a) => a.indexOf(m) === i).join("+") || "mechanical"
+  };
+  if (opts.record || opts.rebaseline) {
+    const old = loadBaseline();
+    const writeOutput = (r) => fs47.writeFileSync(path47.join(cases.find((c) => c.name === r.name).dir, "model-output.json"), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), calls: r.calls }, null, 2) + "\n");
+    if (opts.record && opts.live) {
+      for (const r of results) if (!cases.find((c) => c.name === r.name).recorded) writeOutput(r);
+    }
+    if (opts.rebaseline || !old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
+      if (opts.record && opts.live) for (const r of results) writeOutput(r);
+      if (!opts.only?.length) fs47.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, false_verified: summary.false_verified, false_unmet: summary.false_unmet, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + "\n");
+      summary.baseline_updated = true;
+    } else summary.baseline_updated = false;
+  }
+  return summary;
+}
+function loadBaseline() {
+  const f = baselineFile();
+  if (!fs47.existsSync(f)) return null;
+  return JSON.parse(fs47.readFileSync(f, "utf8"));
+}
+function renderOverheadTable(s) {
+  const L = [];
+  L.push("fixture                    session $   tally $   share   tiers");
+  for (const f of s.fixtures) L.push(`${f.name.padEnd(26)} ${("$" + f.session_usd.toFixed(3)).padStart(9)} ${("$" + f.tally_usd.toFixed(3)).padStart(9)} ${(f.share_pct.toFixed(1) + "%").padStart(7)}   ${f.tiers.map((t) => t.replace("tier", "")).join("\u2192")}  ${f.tier_reason}`);
+  L.push(`${"average / total".padEnd(26)} ${("$" + s.total_session_usd.toFixed(3)).padStart(9)} ${("$" + s.total_tally_usd.toFixed(3)).padStart(9)} ${(s.avg_share_pct.toFixed(1) + "%").padStart(7)}`);
+  return L.join("\n");
+}
+var ReplayLlm;
+var init_eval2 = __esm({
+  "src/calibrate/eval.ts"() {
+    "use strict";
+    init_config();
+    init_client();
+    init_judge();
+    init_intake();
+    init_events();
+    init_paths();
+    init_calibrate();
+    ReplayLlm = class {
+      constructor(calls, session) {
+        this.calls = calls;
+        this.session = session;
+      }
+      used = 0;
+      async complete(req) {
+        if (req.kind !== "judge") throw new Error(`ReplayLlm: unexpected ${req.kind} call`);
+        const call = this.calls.find((c, i) => i >= this.used && c.tier === req.tier);
+        if (!call) throw new Error(`ReplayLlm: no recorded tier ${req.tier} call (recorded: ${this.calls.map((c) => "tier" + c.tier).join(", ") || "none"}); re-record with --live --record`);
+        this.used = this.calls.indexOf(call) + 1;
+        const usage = { input: call.prompt_tokens, output: 300, cache_write: 0, cache_write_1h: 0, cache_read: 0 };
+        recordTallySpend({ kind: `judge:tier${call.tier}`, model: call.model, cost_usd: call.cost_usd, usage, session: this.session });
+        return { data: call.data, usage, cost_usd: call.cost_usd, model: call.model, duration_ms: 1 };
+      }
+    };
+  }
+});
+
+// src/demo/demo.ts
+import fs48 from "node:fs";
+import os11 from "node:os";
+import path48 from "node:path";
+import { spawnSync as spawnSync16 } from "node:child_process";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+function calibrationDir() {
+  for (const c of [path48.join(here2, "fixtures", "calibration"), path48.join(here2, "..", "..", "test", "fixtures", "calibration"), path48.join(here2, "..", "fixtures", "calibration")]) if (fs48.existsSync(path48.join(c, "adv-wrong-impl-matching-test", "expected.json"))) return c;
+  throw new Error("calibration fixture not found; run npm run build or run from a source checkout");
+}
+function visibleLength(s) {
+  return s.replace(ANSI_RE, "").length;
+}
+function wrapLine(line, width) {
+  if (visibleLength(line) <= width) return [line];
+  const indentMatch = /^(\s*(?:[│├└─┌┐┘\-•·]\s*)*)/.exec(line.replace(ANSI_RE, ""));
+  const indent = " ".repeat(Math.min((indentMatch?.[1] ?? "").length + 2, Math.floor(width / 2)));
+  const words = line.split(" ");
+  const out = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (visibleLength(next) > width && cur) {
+      out.push(cur);
+      cur = indent + w;
+    } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function fixturesDir() {
+  for (const c of [path48.join(here2, "fixtures", "session-basic"), path48.join(here2, "..", "..", "test", "fixtures", "session-basic"), path48.join(here2, "..", "fixtures", "session-basic")]) if (fs48.existsSync(c)) return c;
+  throw new Error("fixtures not found; run from a source checkout");
+}
+function git3(cwd, ...args) {
+  const r = spawnSync16("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
   return r.stdout.trim();
 }
 function makeRepo(root) {
-  const cwd = path47.join(root, "acme-app");
-  fs47.mkdirSync(path47.join(cwd, "src"), { recursive: true });
-  git2(cwd, "init", "-q", "-b", "main");
-  git2(cwd, "config", "user.email", "demo@tally.local");
-  git2(cwd, "config", "user.name", "tally demo");
-  fs47.writeFileSync(path47.join(cwd, "package.json"), JSON.stringify({ name: "acme-app", version: "1.0.0", scripts: { test: "node test.js" } }, null, 2));
-  fs47.writeFileSync(path47.join(cwd, "test.js"), `const login = require('./src/login');
+  const cwd = path48.join(root, "acme-app");
+  fs48.mkdirSync(path48.join(cwd, "src"), { recursive: true });
+  git3(cwd, "init", "-q", "-b", "main");
+  git3(cwd, "config", "user.email", "demo@tally.local");
+  git3(cwd, "config", "user.name", "tally demo");
+  fs48.writeFileSync(path48.join(cwd, "package.json"), JSON.stringify({ name: "acme-app", version: "1.0.0", scripts: { test: "node test.js" } }, null, 2));
+  fs48.writeFileSync(path48.join(cwd, "test.js"), `const login = require('./src/login');
 if (login(6) !== 429) { console.error('expected 429 after 5 attempts'); process.exit(1); }
 console.log('ok: 429 after 5 attempts');
 `);
-  fs47.writeFileSync(path47.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
+  fs48.writeFileSync(path48.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
 `);
-  fs47.writeFileSync(path47.join(cwd, "README.md"), "# acme-app\n\nExpress API.\n");
-  git2(cwd, "add", "-A");
-  git2(cwd, "commit", "-q", "-m", "base");
-  const base = git2(cwd, "rev-parse", "HEAD");
+  fs48.writeFileSync(path48.join(cwd, "README.md"), "# acme-app\n\nExpress API.\n");
+  git3(cwd, "add", "-A");
+  git3(cwd, "commit", "-q", "-m", "base");
+  const base = git3(cwd, "rev-parse", "HEAD");
   return { cwd, base };
 }
 function applyWork(cwd) {
-  fs47.writeFileSync(path47.join(cwd, "src", "rateLimit.js"), `const MAX = 5;
+  fs48.writeFileSync(path48.join(cwd, "src", "rateLimit.js"), `const MAX = 5;
 module.exports = function rateLimit(attempts) { return attempts > MAX; };
 `);
-  fs47.writeFileSync(path47.join(cwd, "src", "login.js"), `const rateLimit = require('./rateLimit');
+  fs48.writeFileSync(path48.join(cwd, "src", "login.js"), `const rateLimit = require('./rateLimit');
 module.exports = function login(attempts) { return rateLimit(attempts) ? 429 : 200; };
 `);
-  git2(cwd, "add", "-A");
-  git2(cwd, "commit", "-q", "-m", "add rate limiting to login (#57)");
+  git3(cwd, "add", "-A");
+  git3(cwd, "commit", "-q", "-m", "add rate limiting to login (#57)");
 }
 function hookPayload(e, session, cwd, transcriptPath) {
   const base = { session_id: session, cwd, transcript_path: transcriptPath };
@@ -13606,7 +13824,11 @@ function hookPayload(e, session, cwd, transcriptPath) {
   }
 }
 async function runDemo(opts = {}) {
-  const out = opts.out ?? ((s) => process.stdout.write(s + "\n"));
+  const width = opts.width ?? Math.max(60, Math.min(100, process.stdout.columns || 80));
+  const rawOut = opts.out ?? ((s) => process.stdout.write(s + "\n"));
+  const out = (s) => {
+    for (const line of s.split("\n")) for (const w of wrapLine(line, width)) rawOut(w);
+  };
   const color = opts.color ?? !!process.stdout.isTTY;
   const bold = (s) => paint(color, "\x1B[1m", s);
   const dim = (s) => paint(color, "\x1B[90m", s);
@@ -13615,14 +13837,15 @@ async function runDemo(opts = {}) {
   const cyan = (s) => paint(color, "\x1B[36m", s);
   const step = (n, s) => out(`
 ${bold(cyan(`[${n}] ${s}`))}`);
-  const home2 = opts.home ?? fs47.mkdtempSync(path47.join(os10.tmpdir(), "tally-demo-"));
+  const ownHome = !opts.home;
+  const home2 = opts.home ?? fs48.mkdtempSync(path48.join(os11.tmpdir(), "tally-demo-"));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
-  process.env.TALLY_HOME = path47.join(home2, "tally");
-  process.env.CLAUDE_CONFIG_DIR = path47.join(home2, "claude");
+  process.env.TALLY_HOME = path48.join(home2, "tally");
+  process.env.CLAUDE_CONFIG_DIR = path48.join(home2, "claude");
   process.env.TALLY_NO_SPAWN = "1";
   process.env.TALLY_LLM = "stub";
-  fs47.mkdirSync(process.env.TALLY_HOME, { recursive: true });
-  fs47.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
+  fs48.mkdirSync(process.env.TALLY_HOME, { recursive: true });
+  fs48.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
   try {
     const fx = fixturesDir();
     const session = "demo-" + Date.now().toString(36);
@@ -13631,8 +13854,8 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     cfg.coach.min_interval_s = 180;
     const hook = builtHookPath();
     ensureDir(sessionDir(session));
-    const transcriptPath = path47.join(sessionDir(session), "transcript.jsonl");
-    fs47.copyFileSync(path47.join(fx, "transcript.jsonl"), transcriptPath);
+    const transcriptPath = path48.join(sessionDir(session), "transcript.jsonl");
+    fs48.copyFileSync(path48.join(fx, "transcript.jsonl"), transcriptPath);
     out(bold("Tally demo") + dim(`  isolated data dir: ${process.env.TALLY_HOME}`));
     out(dim(`  fake repo: ${cwd}  \xB7  real ~/.claude and ~/.tally are not touched  \xB7  LLM calls are stubbed`));
     const repo = repoKey(cwd);
@@ -13672,12 +13895,12 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       },
       session
     );
-    const { task } = await intake({ session, cwd, ref: path47.join(fx, "task.md"), cfg, llm });
+    const { task } = await intake({ session, cwd, ref: path48.join(fx, "task.md"), cfg, llm });
     out(renderTask(task));
     if (task.needs_clarification) out(yellow('  \u26A0 Spec quality below 5: Coach will say "Clarify the ticket first" and list the questions.'));
     step(2, "Replaying the session through the real hooks, with the Coach watching");
     out(dim("  each fixture event is fed to dist/hook.js on stdin; the Coach ticks on simulated time"));
-    const events = readEventsFile(path47.join(fx, "events.jsonl")).filter((e) => e.type !== "ship");
+    const events = readEventsFile(path48.join(fx, "events.jsonl")).filter((e) => e.type !== "ship");
     const engine = new CoachEngine(loadState(session), cfg, void 0, {});
     let shown = 0;
     const applied = [];
@@ -13686,7 +13909,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     let lastPromptDelivery = "";
     let llmCalls = 0;
     let transcriptCut = 0;
-    const transcriptLines = fs47.readFileSync(path47.join(fx, "transcript.jsonl"), "utf8").split("\n").filter(Boolean);
+    const transcriptLines = fs48.readFileSync(path48.join(fx, "transcript.jsonl"), "utf8").split("\n").filter(Boolean);
     const permissionEvents = [];
     const handle2 = (s, now) => {
       shown += 1;
@@ -13710,10 +13933,10 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       const payload = hookPayload(e, session, cwd, transcriptPath);
       if (!payload) continue;
       if (e.type === "session_start") {
-        const fakeSettings = path47.join(process.env.CLAUDE_CONFIG_DIR, "settings.json");
-        fs47.writeFileSync(fakeSettings, JSON.stringify({ enabledPlugins: { "superpowers@official": true } }));
+        const fakeSettings = path48.join(process.env.CLAUDE_CONFIG_DIR, "settings.json");
+        fs48.writeFileSync(fakeSettings, JSON.stringify({ enabledPlugins: { "superpowers@official": true } }));
       }
-      const r = spawnSync15(process.execPath, [hook, payload.event], { input: JSON.stringify(payload.input), encoding: "utf8", env: { ...process.env }, windowsHide: true });
+      const r = spawnSync16(process.execPath, [hook, payload.event], { input: JSON.stringify(payload.input), encoding: "utf8", env: { ...process.env }, windowsHide: true });
       if (r.status !== 0) out(yellow(`  hook ${payload.event} exited ${r.status}`));
       if (e.type === "prompt") {
         out(`  ${dim(now.toISOString().slice(11, 19))} ${bold("user>")} ${String(e.data.prompt).slice(0, 90)}`);
@@ -13733,7 +13956,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
         }
         if (/npm test/.test(String(inp.command)) && e.data.is_error && permissionEvents.length < 2) {
           const pe = { ts: e.ts, type: "permission", session, cwd, data: { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash(npm test)" } };
-          spawnSync15(process.execPath, [hook, "Notification"], { input: JSON.stringify({ session_id: session, cwd, hook_event_name: "Notification", notification_type: "permission_prompt", message: pe.data.message }), encoding: "utf8", env: { ...process.env }, windowsHide: true });
+          spawnSync16(process.execPath, [hook, "Notification"], { input: JSON.stringify({ session_id: session, cwd, hook_event_name: "Notification", notification_type: "permission_prompt", message: pe.data.message }), encoding: "utf8", env: { ...process.env }, windowsHide: true });
           permissionEvents.push(pe);
         }
       }
@@ -13742,7 +13965,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
         if (ts && ts > e.ts) break;
         transcriptCut += 1;
       }
-      fs47.writeFileSync(transcriptPath, transcriptLines.slice(0, Math.max(transcriptCut, 1)).join("\n") + "\n");
+      fs48.writeFileSync(transcriptPath, transcriptLines.slice(0, Math.max(transcriptCut, 1)).join("\n") + "\n");
       const ctx = buildContext({ session, cwd, cfg, now, transcriptPath });
       const tick = engine.tick(ctx);
       for (const s of tick.show) handle2(s, now);
@@ -13756,7 +13979,7 @@ ${bold(cyan(`[${n}] ${s}`))}`);
       saveState(session, engine.state);
       if (!opts.fast) await new Promise((res) => setTimeout(res, 15));
     }
-    fs47.copyFileSync(path47.join(fx, "transcript.jsonl"), transcriptPath);
+    fs48.copyFileSync(path48.join(fx, "transcript.jsonl"), transcriptPath);
     out(dim(`  ${shown} suggestions shown (noise limits: 1 non-critical per ${cfg.coach.min_interval_s}s, ${cfg.coach.max_per_session} per session; critical always)`));
     step(3, "Judge (stubbed judge model, real git diff, real independent test run)");
     applyWork(cwd);
@@ -13767,14 +13990,14 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     out(renderSummary(judge, color));
     const t = parseTranscriptFile(transcriptPath);
     out(dim(`  models in session: ${t.models.join(", ")} \xB7 subagent spend: ${Object.entries(judge.cost.by_subagent).filter(([k]) => k !== "main").map(([k, v]) => `${k} $${v.usd.toFixed(3)}`).join(", ") || "none"}`));
-    out(dim(`  full receipt: ${path47.join(sessionDir(session), "report.md")}`));
+    out(dim(`  full receipt: ${path48.join(sessionDir(session), "report.md")}`));
     step(4, "tally verify: what Tally can prove, criterion by criterion");
     out(dim("  deterministic evidence first; the model's reading is one item, labelled [model], and lifts nothing above SUPPORTED on its own"));
     if (judge.assurance) out(renderVerify(judge.assurance, { color }));
     step(5, "The agent fixes the forgotten criterion; verification becomes complete");
-    fs47.appendFileSync(path47.join(cwd, "README.md"), "\n## Rate limiting\n\nPOST /api/login answers 429 after 5 failed attempts from one IP within 15 minutes.\n");
-    git2(cwd, "add", "-A");
-    git2(cwd, "commit", "-q", "-m", "docs: document the login rate limit");
+    fs48.appendFileSync(path48.join(cwd, "README.md"), "\n## Rate limiting\n\nPOST /api/login answers 429 after 5 failed attempts from one IP within 15 minutes.\n");
+    git3(cwd, "add", "-A");
+    git3(cwd, "commit", "-q", "-m", "docs: document the login rate limit");
     const llmFixed = new StubLlm(
       {
         judge: () => ({
@@ -13795,17 +14018,17 @@ ${bold(cyan(`[${n}] ${s}`))}`);
     const judgeFixed = await judgeSession({ session, cwd, transcriptPath, cfg, llm: llmFixed, reason: "push", events: events2, consent: true });
     if (judgeFixed.assurance) out(renderVerify(judgeFixed.assurance, { color, evidence: false }));
     step(6, "Follow-up 8 days later: the PR was merged, then reverted");
-    const mergeSha = git2(cwd, "rev-parse", "HEAD");
-    fs47.writeFileSync(path47.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
+    const mergeSha = git3(cwd, "rev-parse", "HEAD");
+    fs48.writeFileSync(path48.join(cwd, "src", "login.js"), `module.exports = function login(attempts) { return 200; };
 `);
-    fs47.unlinkSync(path47.join(cwd, "src", "rateLimit.js"));
-    git2(cwd, "add", "-A");
-    git2(cwd, "commit", "-q", "-m", `Revert "add rate limiting to login (#57)"
+    fs48.unlinkSync(path48.join(cwd, "src", "rateLimit.js"));
+    git3(cwd, "add", "-A");
+    git3(cwd, "commit", "-q", "-m", `Revert "add rate limiting to login (#57)"
 
 This reverts commit ${mergeSha}. Locked out the QA team.`);
     const fakeGh = (bin, args, c) => {
       if (bin === "git") {
-        const r = spawnSync15("git", args, { cwd: c, encoding: "utf8", windowsHide: true });
+        const r = spawnSync16("git", args, { cwd: c, encoding: "utf8", windowsHide: true });
         return { ok: r.status === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
       }
       if (args[0] === "pr") return { ok: true, stdout: JSON.stringify({ state: "MERGED", mergedAt: "2026-09-11T09:00:00Z", mergeCommit: { oid: mergeSha }, reviews: [{ state: "APPROVED" }], comments: [{}, {}], number: 57, headRefName: "feature/rate-limit" }), stderr: "" };
@@ -13817,18 +14040,30 @@ This reverts commit ${mergeSha}. Locked out the QA team.`);
     const after = followupSession(session, { exec: fakeGh, now: () => /* @__PURE__ */ new Date("2026-09-18T10:00:00Z") });
     out(`  original verdict: ${bold(after.followup.original_verdict)}  \u2192  final: ${bold(after.followup.final_verdict)}  (${after.followup.final_status})`);
     for (const n of after.followup.notes) out(dim(`  - ${n}`));
+    step(7, "A test that agrees with its own mistake");
+    out(dim('  [labelled case] the task said "429 after 5 failed attempts"; the agent implemented 50, wrote a test asserting 50, and the suite is green.'));
+    out(dim("  A green run plus a test that names the behaviour is not proof the threshold is right. Replayed from a recorded adversarial fixture."));
+    const advCase = loadFixtures(calibrationDir()).find((c) => c.name === "adv-wrong-impl-matching-test");
+    if (advCase) {
+      const adv = await runFixture(advCase, { cfg });
+      if (adv.judge.assurance) out(renderVerify(adv.judge.assurance, { color }));
+      out(dim(`  author's grading: ${Object.entries(advCase.expected.criteria).map(([id, s]) => `${id} ${s}`).join(", ")}; the receipt above is what Tally said. Deterministic evidence cannot lift c1 above SUPPORTED here (assurance ceiling).`));
+    } else out(yellow("  (fixture not bundled in this build)"));
     out("");
     out(bold("Done.") + ` ${shown} coach suggestions, ${applied.length} applied (${applied.join(", ")}), ${injected.length} injected (${injected.join(", ")}), ship detected: ${shipDetected ? "yes" : "no"}, verdict ${judge.verdict.verdict} \u2192 ${after.followup.final_verdict}.`);
-    out(dim(`Demo data: ${home2}${opts.keep ? " (kept)" : " (delete it whenever you like)"}`));
-    return { home: home2, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup.final_verdict, reportPath: path47.join(sessionDir(session), "report.md") };
+    const reportPath = path48.join(sessionDir(session), "report.md");
+    if (ownHome && !opts.keep) out(dim(`Temp files removed. \`tally demo --keep\` keeps the receipt and the fake repo for a look.`));
+    else out(dim(`Demo data: ${home2}${opts.keep ? " (kept)" : ""}  \xB7  receipt: ${reportPath}`));
+    return { home: home2, repo: cwd, session, suggestionsShown: shown, applied, injected, shipDetected, verdict: judge.verdict.verdict, finalVerdict: after.followup.final_verdict, reportPath, removed: ownHome && !opts.keep };
   } finally {
+    if (ownHome && !opts.keep) fs48.rmSync(home2, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     for (const [k, v] of Object.entries(prev)) {
       if (v === void 0) delete process.env[k];
       else process.env[k] = v;
     }
   }
 }
-var here2;
+var here2, ANSI_RE;
 var init_demo = __esm({
   "src/demo/demo.ts"() {
     "use strict";
@@ -13845,7 +14080,9 @@ var init_demo = __esm({
     init_paths();
     init_parse();
     init_assurance();
-    here2 = path47.dirname(fileURLToPath3(import.meta.url));
+    init_eval2();
+    here2 = path48.dirname(fileURLToPath3(import.meta.url));
+    ANSI_RE = /\x1b\[[0-9;]*m/g;
   }
 });
 
@@ -13855,7 +14092,7 @@ __export(demo_exports, {
   run: () => run20
 });
 async function run20(args) {
-  await runDemo({ color: !has(args, "plain"), keep: has(args, "keep"), fast: has(args, "fast") });
+  await runDemo({ color: !has(args, "plain"), keep: has(args, "keep"), fast: has(args, "fast"), width: flag(args, "width") ? Number(flag(args, "width")) : void 0 });
 }
 var init_demo2 = __esm({
   "src/commands/demo.ts"() {
@@ -13870,8 +14107,8 @@ var status_exports = {};
 __export(status_exports, {
   run: () => run21
 });
-import fs48 from "node:fs";
-import path48 from "node:path";
+import fs49 from "node:fs";
+import path49 from "node:path";
 async function run21(args) {
   const cfg = loadConfig();
   const session = resolveSession(flag(args, "session"), process.cwd());
@@ -13888,7 +14125,7 @@ async function run21(args) {
 `);
   const task = loadTask(session);
   if (task) process.stdout.write(renderTask(task) + "\n\n");
-  if (fs48.existsSync(path48.join(sessionDir(session), "task.pending")) && !task) process.stdout.write("task intake is running in the background\u2026\n\n");
+  if (fs49.existsSync(path49.join(sessionDir(session), "task.pending")) && !task) process.stdout.write("task intake is running in the background\u2026\n\n");
   const judge = loadJudge(session);
   if (judge) process.stdout.write(renderSummary(judge, color) + "\n\n");
   const inj = pendingInjects(session);
@@ -14054,8 +14291,8 @@ var init_otel2 = __esm({
 });
 
 // src/calibrate/grade.ts
-import fs49 from "node:fs";
-import path49 from "node:path";
+import fs50 from "node:fs";
+import path50 from "node:path";
 function evidenceSummary(session) {
   const j = loadJudge(session);
   const task = loadTask(session);
@@ -14132,8 +14369,8 @@ These criteria were inferred from the prompts${task.context?.branch ? `, branch 
   }
   let verdict = null;
   while (!verdict) verdict = verdictFrom(await opts.ask("Your verdict: [w]orth it  [b]orderline  [n]ot worth it > "));
-  const replayPath = path49.join(sessionDir(session), "coach_replay.json");
-  const replay = fs49.existsSync(replayPath) ? JSON.parse(fs49.readFileSync(replayPath, "utf8")) : null;
+  const replayPath = path50.join(sessionDir(session), "coach_replay.json");
+  const replay = fs50.existsSync(replayPath) ? JSON.parse(fs50.readFileSync(replayPath, "utf8")) : null;
   const coach = [];
   if (replay?.shown.length) {
     opts.out(`
@@ -14170,200 +14407,6 @@ var init_grade = __esm({
     init_intake();
     init_paths();
     init_calibrate();
-  }
-});
-
-// src/calibrate/eval.ts
-import fs50 from "node:fs";
-import os11 from "node:os";
-import path50 from "node:path";
-import { spawnSync as spawnSync16 } from "node:child_process";
-function fixturesRoot() {
-  return path50.join(packageRoot(), "test", "fixtures", "calibration");
-}
-function baselineFile() {
-  return path50.join(fixturesRoot(), "baseline.json");
-}
-function loadFixtures(root = fixturesRoot()) {
-  if (!fs50.existsSync(root)) return [];
-  return fs50.readdirSync(root).filter((d) => fs50.existsSync(path50.join(root, d, "expected.json"))).sort().map((name) => {
-    const dir = path50.join(root, name);
-    const read = (f) => JSON.parse(fs50.readFileSync(path50.join(dir, f), "utf8"));
-    const recordedPath = path50.join(dir, "model-output.json");
-    let recorded;
-    if (fs50.existsSync(recordedPath)) {
-      const raw = read("model-output.json");
-      recorded = Array.isArray(raw.calls) ? { calls: raw.calls } : void 0;
-    }
-    return { name, dir, task: TaskSchema.parse(read("task.json")), repo: read("repo.json"), expected: read("expected.json"), recorded };
-  });
-}
-function git3(cwd, ...args) {
-  const r = spawnSync16("git", args, { cwd, encoding: "utf8", windowsHide: true });
-  if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
-  return r.stdout.trim();
-}
-function materializeRepo(c, root) {
-  const cwd = path50.join(root, c.name);
-  fs50.mkdirSync(cwd, { recursive: true });
-  git3(cwd, "init", "-q", "-b", "main");
-  git3(cwd, "config", "user.email", "fixture@tally.local");
-  git3(cwd, "config", "user.name", "tally fixture");
-  for (const [f, content] of Object.entries(c.repo.base)) {
-    fs50.mkdirSync(path50.dirname(path50.join(cwd, f)), { recursive: true });
-    fs50.writeFileSync(path50.join(cwd, f), content);
-  }
-  git3(cwd, "add", "-A");
-  git3(cwd, "commit", "-q", "-m", "base");
-  const base = git3(cwd, "rev-parse", "HEAD");
-  for (const [f, content] of Object.entries(c.repo.after)) {
-    fs50.mkdirSync(path50.dirname(path50.join(cwd, f)), { recursive: true });
-    fs50.writeFileSync(path50.join(cwd, f), content);
-  }
-  for (const f of c.repo.delete ?? []) if (fs50.existsSync(path50.join(cwd, f))) fs50.unlinkSync(path50.join(cwd, f));
-  return { cwd, base };
-}
-async function runFixture(c, opts) {
-  const cfg = opts.cfg ?? loadConfig();
-  const ownRoot = !opts.workRoot;
-  const workRoot = opts.workRoot ?? fs50.mkdtempSync(path50.join(os11.tmpdir(), "tally-cal-"));
-  try {
-    return await runFixtureIn(c, { ...opts, cfg, workRoot });
-  } finally {
-    if (ownRoot) fs50.rmSync(workRoot, { recursive: true, force: true, maxRetries: 3 });
-  }
-}
-async function runFixtureIn(c, opts) {
-  const { cfg, workRoot } = opts;
-  const { cwd, base } = materializeRepo(c, workRoot);
-  const session = c.task.session;
-  ensureDir(sessionDir(session));
-  const transcriptPath = path50.join(sessionDir(session), "transcript.jsonl");
-  fs50.copyFileSync(path50.join(c.dir, "transcript.jsonl"), transcriptPath);
-  const events = readEventsFile(path50.join(c.dir, "events.jsonl")).map((e) => e.type === "session_start" ? { ...e, session, cwd, data: { ...e.data, git_head: base } } : { ...e, session, cwd });
-  const calls = [];
-  let llm;
-  if (opts.llm) llm = opts.llm;
-  else if (opts.live) {
-    const real = makeLlm({ session });
-    llm = {
-      complete: async (req) => {
-        const r = await real.complete(req);
-        if (req.kind === "judge") calls.push({ tier: req.tier ?? 2, model: r.model, cost_usd: r.cost_usd, prompt_tokens: Math.ceil(req.prompt.length / 4), data: r.data });
-        return r;
-      }
-    };
-  } else {
-    if (!c.recorded) throw new Error(`${c.name}: no model-output.json recorded; run \`tally calibrate eval --live --record\` once`);
-    llm = new ReplayLlm(c.recorded.calls, session);
-  }
-  const task = { ...c.task, cwd };
-  const judge = await judgeSession({ session, cwd, transcriptPath, cfg, llm, reason: "push", events, task, consent: true, deep: opts.deep });
-  const human = judge.criteria.map((cr) => c.expected.criteria[cr.id] ?? "unverifiable");
-  const entry = entryFromJudge(judge, human, c.expected.verdict, "fixture");
-  const matches = entry.criteria.filter((x) => x.human === x.judge).length;
-  const RANK = { UNMET: 0, UNVERIFIED: 1, SUPPORTED: 2, VERIFIED: 3 };
-  const assuranceOf = (id) => judge.assurance?.criteria.find((a) => a.id === id)?.status ?? "UNVERIFIED";
-  const false_verified = judge.criteria.filter((cr, i) => assuranceOf(cr.id) === "VERIFIED" && (human[i] === "unmet" || human[i] === "partial") || c.expected.assurance_ceiling?.[cr.id] !== void 0 && RANK[assuranceOf(cr.id)] > RANK[c.expected.assurance_ceiling[cr.id]]).map((cr) => cr.id);
-  const false_unmet = judge.criteria.filter((cr, i) => (judge.assurance?.criteria.find((a) => a.id === cr.id)?.status ?? "UNVERIFIED") === "UNMET" && human[i] === "met").map((cr) => cr.id);
-  return { name: c.name, session, judge, entry, matches, total: entry.criteria.length, verdict_match: judge.verdict.verdict === c.expected.verdict, calls, false_verified, false_unmet };
-}
-async function runEval(opts) {
-  const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
-  if (!cases.length) throw new Error("no calibration fixtures found");
-  const workRoot = fs50.mkdtempSync(path50.join(os11.tmpdir(), "tally-cal-"));
-  const results = [];
-  for (const c of cases) {
-    const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
-    results.push(r);
-  }
-  fs50.rmSync(workRoot, { recursive: true, force: true });
-  const report = buildCalibrationReport(results.map((r) => r.entry));
-  const fixtures = results.map((r) => ({
-    name: r.name,
-    session: r.session,
-    matches: r.matches,
-    total: r.total,
-    verdict_match: r.verdict_match,
-    judge_verdict: r.judge.verdict.verdict,
-    expected_verdict: r.entry.human_verdict ?? "",
-    statuses: r.judge.criteria.map((c, i) => ({ id: c.id, human: r.entry.criteria[i].human, judge: c.status, resolved_by: c.resolved_by, assurance: r.judge.assurance?.criteria.find((a) => a.id === c.id)?.status })),
-    false_verified: r.false_verified,
-    false_unmet: r.false_unmet,
-    session_usd: r.judge.cost.total_usd,
-    tally_usd: r.judge.cost.tally_own_usd,
-    share_pct: r.judge.cost.tally_share_pct,
-    tiers: r.judge.tiers.ran,
-    tier_reason: r.judge.tiers.reason
-  }));
-  const totalSession = fixtures.reduce((s, f) => s + f.session_usd, 0);
-  const totalTally = fixtures.reduce((s, f) => s + f.tally_usd, 0);
-  const summary = {
-    fixtures,
-    report,
-    criterion_agreement: report.criterion_agreement ?? 0,
-    false_verified: results.reduce((n, r) => n + r.false_verified.length, 0),
-    false_unmet: results.reduce((n, r) => n + r.false_unmet.length, 0),
-    verdict_agreement: report.verdict_agreement ?? 0,
-    avg_share_pct: fixtures.length ? fixtures.reduce((s, f) => s + f.share_pct, 0) / fixtures.length : 0,
-    total_session_usd: totalSession,
-    total_tally_usd: totalTally,
-    live: !!opts.live,
-    judge_model: results.flatMap((r) => r.judge.tiers.calls.map((c) => c.model)).filter((m, i, a) => a.indexOf(m) === i).join("+") || "mechanical"
-  };
-  if (opts.record || opts.rebaseline) {
-    const old = loadBaseline();
-    const writeOutput = (r) => fs50.writeFileSync(path50.join(cases.find((c) => c.name === r.name).dir, "model-output.json"), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), calls: r.calls }, null, 2) + "\n");
-    if (opts.record && opts.live) {
-      for (const r of results) if (!cases.find((c) => c.name === r.name).recorded) writeOutput(r);
-    }
-    if (opts.rebaseline || !old || summary.criterion_agreement >= old.criterion_agreement - 1e-9) {
-      if (opts.record && opts.live) for (const r of results) writeOutput(r);
-      if (!opts.only?.length) fs50.writeFileSync(baselineFile(), JSON.stringify({ recorded_at: (/* @__PURE__ */ new Date()).toISOString(), judge_model: summary.judge_model, criterion_agreement: summary.criterion_agreement, verdict_agreement: summary.verdict_agreement, false_verified: summary.false_verified, false_unmet: summary.false_unmet, avg_share_pct: Math.round(summary.avg_share_pct * 100) / 100, fixtures: fixtures.map((f) => ({ name: f.name, matches: f.matches, total: f.total, verdict_match: f.verdict_match, session_usd: f.session_usd, tally_usd: f.tally_usd, share_pct: f.share_pct, tiers: f.tiers })) }, null, 2) + "\n");
-      summary.baseline_updated = true;
-    } else summary.baseline_updated = false;
-  }
-  return summary;
-}
-function loadBaseline() {
-  const f = baselineFile();
-  if (!fs50.existsSync(f)) return null;
-  return JSON.parse(fs50.readFileSync(f, "utf8"));
-}
-function renderOverheadTable(s) {
-  const L = [];
-  L.push("fixture                    session $   tally $   share   tiers");
-  for (const f of s.fixtures) L.push(`${f.name.padEnd(26)} ${("$" + f.session_usd.toFixed(3)).padStart(9)} ${("$" + f.tally_usd.toFixed(3)).padStart(9)} ${(f.share_pct.toFixed(1) + "%").padStart(7)}   ${f.tiers.map((t) => t.replace("tier", "")).join("\u2192")}  ${f.tier_reason}`);
-  L.push(`${"average / total".padEnd(26)} ${("$" + s.total_session_usd.toFixed(3)).padStart(9)} ${("$" + s.total_tally_usd.toFixed(3)).padStart(9)} ${(s.avg_share_pct.toFixed(1) + "%").padStart(7)}`);
-  return L.join("\n");
-}
-var ReplayLlm;
-var init_eval2 = __esm({
-  "src/calibrate/eval.ts"() {
-    "use strict";
-    init_config();
-    init_client();
-    init_judge();
-    init_intake();
-    init_events();
-    init_paths();
-    init_calibrate();
-    ReplayLlm = class {
-      constructor(calls, session) {
-        this.calls = calls;
-        this.session = session;
-      }
-      used = 0;
-      async complete(req) {
-        if (req.kind !== "judge") throw new Error(`ReplayLlm: unexpected ${req.kind} call`);
-        const call = this.calls.find((c, i) => i >= this.used && c.tier === req.tier);
-        if (!call) throw new Error(`ReplayLlm: no recorded tier ${req.tier} call (recorded: ${this.calls.map((c) => "tier" + c.tier).join(", ") || "none"}); re-record with --live --record`);
-        this.used = this.calls.indexOf(call) + 1;
-        const usage = { input: call.prompt_tokens, output: 300, cache_write: 0, cache_write_1h: 0, cache_read: 0 };
-        recordTallySpend({ kind: `judge:tier${call.tier}`, model: call.model, cost_usd: call.cost_usd, usage, session: this.session });
-        return { data: call.data, usage, cost_usd: call.cost_usd, model: call.model, duration_ms: 1 };
-      }
-    };
   }
 });
 
@@ -15767,7 +15810,7 @@ Evaluation (autonomous, blind)
 
 Other
   otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)
-  demo                        Replay a fixture session end to end with a stubbed LLM
+  demo [--keep] [--fast] [--width N]   Replay a fixture session end to end with a stubbed LLM; ends with a test that agrees with its own mistake
 `;
     PLUGIN_HINTS = {
       coach: "The live Coach pane with one-key actions needs the CLI: npm i -g @kru3ish/tally, then `tally watch` in a second terminal.",

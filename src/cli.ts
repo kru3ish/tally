@@ -144,7 +144,7 @@ Evaluation (autonomous, blind)
 
 Other
   otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)
-  demo                        Replay a fixture session end to end with a stubbed LLM
+  demo [--keep] [--fast] [--width N]   Replay a fixture session end to end with a stubbed LLM; ends with a test that agrees with its own mistake
 `;
 
 /* Printed after a command that ran from the plugin's slash commands (`--plugin`): what the npm CLI adds. */

@@ -130,3 +130,22 @@ describe('doctor: self-service', () => {
     expect(plain.stdout).toMatch(/tally doctor --json/);
   });
 });
+
+describe('demo (launch plan acceptance)', () => {
+  it('shows the labelled self-agreeing-test case, fits the requested width, and removes its own temp files', async () => {
+    let text = '';
+    const r = await runDemo({ out: (s) => (text += s + '\n'), color: false, fast: true, width: 80 });
+    expect(r.removed).toBe(true);
+    expect(fs.existsSync(r.home)).toBe(false);
+    expect(text).toContain('[7] A test that agrees with its own mistake');
+    expect(text).toContain('[labelled case]');
+    expect(text).toMatch(/Temp files removed/);
+    /* a single unbreakable path may exceed the width; everything else must fit */
+    const wide = text.split('\n').filter((l) => [...l].length > 80 && !/[\\/]/.test(l));
+    expect(wide, wide.join('\n')).toEqual([]);
+    /* the adversarial receipt: the wrong-threshold criterion is not VERIFIED */
+    const seven = text.slice(text.indexOf('[7] A test that agrees'));
+    expect(seven).toMatch(/UNMET|SUPPORTED/);
+    expect(seven).not.toMatch(/✓ VERIFIED\s+login returns 429 after 5 failed attempts/);
+  });
+});

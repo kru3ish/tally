@@ -26,6 +26,8 @@ await build({ ...shared, entryPoints: { hook: path.join(root, 'src', 'hooks', 'h
 
 fs.copyFileSync(path.join(root, 'pricing.json'), path.join(dist, 'pricing.json'));
 fs.cpSync(path.join(root, 'test', 'fixtures', 'session-basic'), path.join(dist, 'fixtures', 'session-basic'), { recursive: true });
+/* the demo's "a test that agrees with its own mistake" case: one adversarial calibration fixture with its recorded model output */
+fs.cpSync(path.join(root, 'test', 'fixtures', 'calibration', 'adv-wrong-impl-matching-test'), path.join(dist, 'fixtures', 'calibration', 'adv-wrong-impl-matching-test'), { recursive: true });
 
 /* no chmod: npm sets the bin mode on install, the plugin runs `node dist/hook.js`, and a mode flip would make the
    committed bundle differ between Windows (no mode bits) and Linux */

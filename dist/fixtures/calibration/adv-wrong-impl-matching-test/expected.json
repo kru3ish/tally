@@ -1,0 +1,12 @@
+{
+  "criteria": {
+    "c1": "unmet",
+    "c2": "partial",
+    "c3": "met"
+  },
+  "verdict": "not worth it",
+  "notes": "Implementation and test agree with each other (50 attempts) and both violate the task (5). The test mentions 429 and passes: a green run plus a test that names the behaviour is not proof the threshold is right.",
+  "assurance_ceiling": {
+    "c1": "SUPPORTED"
+  }
+}
