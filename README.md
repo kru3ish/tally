@@ -356,6 +356,10 @@ Verified against each agent's hook documentation on 2026-09-26 (`docs/PLATFORM_N
 
 Where a built-in already does the job, Tally points you to it: `/insights` for the retrospective, `/fewer-permission-prompts` for the allowlist, `/cost` and `/usage` for totals, `/plugin` Stats for what is loaded.
 
+## Privacy and metrics
+
+Everything the hooks record stays in `~/.tally`. Code leaves the machine only when the Judge, Coach or intake call a model, through your own `claude -p` login by default or a local endpoint you configure. Anonymous metrics are **off by default**: the first interactive run asks once (`Enable anonymous metrics? [y/N]`), `tally telemetry show` prints exactly what would be sent (version, command name, success, criterion and verdict counts, feedback labels, a random installation id; never prompts, code, diffs, names or paths), `tally telemetry off` deletes the id, and `TALLY_TELEMETRY=0` or a CI environment disables it. The schema is in [`PRIVACY.md`](PRIVACY.md); what leaves the machine and when is in [`SECURITY.md`](SECURITY.md).
+
 ## Known limitations
 
 - **Calibration is early and exact verdicts rarely match the author.** Ten authored fixtures and 11 of the author's own sessions graded by one person: 51% exact criterion agreement; 3 abstentions, and on the rest verdicts 1 of 8 exact, 6 of 8 within one step. No external graders yet. Treat verdicts as a second opinion, read the criteria lines, and dispute what is wrong.

@@ -16,6 +16,7 @@ import { sessionDir, log } from '../paths.js';
 import { buildAssurance, renderVerify, type Assurance } from '../assurance/index.js';
 import { resolveSessionPrefix } from './dispute.js';
 import { countVerification, shouldAskUsefulness, askUsefulness } from '../feedback/prompt.js';
+import { record } from '../telemetry/index.js';
 import type { AgentIdentity } from '../core/events.js';
 
 export function agentOfSession(session: string): AgentIdentity {
@@ -83,6 +84,8 @@ export async function run(args: Args): Promise<number | void> {
     /* the one-time usefulness question, after the fifth real verification, only in an interactive terminal */
     const state = countVerification(session);
     if (shouldAskUsefulness(state, { interactive: !!process.stdin.isTTY && !!process.stdout.isTTY, ci })) await askUsefulness();
+    /* metrics (opt-in): counts and the verdict word, never the criteria */
+    record({ command: 'verify', success: true, agent: a.agent.product as 'claude-code', criteria: { verified: a.summary.verified, supported: a.summary.supported, unverified: a.summary.unverified, unmet: a.summary.unmet }, verdict: a.experimental.verdict });
   }
   if (ci) {
     if (a.task.status === 'none') {

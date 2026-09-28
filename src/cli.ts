@@ -71,6 +71,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   backfill: () => import('./commands/backfill.js'),
   dispute: () => import('./commands/dispute.js'),
   feedback: () => import('./commands/feedback.js'),
+  telemetry: () => import('./commands/telemetry.js'),
   budget: () => import('./commands/budget.js'),
   playbook: () => import('./commands/playbook.js'),
   export: () => import('./commands/export.js'),
@@ -145,6 +146,7 @@ Evaluation (autonomous, blind)
   eval report [--json]             the ledger by class and Tally version: exact agreement, false VERIFIED, false UNMET
 
 Other
+  telemetry show|status|on|off   Opt-in anonymous metrics: exactly what would be sent, and the switch (PRIVACY.md)
   otel [--port 4318]          Loopback OTLP receiver for Claude Code telemetry (optional cost cross-check)
   demo [--keep] [--fast] [--width N]   Replay a fixture session end to end with a stubbed LLM; ends with a test that agrees with its own mistake
 `;
@@ -174,10 +176,18 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
+  /* the one-time metrics question: only at an interactive terminal on a user-facing command, never in an automatic run */
+  const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !has(args, 'auto') && !has(args, 'json') && !has(args, 'ci');
+  if (interactive && CONSENT_COMMANDS.has(cmd)) {
+    const { shouldAskConsent, askConsent } = await import('./telemetry/consent.js');
+    if (shouldAskConsent({ interactive })) await askConsent();
+  }
+  let ok = false;
   try {
     const mod = await loader();
     const code = await mod.run(args);
     if (typeof code === 'number') process.exitCode = code;
+    ok = !code;
     if (has(args, 'plugin') && PLUGIN_HINTS[cmd]) process.stdout.write(`\n${PLUGIN_HINTS[cmd]}\n`);
   } catch (err) {
     const msg = err instanceof Error ? err.stack ?? err.message : String(err);
@@ -186,6 +196,14 @@ async function main(): Promise<void> {
     process.stderr.write(`tally ${cmd}: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exitCode = 1;
   }
+  if (METRIC_COMMANDS.has(cmd) && !has(args, 'auto')) {
+    const { record } = await import('./telemetry/index.js');
+    record({ command: cmd, success: ok });
+  }
 }
+
+/* commands a person types; automatic and internal ones (finalize, coach --tick, statusline, mcp, otel, hooks) never ask and never count */
+const CONSENT_COMMANDS = new Set(['install', 'onboard', 'verify', 'judge', 'demo', 'doctor', 'task', 'report', 'feedback']);
+const METRIC_COMMANDS = new Set(['install', 'uninstall', 'onboard', 'verify', 'judge', 'demo', 'doctor', 'task', 'report', 'feedback', 'dispute', 'backfill', 'followup', 'playbook', 'export']);
 
 void main();

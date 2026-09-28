@@ -8,6 +8,7 @@ import { appendLine, ensureDir, readJson, sessionDir, tallyHome, writeJson } fro
 import { loadJudge } from '../judge/judge.js';
 import { statusFromJudge } from '../assurance/index.js';
 import type { Judge } from '../judge/schema.js';
+import { record } from '../telemetry/index.js';
 
 export const LABELS = ['correct', 'wrong', 'unsure'] as const;
 export type FeedbackLabel = (typeof LABELS)[number];
@@ -51,6 +52,8 @@ export function recordFeedback(session: string, criterion: string, label: Feedba
   };
   ensureDir(sessionDir(session));
   appendLine(feedbackFile(session), JSON.stringify(entry));
+  /* metrics (opt-in) count the label and whether it was a wrong VERIFIED; never the criterion or the comment */
+  record({ command: 'feedback', success: true, feedback_label: label, false_verified: entry.false_verified });
   return { entry, judge: j };
 }
 
@@ -107,6 +110,7 @@ export function recordUsefulness(answer: 'yes' | 'no' | 'skip'): UsefulnessState
   s.answer = answer;
   ensureDir(tallyHome());
   writeJson(usefulnessFile(), s);
+  record({ command: 'usefulness', success: true, usefulness_answer: answer });
   return s;
 }
 
