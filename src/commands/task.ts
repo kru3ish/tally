@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { type Args, flag, has } from '../cli.js';
 import { receiptPredatesTask } from './finalize.js';
@@ -48,6 +50,12 @@ export async function run(args: Args): Promise<number | void> {
       return;
     }
     process.stderr.write('Usage: tally task <url|path|text>\n');
+    return 1;
+  }
+  /* a path that does not exist is an error, never a task: "Deliver: tasks\readme-windows.md" was once frozen as a 0/10
+     contract because the command ran from the wrong directory */
+  if (ref && !text && !/^https?:\/\//i.test(ref) && (/[\\/]/.test(ref) || /\.(md|txt|markdown)$/i.test(ref)) && !/\s/.test(ref) && !fs.existsSync(path.isAbsolute(ref) ? ref : path.resolve(cwd, ref))) {
+    process.stderr.write(`File not found: ${path.isAbsolute(ref) ? ref : path.resolve(cwd, ref)}. Run from the project directory, pass an absolute path, or use --text "<task>" for a task written inline.\n`);
     return 1;
   }
   recordAssignment(cwd, session);

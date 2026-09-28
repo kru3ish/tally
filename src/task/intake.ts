@@ -42,6 +42,7 @@ export const TaskSchema = z.object({
   spec_quality: z.object({ score: z.number().min(0).max(10), missing: z.array(z.string()), questions: z.array(z.string()) }),
   /* what the ticket says must not change or is out of scope; part of the Task Contract */
   constraints: z.array(z.string()).optional(),
+  constraints_inferred: z.array(z.string()).optional(),
   needs_clarification: z.boolean(),
   estimate: z.object({ hours: z.number().nonnegative(), basis: z.enum(['story_points', 'llm', 'default']), story_points: z.number().optional() }),
   budget_usd: z.number().nonnegative(),
@@ -110,10 +111,52 @@ interface IntakeOut {
   estimate_hours: number;
   rationale: string;
   constraints?: string[];
+  constraints_inferred?: string[];
 }
 
 export function taskFile(session: string): string {
   return path.join(sessionDir(session), 'task.json');
+}
+
+/* the items of a markdown list under a heading whose text matches `heading`; numbered or bulleted, one line each */
+export function listedSection(body: string, heading: RegExp): string[] {
+  const lines = body.replace(/\r/g, '').split('\n');
+  const out: string[] = [];
+  let inSection = false;
+  for (const line of lines) {
+    const h = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line) ?? /^\s*\*\*([^*]+)\*\*:?\s*$/.exec(line);
+    if (h) {
+      inSection = heading.test(h[1]!);
+      continue;
+    }
+    if (!inSection) continue;
+    const item = /^\s*(?:\d+[.)]|[-*+])\s+(.+?)\s*$/.exec(line);
+    if (item) out.push(item[1]!.trim());
+    else if (line.trim() && out.length && !/^\s/.test(line)) break;
+  }
+  return out;
+}
+
+/* the acceptance criteria a source lists explicitly, verbatim */
+export function listedCriteria(body: string): string[] {
+  return listedSection(body, /acceptance criteria|acceptance|criteria|definition of done|done when/i);
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[`*_"'.;:,()!?]/g, '').replace(/\s+/g, ' ').trim();
+function sameLine(a: string, b: string): boolean {
+  const x = norm(a);
+  const y = norm(b);
+  return x === y || x.includes(y) || y.includes(x);
+}
+/* a constraint counts as stated by the source when most of its distinctive words appear there */
+function stated(body: string, constraint: string): boolean {
+  const text = norm(body);
+  const words = norm(constraint)
+    .split(' ')
+    .filter((w) => w.length > 3 && !['only', 'that', 'this', 'with', 'from', 'into', 'must', 'should', 'existing', 'other', 'files', 'change', 'changes'].includes(w));
+  if (!words.length) return false;
+  const hits = words.filter((w) => text.includes(w)).length;
+  return hits / words.length >= 0.6;
 }
 
 export function intakeCacheKey(fetched: FetchedTask, model: string): string {
@@ -194,11 +237,24 @@ export async function intake(opts: {
   const MAX_CRITERIA = 8;
   const raw = (out.criteria ?? []).filter((c) => c.text?.trim());
   /* at most 8 criteria, explicit ones first: a long brief produced 19, which no receipt can grade sensibly */
-  const kept = [...raw.filter((c) => c.source === 'explicit'), ...raw.filter((c) => c.source !== 'explicit')].slice(0, MAX_CRITERIA);
+  let kept = [...raw.filter((c) => c.source === 'explicit'), ...raw.filter((c) => c.source !== 'explicit')].slice(0, MAX_CRITERIA);
+  /* A source that lists its acceptance criteria is frozen verbatim: the model paraphrased "Set-ExecutionPolicy -Scope
+     CurrentUser -ExecutionPolicy RemoteSigned" into "the Set-ExecutionPolicy command with the RemoteSigned scope
+     parameter" once, dropping the scope. The model's checks are kept when its explicit list lines up one to one. */
+  const listed = listedCriteria(fetched.body);
+  if (listed.length && listed.length <= MAX_CRITERIA) {
+    const modelExplicit = raw.filter((c) => c.source === 'explicit');
+    kept = listed.map((text, i) => ({ text, source: 'explicit', check: modelExplicit.length === listed.length ? modelExplicit[i]?.check : undefined }));
+  }
   const criteria: Task['criteria'] = kept.map((c, i) => {
     const check = sanitiseCheck(parseCheck(c.check));
     return { id: `c${i + 1}`, text: c.text.trim(), source: c.source === 'explicit' ? ('explicit' as const) : ('inferred' as const), kind: check ? ('mechanical' as const) : ('judgment' as const), ...(check ? { check } : {}) };
   });
+  /* constraints the source states are explicit; anything else the model wrote is kept but labelled inferred */
+  const listedConstraints = listedSection(fetched.body, /constraints?|do not|must not/i);
+  const modelConstraints = (Array.isArray(out.constraints) ? out.constraints : []).map(String).map((x) => x.trim()).filter(Boolean);
+  const constraints = [...listedConstraints, ...modelConstraints.filter((m) => !listedConstraints.some((l) => sameLine(l, m)))].slice(0, 8);
+  const constraintsInferred = constraints.filter((c) => !listedConstraints.some((l) => sameLine(l, c)) && !stated(fetched.body, c));
   if (criteria.length === 0) criteria.push({ id: 'c1', text: `Deliver: ${fetched.title}`, source: 'inferred', kind: 'judgment' });
   /* repo policy: standing criteria the org appends to every task, checked mechanically where a check is given */
   const pol = loadPolicy(opts.cwd);
@@ -222,7 +278,8 @@ export async function intake(opts: {
     fetch_error: fetched.fetch_error,
     criteria,
     spec_quality: { score, missing: out.spec_quality?.missing ?? [], questions: out.spec_quality?.questions ?? [] },
-    constraints: (Array.isArray(out.constraints) ? out.constraints : []).map(String).map((x) => x.trim()).filter(Boolean).slice(0, 8),
+    constraints,
+    ...(constraintsInferred.length ? { constraints_inferred: constraintsInferred } : {}),
     needs_clarification: score < 5,
     estimate,
     budget_usd: pol.policy.budget.usd ?? (pol.policy.budget.fraction ? Math.max(BUDGET_FLOOR_USD, Math.round(estimate.hours * (pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate) * pol.policy.budget.fraction * 100) / 100) : computeBudget(estimate.hours, pol.policy.budget.hourly_rate ?? opts.cfg.hourly_rate)),

@@ -23,8 +23,14 @@ export const JudgeSchema = z.object({
     confirmed: z.boolean().optional(),
     /* true when the verdict was held at borderline because the spec needed clarification and nobody confirmed the task */
     spec_capped: z.boolean().optional(),
+    /* when the contract this receipt was judged against was frozen; a later contract makes the receipt stale */
+    frozen_at: z.string().optional(),
+    /* the contract was frozen after the session's last edit: the criteria were written knowing the work */
+    frozen_after_work: z.object({ frozen_at: z.string(), last_edit_at: z.string() }).optional(),
   }),
   head: z.string().optional(),
+  /* fingerprint of the uncommitted work at judge time (diff against HEAD plus untracked files) */
+  tree_hash: z.string().optional(),
   historical: z.object({ start_head: z.string().optional(), end_head: z.string().optional(), notes: z.array(z.string()) }).optional(),
   criteria: z.array(z.object({ id: z.string(), text: z.string(), status: CriterionStatus, evidence: z.string(), files: z.array(z.string()), resolved_by: z.enum(['tier0', 'tier1', 'tier2', 'rule']).default('tier2'), confidence: z.number().min(0).max(1).optional(), override: z.object({ status: CriterionStatus, reason: z.string(), by: z.string(), ts: z.string(), original: CriterionStatus }).optional() })),
   tiers: z

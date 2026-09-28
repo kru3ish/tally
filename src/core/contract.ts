@@ -13,7 +13,7 @@ import { sessionDir, readJson, writeJson } from '../paths.js';
 import { loadPolicy } from '../policy.js';
 import { detectTestCommand } from '../judge/verify.js';
 
-export type ContractStatus = 'needs_confirmation' | 'confirmed';
+export type ContractStatus = 'needs_confirmation' | 'linked' | 'confirmed';
 
 export interface ContractCriterion {
   id: string;
@@ -38,6 +38,8 @@ export interface TaskContract {
   source: { kind: Task['source']['kind']; ref: string; url?: string };
   criteria: ContractCriterion[];
   constraints: string[];
+  /* constraints the intake model added that the source does not state; shown as inferred */
+  constraints_inferred?: string[];
   verification: string[];
   unknowns: string[];
   status: ContractStatus;
@@ -86,7 +88,10 @@ export function verificationCommands(cwd: string | undefined): string[] {
 export function contractFromTask(task: Task, opts: { cwd?: string } = {}): TaskContract {
   const stored = readStored(task.session);
   const cwd = opts.cwd ?? task.cwd;
-  const status: ContractStatus = task.inferred ? (task.confirmed ? 'confirmed' : 'needs_confirmation') : task.needs_clarification && !task.confirmed ? 'needs_confirmation' : 'confirmed';
+  /* The confirmation rule, explicitly: CONFIRMED means a person ran `tally task --confirm` (or `--edit`). A contract
+     taken from a ticket or a file without that is LINKED: its criteria come from a source, not from a person's
+     sign-off. An inferred contract, or one whose spec needed clarification, is NEEDS CONFIRMATION until confirmed. */
+  const status: ContractStatus = task.confirmed ? 'confirmed' : task.inferred || task.needs_clarification ? 'needs_confirmation' : 'linked';
   const revisions = stored.revisions.length ? stored.revisions : [{ ts: task.created_at, kind: 'created' as const, criteria: task.criteria.map((c) => c.text) }];
   return {
     session: task.session,
@@ -94,6 +99,7 @@ export function contractFromTask(task: Task, opts: { cwd?: string } = {}): TaskC
     source: { kind: task.source.kind, ref: task.source.ref, url: task.source.url },
     criteria: task.criteria.map((c) => ({ id: c.id, text: c.text, source: c.source, check: c.check })),
     constraints: task.constraints ?? stored.constraints ?? [],
+    constraints_inferred: task.constraints_inferred ?? [],
     verification: verificationCommands(cwd),
     unknowns: task.spec_quality.questions,
     status,
@@ -110,7 +116,7 @@ export function recordRevision(session: string, kind: ContractRevision['kind'], 
   writeJson(contractFile(session), stored);
 }
 
-const STATUS_LABEL: Record<ContractStatus, string> = { needs_confirmation: 'NEEDS CONFIRMATION', confirmed: 'CONFIRMED' };
+const STATUS_LABEL: Record<ContractStatus, string> = { needs_confirmation: 'NEEDS CONFIRMATION', linked: 'LINKED (from the source, not confirmed by a person)', confirmed: 'CONFIRMED' };
 
 export function renderContract(c: TaskContract): string {
   const L: string[] = [];
@@ -126,7 +132,7 @@ export function renderContract(c: TaskContract): string {
   if (c.constraints.length) {
     L.push('');
     L.push('Constraints');
-    for (const x of c.constraints) L.push(`- ${x}`);
+    for (const x of c.constraints) L.push(`- ${x}${c.constraints_inferred?.includes(x) ? '  (inferred by the intake model, not in the source)' : ''}`);
   }
   L.push('');
   L.push('Verification');

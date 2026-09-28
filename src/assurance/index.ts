@@ -70,7 +70,7 @@ export interface Assurance {
   schema: 'tally.verify.v1';
   session: string;
   generated_at: string;
-  task: { goal: string; source: string; url?: string; status: 'needs_confirmation' | 'confirmed' | 'none' };
+  task: { goal: string; source: string; url?: string; status: 'needs_confirmation' | 'linked' | 'confirmed' | 'none'; frozen_after_work?: { frozen_at: string; last_edit_at: string } };
   agent: AgentIdentity;
   model?: ModelIdentity;
   criteria: CriterionAssurance[];
@@ -351,7 +351,8 @@ export function buildAssurance(opts: { judge: Judge; task: Task | null; cwd: str
     schema: 'tally.verify.v1',
     session: j.session,
     generated_at: new Date().toISOString(),
-    task: { goal: j.task.title, source: j.task.source.kind, url: j.task.source.url, status: task ? (task.inferred ? (task.confirmed ? 'confirmed' : 'needs_confirmation') : task.needs_clarification && !task.confirmed ? 'needs_confirmation' : 'confirmed') : 'none' },
+    /* the one confirmation rule (core/contract.ts): confirmed by a person, linked from a source, or needs confirmation */
+    task: { goal: j.task.title, source: j.task.source.kind, url: j.task.source.url, status: task ? (task.confirmed ? 'confirmed' : task.inferred || task.needs_clarification ? 'needs_confirmation' : 'linked') : 'none', ...(j.task.frozen_after_work ? { frozen_after_work: j.task.frozen_after_work } : {}) },
     agent,
     model: modelIdentity(j.cost.models[0] ?? j.judge_model),
     criteria,
@@ -380,7 +381,8 @@ export function renderVerify(a: Assurance, opts: { color?: boolean; evidence?: b
   const L: string[] = [];
   L.push(c('1', 'Tally Verify'));
   L.push('');
-  L.push(`Task: ${a.task.goal}${a.task.status === 'needs_confirmation' ? c('33', '  (contract not confirmed)') : ''}`);
+  L.push(`Task: ${a.task.goal}${a.task.status === 'needs_confirmation' ? c('33', '  (contract not confirmed)') : a.task.status === 'linked' ? c('90', '  (contract linked from its source, not confirmed by a person)') : ''}`);
+  if (a.task.frozen_after_work) L.push(c('33', `Contract frozen at ${a.task.frozen_after_work.frozen_at.slice(11, 16)} UTC, after the session's last edit at ${a.task.frozen_after_work.last_edit_at.slice(11, 16)} UTC: the criteria were written with the work in view.`));
   L.push(`Agent: ${a.agent.product}${a.agent.version ? ' ' + a.agent.version : ''}${a.model ? `   Model: ${a.model.model} (${a.model.provider})` : ''}`);
   L.push('');
   L.push('Acceptance criteria');

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import type { LlmClient } from '../llm/client.js';
@@ -388,6 +389,9 @@ export async function judgeSession(opts: {
     if (review.ran && review.cost_usd) tierCosts.push({ tier: 'tier2', model: review.model ?? opts.cfg.models.judge, cost_usd: round(review.cost_usd), criteria: [], prompt_tokens: 0 });
   }
   const specCapped = task.needs_clarification === true && task.confirmed !== true;
+  /* a contract frozen after the session's last edit was written with the work in view; the receipt says so */
+  const lastEdit = events.filter((e) => e.type === 'pre_tool' || e.type === 'post_tool').map((e) => e.ts).sort().pop();
+  const frozenAfterWork = lastEdit && task.created_at && Date.parse(task.created_at) > Date.parse(lastEdit) ? { frozen_at: task.created_at, last_edit_at: lastEdit } : undefined;
   const qualitySource = finalProse ? proseTier : 'mechanical';
   /* only a run whose output was captured can be judged inconclusive; a receipt with no output recorded is unknown, not a lie */
   const runInconclusive = ver.ran && ver.passed === true && typeof ver.output_tail === 'string' && !runLooksConclusive(ver.output_tail, opts.cwd, ver.command);
@@ -429,9 +433,10 @@ export async function judgeSession(opts: {
     judged_at: new Date().toISOString(),
     historical: opts.historical,
     head: ev.git.current_head,
+    tree_hash: opts.skipGit ? undefined : workingTreeHash(opts.cwd),
     tiers,
     reason: opts.reason,
-    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked), needs_clarification: task.needs_clarification, confirmed: task.confirmed, spec_capped: specCapped },
+    task: { title: task.title, source: { kind: task.source.kind, url: task.source.url, ref: task.source.ref }, spec_quality: task.spec_quality.score, estimate_hours: task.estimate.hours, budget_usd: task.budget_usd, linked, task_source: taskSourceOf(task, linked), needs_clarification: task.needs_clarification, confirmed: task.confirmed, spec_capped: specCapped, frozen_at: task.created_at, ...(frozenAfterWork ? { frozen_after_work: frozenAfterWork } : {}) },
     criteria,
     completion_pct,
     completion_basis: { verifiable: scored.verifiable, total: scored.total },
@@ -577,10 +582,33 @@ export function currentHead(cwd: string): string | undefined {
 }
 
 /* Push and SessionEnd triggers for the same HEAD share one receipt. */
+/* a fingerprint of the uncommitted work: the diff against HEAD plus the untracked files; a receipt made before an edit
+   must not be reused after it */
+export function workingTreeHash(cwd: string): string | undefined {
+  const diff = spawnSync('git', ['diff', 'HEAD', '--no-color'], { cwd, encoding: 'utf8', windowsHide: true, maxBuffer: 50 * 1024 * 1024 });
+  if (diff.status !== 0) return undefined;
+  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd, encoding: 'utf8', windowsHide: true });
+  return createHash('sha1')
+    .update(diff.stdout)
+    .update('\n--\n')
+    .update(untracked.status === 0 ? untracked.stdout : '')
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/* A stored receipt is current only when nothing it depends on has moved: the commit, the uncommitted work, and the
+   contract it was judged against. Any of the three changing means a fresh judge; a receipt from an older contract
+   (the readme-windows session: judged against the inferred "Deliver: …" contract, then the contract was replaced by
+   --force) is the wrong answer to the new question. */
 export function existingReceiptFor(session: string, cwd: string): Judge | null {
   const j = loadJudge(session);
   if (!j) return null;
   const head = currentHead(cwd);
   if (head && j.head && j.head !== head) return null;
+  const task = loadTask(session);
+  if (task && j.task.frozen_at && task.created_at !== j.task.frozen_at) return null;
+  if (task && !j.task.frozen_at && Date.parse(task.created_at) > Date.parse(j.judged_at ?? '0')) return null;
+  const tree = workingTreeHash(cwd);
+  if (tree && j.tree_hash && tree !== j.tree_hash) return null;
   return j;
 }

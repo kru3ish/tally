@@ -19,8 +19,48 @@ export function activeSessions(): ActiveSession[] {
     .sort((x, y) => (y.last_seen ?? '').localeCompare(x.last_seen ?? ''));
 }
 
+export class SessionNotFound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionNotFound';
+  }
+}
+
+/* every session id Tally knows: directories under ~/.tally/sessions plus the ids in active.json */
+export function knownSessionIds(): string[] {
+  const root = path.join(path.dirname(sessionDir('x')), '');
+  const dirs = fs.existsSync(root) ? fs.readdirSync(root).filter((d) => fs.statSync(path.join(root, d)).isDirectory()) : [];
+  return [...new Set([...dirs, ...activeSessions().map((s) => s.id)])];
+}
+
+/* A session named on the command line: the full id, or any prefix that matches exactly one known session. The same
+   rule for every command, so `verify cfe9bd83`, `judge cfe9bd83` and `status --session cfe9bd83` name the same thing.
+   A prefix that matches nothing or several sessions is an error, never an empty session. */
+export function resolveSessionId(given: string): string {
+  const id = given.trim();
+  if (!id) throw new SessionNotFound('empty session id');
+  if (fs.existsSync(sessionDir(id))) return id;
+  const known = knownSessionIds();
+  if (known.includes(id)) return id;
+  const hits = known.filter((s) => s.startsWith(id));
+  if (hits.length === 1) return hits[0]!;
+  if (hits.length > 1) throw new SessionNotFound(`"${id}" matches ${hits.length} sessions (${hits.map((h) => h.slice(0, uniquePrefixLength(known))).join(', ')}); give more characters`);
+  /* a full id that has no directory yet (a hook's first event is on its way): accept it, the caller will find nothing to read */
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return id;
+  throw new SessionNotFound(`no session starting with "${id}" (tally sessions lists them)`);
+}
+
+/* the shortest prefix length (at least 8) that tells every known session apart */
+export function uniquePrefixLength(ids: string[]): number {
+  for (let n = 8; n < 36; n++) {
+    const set = new Set(ids.map((s) => s.slice(0, n)));
+    if (set.size === ids.length) return n;
+  }
+  return 36;
+}
+
 export function resolveSession(explicit?: string, cwd?: string): string | undefined {
-  if (explicit) return explicit;
+  if (explicit) return resolveSessionId(explicit);
   const fromEnv = sessionFromEnv();
   if (fromEnv) return fromEnv;
   const active = activeSessions();
@@ -56,7 +96,13 @@ export function transcriptPathFor(session: string): string | undefined {
   return undefined;
 }
 
+/* the directory the session ran in: the first recorded event's cwd, then active.json, then the frozen task's cwd */
 export function sessionCwd(session: string): string | undefined {
   const events = readEvents(session);
-  return events.find((e) => e.cwd)?.cwd ?? activeSessions().find((s) => s.id === session)?.cwd;
+  const fromEvents = events.find((e) => e.cwd)?.cwd;
+  if (fromEvents) return fromEvents;
+  const fromActive = activeSessions().find((s) => s.id === session)?.cwd;
+  if (fromActive) return fromActive;
+  const task = readJson<{ cwd?: string } | null>(path.join(sessionDir(session), 'task.json'), null);
+  return task?.cwd;
 }

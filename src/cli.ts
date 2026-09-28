@@ -166,8 +166,14 @@ async function main(): Promise<void> {
     process.stdout.write(`tally ${packageVersion()}\n`);
     return;
   }
-  if (!cmd || cmd === 'help' || cmd === '--help' || has(args, 'help')) {
+  if (!cmd || cmd === 'help' || cmd === '--help') {
     process.stdout.write(HELP);
+    return;
+  }
+  if (has(args, 'help')) {
+    /* `tally verify --help`: only that command's lines from the help text */
+    const own = HELP.split('\n').filter((l) => new RegExp(`^  ${cmd}( |$)`).test(l));
+    process.stdout.write(own.length ? `Usage:\n${own.join('\n')}\n` : HELP);
     return;
   }
   const loader = COMMANDS[cmd];

@@ -146,7 +146,8 @@ export function renderSummary(j: Judge, color = true): string {
   const A_COLOR: Record<string, string> = { VERIFIED: '32', SUPPORTED: '33', UNVERIFIED: '90', UNMET: '31' };
   const A_MARK: Record<string, string> = { VERIFIED: '✓', SUPPORTED: '△', UNVERIFIED: '?', UNMET: '✗' };
   L.push(c('1', `Tally receipt · ${j.task.title}`));
-  if (a) L.push(c('90', `Agent ${a.agent.product}${a.agent.version ? ' ' + a.agent.version : ''}${a.model ? ` · model ${a.model.model} (${a.model.provider})` : ''}${a.task.status === 'needs_confirmation' ? ' · contract NOT CONFIRMED' : ''}`));
+  if (a) L.push(c('90', `Agent ${a.agent.product}${a.agent.version ? ' ' + a.agent.version : ''}${a.model ? ` · model ${a.model.model} (${a.model.provider})` : ''}${a.task.status === 'needs_confirmation' ? ' · contract NOT CONFIRMED' : a.task.status === 'linked' ? ' · contract linked, not confirmed by a person' : ''}`));
+  if (j.task.frozen_after_work) L.push(c('33', `Contract frozen at ${j.task.frozen_after_work.frozen_at.slice(0, 16).replace('T', ' ')} UTC, after the session's last edit at ${j.task.frozen_after_work.last_edit_at.slice(0, 16).replace('T', ' ')} UTC: the criteria were set with the work in view.`));
   const sum = a?.summary ?? j.criteria.reduce((acc, cr) => {
     const st = statusFromJudge(cr);
     acc.total += 1;

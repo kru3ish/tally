@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { Transcript } from '../transcript/parse.js';
 import { isTestCommand, isLintCommand } from '../transcript/parse.js';
@@ -81,6 +83,26 @@ export function collectGit(cwd: string, baseHead: string | undefined, exec: Exec
   return out;
 }
 
+const SHELL_WRITE_RE = /\bsed\s+(-[a-zA-Z]*i|--in-place)|\btee\b|(^|[^<>])>{1,2}\s*[^&\s]|open\([^)]*['"][wa]\+?['"]|writeFileSync|write_text\(|\bmv\s|\bcp\s|Set-Content|Out-File|Add-Content/;
+const PATH_TOKEN_RE = /(?:^|[\s'"=(])((?:[\w.-]+[\\/])*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,6})(?=$|[\s'")\]:,;])/g;
+
+/* files a shell command wrote, judged by the shape of the command and by the named files existing under cwd */
+export function shellWrittenFiles(command: string, cwd: string): string[] {
+  if (!SHELL_WRITE_RE.test(command)) return [];
+  const out = new Set<string>();
+  for (const m of command.matchAll(PATH_TOKEN_RE)) {
+    const tok = m[1]!;
+    if (/^(\d+(\.\d+)?|[a-z]+\.[a-z]+\.[a-z]+)$/i.test(tok) && !fs.existsSync(path.join(cwd, tok))) continue;
+    const abs = path.isAbsolute(tok) ? tok : path.join(cwd, tok);
+    try {
+      if (fs.statSync(abs).isFile()) out.add(path.relative(cwd, abs).replace(/\\/g, '/'));
+    } catch {
+      /* not a file under cwd */
+    }
+  }
+  return [...out];
+}
+
 export function collectEvidence(opts: { cwd: string; transcript: Transcript; events: TallyEvent[]; exec?: Exec; skipGit?: boolean }): Evidence {
   const { transcript: t, events } = opts;
   const startEv = events.find((e) => e.type === 'session_start');
@@ -107,6 +129,9 @@ export function collectEvidence(opts: { cwd: string; transcript: Transcript; eve
   const edited = new Set<string>();
   for (const c of t.toolCalls) {
     if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(c.name) && typeof c.input.file_path === 'string') edited.add(c.input.file_path.replace(/\\/g, '/'));
+    /* an agent that edits through the shell (sed -i, python -c with open(..., 'w'), tee, a redirect) touches files the
+       Edit tool never sees; the files it names that exist under cwd count as edited */
+    if (c.name === 'Bash' && typeof c.input.command === 'string') for (const f of shellWrittenFiles(c.input.command, opts.cwd)) edited.add(f);
   }
   const reconstruction = reconstructChanges(t, git.files_changed, opts.cwd);
   return { git, command_runs, ship_events, final_messages, prompts, tool_call_count: t.toolCalls.length, edited_files: [...edited].sort(), reconstruction };

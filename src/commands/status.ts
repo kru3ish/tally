@@ -17,6 +17,10 @@ export async function run(args: Args): Promise<number | void> {
     process.stdout.write('No tracked sessions yet. Install with `tally install`, then start Claude Code.\n');
     return;
   }
+  if (!fs.existsSync(sessionDir(session))) {
+    process.stderr.write(`No session ${session} on this machine (tally sessions lists them).\n`);
+    return 1;
+  }
   const cwd = sessionCwd(session) ?? process.cwd();
   process.stdout.write(statusLine(session, cwd, cfg, color) + '\n');
   const active = activeSessions().find((s) => s.id === session);

@@ -7,7 +7,7 @@ import { type Args, flag } from '../cli.js';
 import { loadJudge, rescoreJudge, persistJudge, renderSummary } from '../judge/judge.js';
 import { loadTask } from '../task/intake.js';
 import { appendLine, ensureDir, tallyHome, sessionDir } from '../paths.js';
-import { resolveSession } from '../session.js';
+import { resolveSession, resolveSessionId } from '../session.js';
 import fs from 'node:fs';
 import { calibrationFile, type CalibrationEntry } from '../calibrate/calibrate.js';
 import { appendEvent } from '../store/events.js';
@@ -44,13 +44,9 @@ export function disputeCriterion(session: string, id: string, status: Status, re
   return { judge: next, entry };
 }
 
-/* an 8-character prefix (what receipts and hints print) resolves to the full session id */
+/* kept for callers: the one prefix rule now lives in session.ts */
 export function resolveSessionPrefix(p: string): string {
-  if (fs.existsSync(sessionDir(p))) return p;
-  const root = path.join(tallyHome(), 'sessions');
-  const hits = fs.existsSync(root) ? fs.readdirSync(root).filter((d) => d.startsWith(p)) : [];
-  if (hits.length === 1) return hits[0]!;
-  throw new Error(hits.length ? `"${p}" matches ${hits.length} sessions; give more characters` : `no session starting with "${p}"`);
+  return resolveSessionId(p);
 }
 
 /* the plugin's /tally:dispute passes one string: "<criterion> <status> <reason…>" */

@@ -132,6 +132,21 @@ One line each. Newest at the bottom.
 - V6: Flags go to Claude. Autopilot hands each new flag to Claude once as an observation carrying the exact `coach --apply <rule> --session <id>` command (absolute CLI path, so plugin-only installs work), Claude asks the user and runs it; `tally coach` lists the same flags with the same commands, and `--apply` accepts a rule id. Verified live in the author's session on the first turn after the change.
 - V7: 0.1.1 published from a laptop after trusted publishing returned 403 twice on fresh runs; the npm side is the remaining unknown (see RELEASING.md). npm's automated post-publish review held the version as "Validating" for a few minutes before it became installable.
 
+## Live verification on Windows (2026-09-29)
+
+The first live run by the maintainer (session cfe9bd83, a README task) produced a wrong receipt and five misbehaving commands. The agent's work was correct; Tally's plumbing was not. Decisions from it:
+
+- L1: One rule names a session everywhere. `resolveSessionId` accepts a full id or a prefix that matches exactly one known session; an ambiguous or unknown prefix is an error, never an empty session. `verify` resolved prefixes, `judge` and `status` did not, so the same eight characters gave three different answers.
+- L2: The repository is the session's, never the shell's. `verify` took `process.cwd()` and judged Tally's own checkout when run from another directory, producing "not a git repository" and an empty diff that the model read as "no edits were applied". Commands derive the working directory from the session's first event, then active.json, then the frozen task.
+- L3: Edits made through the shell count. An agent that writes files with `python -c`, `sed -i`, `tee` or a redirect never calls the Edit tool; the transcript reconstruction saw only a scratchpad write. Files named by a writing command that exist under the repository are edited files, and with the right repository the git diff carries them anyway.
+- L4: A receipt is cached against three things, not one: the commit, the uncommitted work (a hash of the diff against HEAD plus untracked files) and the contract it was judged against (`task.frozen_at`). A receipt judged against the inferred "Deliver: taskseadme-windows.md" contract was served back after the contract had been replaced by `--force`.
+- L5: A path that does not exist is an error. `tally task taskseadme-windows.md` from the wrong directory fell through to text intake and froze a 0/10 contract; a path-shaped argument that is not a file now stops with the resolved path and the alternatives.
+- L6: The contract says what it is. CONFIRMED means a person ran `--confirm` or `--edit`; a contract taken from a ticket or a file without that is LINKED; inferred or unclear contracts NEED CONFIRMATION. Before this, a linked file was shown as CONFIRMED with nobody having confirmed it.
+- L7: Listed criteria are frozen verbatim. When the source has an acceptance-criteria list, its lines become the criteria; the model's paraphrase had dropped `-Scope CurrentUser` from a command. The model still contributes checks when its explicit list lines up one to one.
+- L8: Constraints the model adds are labelled. A constraint the source does not state is kept, marked "inferred by the intake model", and never presented as the ticket's own words.
+- L9: A contract frozen after the last edit says so on the receipt, with both times. Criteria written with the work in view are weaker than criteria written before it; the reader should know which they are reading.
+- L10: Two sessions from the same minute can share their first eight characters (Codex uses time-ordered ids). Listings show as many characters as it takes to tell every session apart.
+
 ## Autonomous evaluation (2026-09-27)
 
 - E1: The blind evaluator is a separate process with fresh context and cleared settings, not a second prompt in the same conversation. It receives the task, the repository, the base commit and the test command, nothing of Tally's. Correlated failure (Claude builds Tally, Claude grades Tally) is reduced, not removed; the doc says so and the human-graded set stays the reference.

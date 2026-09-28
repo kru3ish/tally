@@ -10,7 +10,7 @@ import { loadConfig, testRerunConsent } from '../config.js';
 import { makeLlm } from '../llm/client.js';
 import { judgeSession, loadJudge, currentHead } from '../judge/judge.js';
 import { loadTask } from '../task/intake.js';
-import { resolveSession, transcriptPathFor } from '../session.js';
+import { resolveSession, transcriptPathFor, sessionCwd } from '../session.js';
 import { readEvents } from '../store/events.js';
 import { sessionDir, log } from '../paths.js';
 import { buildAssurance, renderVerify, type Assurance } from '../assurance/index.js';
@@ -64,14 +64,16 @@ export async function verifySession(session: string, opts: { cwd: string; deep?:
 }
 
 export async function run(args: Args): Promise<number | void> {
-  const cwd = process.cwd();
   const arg = args._[0];
-  const session = arg ? resolveSessionPrefix(arg) : resolveSession(undefined, cwd);
+  const session = arg ? resolveSessionPrefix(arg) : resolveSession(undefined, process.cwd());
   if (!session) {
     process.stderr.write('No session found. Pass a session id, or run from a repository with a Tally session.\n');
     return 2;
   }
   const ci = has(args, 'ci');
+  /* the repository is the one the session ran in, never the directory verify happens to be run from */
+  const cwd = sessionCwd(session) ?? process.cwd();
+  if (!has(args, 'json') && path.resolve(cwd) !== path.resolve(process.cwd())) process.stderr.write(`Session ${session.slice(0, 8)} ran in ${cwd}; using that repository.\n`);
   const a = await verifySession(session, { cwd, deep: has(args, 'deep'), fresh: has(args, 'fresh'), quiet: has(args, 'json') });
   if (!a) {
     process.stderr.write(`Nothing to verify for session ${session.slice(0, 8)}: no receipt and no transcript. Run the task under Tally, or \`tally backfill add ${session.slice(0, 8)}\`.\n`);

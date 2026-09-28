@@ -189,7 +189,7 @@ describe('assurance engine', () => {
     expect(a.verification.agent_created.cases_added).toBe(1);
     /* the receipt summary leads with the evidence map, not the verdict */
     const summary = renderSummary(j, false);
-    expect(summary.split('\n')[2]).toContain('criteria have sufficient evidence');
+    expect(summary.split('\n').slice(0, 4).join(' ')).toContain('criteria have sufficient evidence');
     expect(summary).toContain('✓ VERIFIED');
     expect(summary).toContain('✗ UNMET');
     expect(summary.indexOf('Experimental')).toBeGreaterThan(summary.indexOf('UNMET'));
