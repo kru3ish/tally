@@ -85,7 +85,7 @@ Optionally install the CLI for the one-key Coach pane, reports and backfill:
 
 ```bash
 npm i -g @kru3ish/tally       # gives you `tally` (and `cc-tally`, the same binary)
-tally doctor                  # checks claude, gh, hooks, pricing; must not say "installed 2 ways"
+tally doctor                  # node, install and updates, agents and their hooks, history; every failure prints its fix; --json for issues
 ```
 
 **As an npm CLI only** (hooks go into `~/.claude/settings.json`, backed up first):

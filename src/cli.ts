@@ -89,7 +89,7 @@ Setup
   install --agent <id>        Same for another agent: codex | gemini | cursor (writes its hook file, backed up)
   adapters [--json]           Which agents Tally can observe here, and what each can and cannot tell it
   uninstall [--project|--agent <id>]  Remove hooks; settings return byte-identical
-  doctor                      Check claude, gh, hooks, pricing, config
+  doctor [--json] [--offline] Check node, Tally install and updates, agents and their hooks, history, pricing, config; --json for issues
   config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
 
 Judge

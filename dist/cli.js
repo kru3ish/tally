@@ -13068,23 +13068,129 @@ var init_report4 = __esm({
 // src/commands/doctor.ts
 var doctor_exports = {};
 __export(doctor_exports, {
+  doctorJson: () => doctorJson,
   run: () => run19,
   runChecks: () => runChecks,
   transcriptFormatCheck: () => transcriptFormatCheck
 });
 import fs45 from "node:fs";
+import os9 from "node:os";
 import path46 from "node:path";
 import { spawnSync as spawnSync12 } from "node:child_process";
+function semverNewer(a, b) {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false;
+  }
+  return false;
+}
+function installChecks(opts) {
+  const out = [];
+  const version = readJson(path46.join(packageRoot(), "package.json"), {}).version ?? "unknown";
+  const here3 = packageRoot();
+  const onPath = sh2(process.platform === "win32" ? "where" : "which", ["tally"]);
+  const first = onPath.ok ? onPath.out.split("\n")[0].trim() : "";
+  let resolvesHere = null;
+  if (first) {
+    try {
+      const real = fs45.realpathSync(first);
+      const text2 = real.endsWith(".js") ? "" : fs45.readFileSync(first, "utf8");
+      resolvesHere = real.startsWith(here3) || text2.includes(path46.basename(here3)) || text2.includes("@kru3ish/tally") || text2.includes("dist/cli.js") || text2.includes("dist\\cli.js");
+    } catch {
+      resolvesHere = null;
+    }
+  }
+  const prefix = sh2("npm", ["prefix", "-g"]);
+  const globalBin = prefix.ok ? process.platform === "win32" ? prefix.out.trim() : path46.join(prefix.out.trim(), "bin") : "";
+  out.push({
+    name: "tally",
+    ok: first ? resolvesHere === false ? "warn" : true : "warn",
+    detail: `${version} at ${here3}${first ? `; \`tally\` on PATH \u2192 ${first}${resolvesHere === false ? " (a different install)" : ""}` : "; `tally` is not on PATH"}`,
+    fix: first ? resolvesHere === false ? `two installs: \`npm ls -g @kru3ish/tally\` shows the global one; remove the other or use the one on PATH` : void 0 : `add npm's global bin directory to PATH${globalBin ? ` (${globalBin})` : ""}, or run \`npm i -g @kru3ish/tally\``
+  });
+  const skip = opts.offline || process.env.CI || process.env.TALLY_OFFLINE === "1" || process.env.TALLY_INTERNAL === "1";
+  if (skip) out.push({ name: "update", ok: true, detail: `registry check skipped (${opts.offline ? "--offline" : process.env.CI ? "CI" : "TALLY_OFFLINE / internal run"})` });
+  else {
+    const r = process.platform === "win32" ? spawnSync12("npm view @kru3ish/tally version", { encoding: "utf8", shell: true, windowsHide: true, timeout: 6e3 }) : spawnSync12("npm", ["view", "@kru3ish/tally", "version"], { encoding: "utf8", windowsHide: true, timeout: 6e3 });
+    const latest = r.status === 0 ? (r.stdout ?? "").trim().split("\n").pop()?.trim() ?? "" : "";
+    if (!/^\d+\.\d+\.\d+/.test(latest)) out.push({ name: "update", ok: true, detail: "could not reach the npm registry (offline?); skipped" });
+    else if (semverNewer(latest, version)) out.push({ name: "update", ok: "warn", detail: `${latest} is on npm, this is ${version}`, fix: `npm i -g @kru3ish/tally@${latest}   (plugin users: /plugin update tally@tally)` });
+    else out.push({ name: "update", ok: true, detail: `${version} is the latest on npm${semverNewer(version, latest) ? ` (registry has ${latest}; this is a local build)` : ""}` });
+  }
+  return out;
+}
+function agentChecks() {
+  const out = [];
+  const detected = [];
+  const absent = [];
+  for (const id of AGENT_IDS) {
+    const a = agent(id);
+    const hooksFile = a.hooksFile();
+    const configDir = path46.dirname(hooksFile);
+    const binary = id === "claude-code" ? sh2("claude", ["--version"]).ok : id === "codex" ? sh2(process.platform === "win32" ? "where" : "which", ["codex"]).ok : id === "gemini" ? sh2(process.platform === "win32" ? "where" : "which", ["gemini"]).ok : sh2(process.platform === "win32" ? "where" : "which", ["cursor-agent"]).ok || fs45.existsSync(configDir);
+    const present = binary || fs45.existsSync(configDir);
+    if (!present) {
+      absent.push(a.label);
+      continue;
+    }
+    detected.push(a.label);
+    let installed = false;
+    if (id === "claude-code") {
+      const settings = readJson(hooksFile, {});
+      installed = isInstalled("user") || Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith("tally"));
+    } else if (fs45.existsSync(hooksFile)) {
+      try {
+        const text2 = fs45.readFileSync(hooksFile, "utf8");
+        installed = /--agent[ =]/.test(text2) && /hook\.js|tally/.test(text2);
+      } catch {
+        installed = false;
+      }
+    }
+    out.push({ name: `hooks: ${id}`, ok: installed ? true : "warn", detail: installed ? `Tally hooks in ${hooksFile}` : `${a.label} detected (${binary ? "binary on PATH" : configDir}) but Tally is not hooked in`, fix: installed ? void 0 : id === "claude-code" ? "`tally install` or /plugin install tally@tally" : `tally install --agent ${id}` });
+    const roots = id === "claude-code" ? [path46.join(claudeHome(), "projects")] : a.transcriptRoots?.() ?? [];
+    if (!roots.length) out.push({ name: `history: ${id}`, ok: true, detail: `${a.label} exposes no transcript to Tally; receipts say "unavailable" for tokens and cost (see tally adapters)` });
+    else {
+      const readable = roots.filter((r) => {
+        try {
+          fs45.accessSync(r, fs45.constants.R_OK);
+          return fs45.statSync(r).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+      let files = 0;
+      for (const r of readable) {
+        try {
+          const walk = (d, depth) => {
+            if (depth > 4 || files > 5e3) return;
+            for (const e of fs45.readdirSync(d, { withFileTypes: true })) {
+              if (e.isDirectory()) walk(path46.join(d, e.name), depth + 1);
+              else if (e.name.endsWith(".jsonl")) files += 1;
+            }
+          };
+          walk(r, 0);
+        } catch {
+        }
+      }
+      out.push({ name: `history: ${id}`, ok: readable.length ? true : "warn", detail: readable.length ? `${readable.join(", ")} readable (${files} transcript file(s))` : `${roots.join(", ")} not found or not readable`, fix: readable.length ? void 0 : `run one ${a.label} session first; Tally reads transcripts from there and never writes to them` });
+    }
+  }
+  out.unshift({ name: "agents", ok: detected.length ? true : "warn", detail: detected.length ? `detected: ${detected.join(", ")}${absent.length ? `; not detected: ${absent.join(", ")}` : ""}` : `no supported agent detected (${absent.join(", ")})`, fix: detected.length ? void 0 : "install Claude Code, Codex CLI, Gemini CLI or Cursor; Tally observes those" });
+  return out;
+}
 function sh2(bin, args) {
   const r = process.platform === "win32" ? spawnSync12(`${bin} ${args.join(" ")}`, { encoding: "utf8", shell: true, windowsHide: true, timeout: 15e3 }) : spawnSync12(bin, args, { encoding: "utf8", windowsHide: true, timeout: 15e3 });
   return { ok: r.status === 0, out: ((r.stdout ?? "") + (r.stderr ?? "")).trim() };
 }
-function runChecks() {
+function runChecks(opts = {}) {
   const checks = [];
   const major = Number(process.versions.node.split(".")[0]);
-  checks.push({ name: "node", ok: major >= 18, detail: `v${process.versions.node}${major >= 18 ? "" : " (need >= 18)"}` });
+  checks.push({ name: "node", ok: major >= 18, detail: `v${process.versions.node}${major >= 18 ? "" : " (need >= 18)"}`, fix: major >= 18 ? void 0 : "install Node 18 or newer (https://nodejs.org) and reopen the terminal" });
+  checks.push(...installChecks(opts));
   const claude = sh2("claude", ["--version"]);
-  checks.push({ name: "claude", ok: claude.ok, detail: claude.ok ? claude.out.split("\n")[0] : "not found on PATH; Tally needs the Claude Code CLI for judge/intake calls" });
+  checks.push({ name: "claude", ok: claude.ok, detail: claude.ok ? claude.out.split("\n")[0] : "not found on PATH; Tally needs the Claude Code CLI for judge/intake calls", fix: claude.ok ? void 0 : "install Claude Code (https://docs.claude.com/en/docs/claude-code/setup), run `claude` once to log in, then reopen the terminal" });
   if (claude.ok) {
     const r = resolveClaudeBin();
     checks.push({ name: "claude -p launcher", ok: true, detail: r.prefix.length ? `resolved shim \u2192 ${r.prefix[0]}` : r.bin });
@@ -13096,36 +13202,37 @@ function runChecks() {
   const settings = readJson(path46.join(claudeHome(), "settings.json"), {});
   const plugin = Object.entries(settings.enabledPlugins ?? {}).some(([k, v]) => v && k.startsWith("tally"));
   const ways = [user && "user settings", project && "project settings", plugin && "plugin"].filter(Boolean);
-  checks.push({ name: "hooks", ok: ways.length === 1 ? true : ways.length === 0 ? false : "warn", detail: ways.length === 0 ? `not installed; run \`tally install\` or /plugin install tally@tally (${settingsPath("user")})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(", ")}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice. Keep one: \`tally uninstall\` removes the settings hooks, /plugin uninstall tally removes the plugin` });
+  checks.push({ name: "hooks", ok: ways.length === 1 ? true : ways.length === 0 ? false : "warn", detail: ways.length === 0 ? `not installed (${settingsPath("user")})` : ways.length === 1 ? `installed via ${ways[0]}` : `installed ${ways.length} ways (${ways.join(", ")}); tool events are de-duplicated by tool_use_id but prompts and stops are recorded twice`, fix: ways.length === 0 ? "`tally install` (npm CLI) or /plugin install tally@tally (plugin)" : ways.length > 1 ? "keep one: `tally uninstall` removes the settings hooks, /plugin uninstall tally removes the plugin" : void 0 });
+  checks.push(...agentChecks());
   const referenced = [];
   for (const f of [settingsPath("user"), settingsPath("project", process.cwd())]) {
     const st = readJson(f, {});
     for (const groups of Object.values(st.hooks ?? {})) for (const g of groups) for (const h of g.hooks ?? []) if (isTallyHook(h)) referenced.push((h.args?.[0] ?? /"([^"]+hook\.js)"/.exec(h.command ?? "")?.[1] ?? "").replace(/^\$\{CLAUDE_PLUGIN_ROOT\}.*/, ""));
   }
   const missing = [...new Set(referenced.filter((p) => p && !fs45.existsSync(p)))];
-  if (referenced.length) checks.push({ name: "hook script", ok: missing.length ? false : true, detail: missing.length ? `${missing.join(", ")} does not exist; every hook event is failing (non-blocking). Run \`tally install\` to repoint the hooks at ${builtHookPath()}` : `${[...new Set(referenced)].join(", ")} exists` });
+  if (referenced.length) checks.push({ name: "hook script", ok: missing.length ? false : true, detail: missing.length ? `${missing.join(", ")} does not exist; every hook event is failing (non-blocking)` : `${[...new Set(referenced)].join(", ")} exists`, fix: missing.length ? `\`tally install\` repoints the hooks at ${builtHookPath()}` : void 0 });
   const hook = builtHookPath();
   fs45.mkdirSync(tallyHome(), { recursive: true });
   if (fs45.existsSync(hook)) {
     const t0 = Date.now();
     const r = spawnSync12(process.execPath, [hook, "Stop"], { input: "{}", encoding: "utf8", env: { ...process.env, TALLY_HOME: fs45.mkdtempSync(path46.join(tallyHome(), "doctor-")) } });
     const ms = Date.now() - t0;
-    checks.push({ name: "hook runtime", ok: r.status === 0 && ms < 150 ? true : r.status === 0 ? "warn" : false, detail: `exit ${r.status}, ${ms} ms (limit 150)` });
+    checks.push({ name: "hook runtime", ok: r.status === 0 && ms < 150 ? true : r.status === 0 ? "warn" : false, detail: `exit ${r.status}, ${ms} ms (limit 150)`, fix: r.status === 0 ? ms < 150 ? void 0 : "a slow disk or antivirus scan of node; run `tally doctor` again when the machine is idle" : `the hook crashed: run \`node "${hook}" Stop\` with input {} to see the error, then \`npm i -g @kru3ish/tally\` to reinstall` });
     for (const d of fs45.readdirSync(tallyHome()).filter((x) => x.startsWith("doctor-"))) fs45.rmSync(path46.join(tallyHome(), d), { recursive: true, force: true });
   } else {
-    checks.push({ name: "hook runtime", ok: false, detail: "dist/hook.js missing; run npm run build" });
+    checks.push({ name: "hook runtime", ok: false, detail: "dist/hook.js missing", fix: "from a checkout: `npm run build`; from npm: `npm i -g @kru3ish/tally` again" });
   }
   try {
     fs45.mkdirSync(tallyHome(), { recursive: true });
     fs45.accessSync(tallyHome(), fs45.constants.W_OK);
     checks.push({ name: "data dir", ok: true, detail: tallyHome() });
   } catch {
-    checks.push({ name: "data dir", ok: false, detail: `${tallyHome()} not writable` });
+    checks.push({ name: "data dir", ok: false, detail: `${tallyHome()} not writable`, fix: `make it writable, or point TALLY_HOME at a directory you own` });
   }
   const cfgRaw = readJson(configFile(), null);
   const cfgOk = cfgRaw === null || ConfigSchema.safeParse(cfgRaw).success;
   const cfg = loadConfig();
-  checks.push({ name: "config", ok: cfgOk, detail: cfgOk ? `hourly_rate $${cfg.hourly_rate}, judge ${cfg.models.judge}, coach ${cfg.models.coach}, auto_apply ${cfg.auto_apply}, writeback ${cfg.writeback}` : `${configFile()} is invalid; defaults in use` });
+  checks.push({ name: "config", ok: cfgOk, detail: cfgOk ? `hourly_rate $${cfg.hourly_rate}, judge ${cfg.models.judge}, coach ${cfg.models.coach}, auto_apply ${cfg.auto_apply}, writeback ${cfg.writeback}` : `${configFile()} is invalid; defaults in use`, fix: cfgOk ? void 0 : `fix or delete ${configFile()}; \`tally config\` shows the valid keys` });
   const pricing = loadPricing();
   const age = (Date.now() - Date.parse(pricing.last_verified)) / 864e5;
   checks.push({ name: "pricing", ok: age < 60 ? true : "warn", detail: `${fs45.existsSync(pricingFile()) ? pricingFile() : bundledPricingPath()} verified ${pricing.last_verified} (${Math.round(age)} days ago${age >= 60 ? "; re-check against the pricing page" : ""})` });
@@ -13190,16 +13297,35 @@ function transcriptFormatCheck(cwd) {
     detail: `${recent.length} recent transcript(s), Claude Code ${[...versions].join(", ") || "unknown"}${unknownVersion ? " (not a verified layout; costs will be marked partial)" : ""}, ${unparseable}/${total} unparseable lines${unknownTypes.size ? `, unknown line types: ${[...unknownTypes].join(", ")}` : ""}`
   };
 }
+function doctorJson(checks) {
+  const version = readJson(path46.join(packageRoot(), "package.json"), {}).version ?? "unknown";
+  const rows = checks.map((c) => ({ name: c.name, status: c.ok === true ? "ok" : c.ok === "warn" ? "warn" : "fail", detail: c.detail, ...c.fix ? { fix: c.fix } : {} }));
+  const problems = rows.filter((r) => r.status === "fail").length;
+  return { schema: "tally.doctor.v1", version, platform: `${process.platform} ${os9.release()}`, node: process.versions.node, ok: problems === 0, problems, warnings: rows.filter((r) => r.status === "warn").length, checks: rows };
+}
 async function run19(args) {
-  const checks = runChecks();
+  const checks = runChecks({ offline: has(args, "offline") });
+  if (has(args, "json")) {
+    const j = doctorJson(checks);
+    process.stdout.write(JSON.stringify(j, null, 2) + "\n");
+    return j.ok ? 0 : 1;
+  }
   const color = !has(args, "plain");
   const mark = (ok) => ok === true ? color ? "\x1B[32m\u2714\x1B[0m" : "ok  " : ok === "warn" ? color ? "\x1B[33m!\x1B[0m" : "warn" : color ? "\x1B[31m\u2718\x1B[0m" : "FAIL";
-  for (const c of checks) process.stdout.write(`${mark(c.ok)} ${c.name.padEnd(18)} ${c.detail}
+  const dim = (s) => color ? `\x1B[90m${s}\x1B[0m` : s;
+  for (const c of checks) {
+    process.stdout.write(`${mark(c.ok)} ${c.name.padEnd(18)} ${c.detail}
 `);
+    if (c.ok !== true && c.fix) process.stdout.write(`${" ".repeat(color ? 2 : 5)}${dim(`fix: ${c.fix}`)}
+`);
+  }
   const failed = checks.filter((c) => c.ok === false).length;
+  const warned = checks.filter((c) => c.ok === "warn").length;
   process.stdout.write(failed ? `
-${failed} problem(s).
-` : "\nAll good.\n");
+${failed} problem(s)${warned ? `, ${warned} warning(s)` : ""}. Paste \`tally doctor --json\` into an issue: https://github.com/kru3ish/tally/issues/new
+` : `
+All good${warned ? ` (${warned} optional item(s) not set up)` : ""}.
+`);
   return failed ? 1 : 0;
 }
 var init_doctor = __esm({
@@ -13208,6 +13334,7 @@ var init_doctor = __esm({
     init_cli();
     init_config();
     init_paths();
+    init_agents();
     init_pricing();
     init_install();
     init_session();
@@ -13221,7 +13348,7 @@ var init_doctor = __esm({
 
 // src/demo/demo.ts
 import fs46 from "node:fs";
-import os9 from "node:os";
+import os10 from "node:os";
 import path47 from "node:path";
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
@@ -13297,7 +13424,7 @@ async function runDemo(opts = {}) {
   const cyan = (s) => paint(color, "\x1B[36m", s);
   const step = (n, s) => out(`
 ${bold(cyan(`[${n}] ${s}`))}`);
-  const home2 = opts.home ?? fs46.mkdtempSync(path47.join(os9.tmpdir(), "tally-demo-"));
+  const home2 = opts.home ?? fs46.mkdtempSync(path47.join(os10.tmpdir(), "tally-demo-"));
   const prev = { TALLY_HOME: process.env.TALLY_HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, TALLY_NO_SPAWN: process.env.TALLY_NO_SPAWN, TALLY_LLM: process.env.TALLY_LLM };
   process.env.TALLY_HOME = path47.join(home2, "tally");
   process.env.CLAUDE_CONFIG_DIR = path47.join(home2, "claude");
@@ -13857,7 +13984,7 @@ var init_grade = __esm({
 
 // src/calibrate/eval.ts
 import fs49 from "node:fs";
-import os10 from "node:os";
+import os11 from "node:os";
 import path50 from "node:path";
 import { spawnSync as spawnSync14 } from "node:child_process";
 function fixturesRoot() {
@@ -13908,7 +14035,7 @@ function materializeRepo(c, root) {
 async function runFixture(c, opts) {
   const cfg = opts.cfg ?? loadConfig();
   const ownRoot = !opts.workRoot;
-  const workRoot = opts.workRoot ?? fs49.mkdtempSync(path50.join(os10.tmpdir(), "tally-cal-"));
+  const workRoot = opts.workRoot ?? fs49.mkdtempSync(path50.join(os11.tmpdir(), "tally-cal-"));
   try {
     return await runFixtureIn(c, { ...opts, cfg, workRoot });
   } finally {
@@ -13953,7 +14080,7 @@ async function runFixtureIn(c, opts) {
 async function runEval(opts) {
   const cases = loadFixtures().filter((c) => !opts.only?.length || opts.only.includes(c.name));
   if (!cases.length) throw new Error("no calibration fixtures found");
-  const workRoot = fs49.mkdtempSync(path50.join(os10.tmpdir(), "tally-cal-"));
+  const workRoot = fs49.mkdtempSync(path50.join(os11.tmpdir(), "tally-cal-"));
   const results = [];
   for (const c of cases) {
     const r = await runFixture(c, { cfg: opts.cfg, live: opts.live, llm: opts.llmFor?.(c), workRoot, deep: opts.deep });
@@ -14055,7 +14182,7 @@ __export(calibrate_exports, {
   run: () => run25
 });
 import fs50 from "node:fs";
-import os11 from "node:os";
+import os12 from "node:os";
 import path51 from "node:path";
 import readline3 from "node:readline";
 async function run25(args) {
@@ -14094,7 +14221,7 @@ async function run25(args) {
       process.stderr.write("Usage: tally calibrate grade <session> [--grader name]   (the session needs a receipt: tally backfill add or tally judge)\n");
       return 1;
     }
-    const grader = flag(args, "grader") ?? os11.userInfo().username;
+    const grader = flag(args, "grader") ?? os12.userInfo().username;
     const rl = readline3.createInterface({ input: process.stdin, output: process.stdout });
     const ask = (q) => new Promise((res) => rl.question(q, res));
     try {
@@ -14136,7 +14263,7 @@ async function run25(args) {
     }
     const prevHome = process.env.TALLY_HOME;
     const keep = has(args, "keep");
-    if (!keep) process.env.TALLY_HOME = fs50.mkdtempSync(path51.join(os11.tmpdir(), "tally-cal-home-"));
+    if (!keep) process.env.TALLY_HOME = fs50.mkdtempSync(path51.join(os12.tmpdir(), "tally-cal-home-"));
     try {
       const only = flag(args, "only")?.split(",").filter(Boolean);
       const s = await runEval({ live, record, rebaseline: has(args, "rebaseline"), only, deep: has(args, "deep") });
@@ -14294,7 +14421,7 @@ var init_link = __esm({
 
 // src/backfill/history.ts
 import fs51 from "node:fs";
-import os12 from "node:os";
+import os13 from "node:os";
 import path52 from "node:path";
 import { spawnSync as spawnSync16 } from "node:child_process";
 function revBefore(cwd, ref, ts, exec) {
@@ -14340,7 +14467,7 @@ function reconstructWindow(cwd, opts) {
   return { start_head, end_head, branch, commits_in_window, extended_to_pr, notes };
 }
 function addWorktree(cwd, sha, exec = gitExecRaw) {
-  const dir = fs51.mkdtempSync(path52.join(os12.tmpdir(), "tally-wt-"));
+  const dir = fs51.mkdtempSync(path52.join(os13.tmpdir(), "tally-wt-"));
   fs51.rmdirSync(dir);
   const r = exec("git", ["worktree", "add", "--detach", dir, sha], cwd);
   if (!r.ok) throw new Error(`git worktree add failed: ${r.stderr.trim().slice(0, 200)}`);
@@ -15478,7 +15605,7 @@ Setup
   install --agent <id>        Same for another agent: codex | gemini | cursor (writes its hook file, backed up)
   adapters [--json]           Which agents Tally can observe here, and what each can and cannot tell it
   uninstall [--project|--agent <id>]  Remove hooks; settings return byte-identical
-  doctor                      Check claude, gh, hooks, pricing, config
+  doctor [--json] [--offline] Check node, Tally install and updates, agents and their hooks, history, pricing, config; --json for issues
   config [key value]          Show or set config (hourly_rate, writeback, auto_apply, models.*)
 
 Judge

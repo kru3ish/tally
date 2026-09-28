@@ -51,7 +51,7 @@ describe('double-install guard', () => {
     const hooks = checks.find((c) => c.name === 'hooks')!;
     expect(hooks.ok).toBe('warn');
     expect(hooks.detail).toContain('installed 2 ways (user settings, plugin)');
-    expect(hooks.detail).toContain('tally uninstall');
+    expect(hooks.fix).toContain('tally uninstall');
   });
 
   it('a disabled plugin entry does not block install', () => {
@@ -81,7 +81,7 @@ describe('moved hook script', () => {
     const before = runChecks().find((c) => c.name === 'hook script')!;
     expect(before.ok).toBe(false);
     expect(before.detail).toContain('does not exist');
-    expect(before.detail).toContain('tally install');
+    expect(before.fix).toContain('tally install');
     install({ scope: 'user' });
     const s = JSON.parse(fs.readFileSync(settings, 'utf8')) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
     const stops = s.hooks.Stop.flatMap((g) => g.hooks).filter((h) => /tally/i.test(h.command));

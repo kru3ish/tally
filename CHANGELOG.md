@@ -2,6 +2,12 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [Unreleased]
+
+### Changed
+
+- **`tally doctor` is a self-service install and support check.** New checks: the installed version and location, whether `tally` on PATH is this install, whether npm has a newer version (skipped with `--offline`, under CI or `TALLY_OFFLINE=1`), which supported agents are on the machine (Claude Code, Codex CLI, Gemini CLI, Cursor), whether Tally's hooks are in each detected agent, and whether each agent's history is readable (with a transcript count). Every failed or warned check carries a `fix:` line with the command or link that resolves it. `--json` prints a `tally.doctor.v1` document for pasting into issues. Exit code is 1 only when a required check fails; optional integrations warn.
+
 ## [0.6.1] - 2026-09-27
 
 ### Added

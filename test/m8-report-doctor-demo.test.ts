@@ -100,3 +100,33 @@ describe('demo (definition of done)', () => {
     expect(r.stdout).toContain('Done.');
   }, 130000);
 });
+
+describe('doctor: self-service', () => {
+  it('reports install, update, agents and history, and every non-ok check carries a fix', () => {
+    const checks = runChecks({ offline: true });
+    const names = checks.map((c) => c.name);
+    for (const n of ['tally', 'update', 'agents', 'hooks: claude-code', 'history: claude-code']) expect(names).toContain(n);
+    expect(checks.find((c) => c.name === 'update')!.detail).toMatch(/skipped \(--offline\)/);
+    expect(checks.find((c) => c.name === 'tally')!.detail).toMatch(/\d+\.\d+\.\d+ at /);
+    /* the isolated home has no hooks: that check fails and must say how to fix it */
+    const hooks = checks.find((c) => c.name === 'hooks')!;
+    expect(hooks.ok).toBe(false);
+    expect(hooks.fix).toMatch(/tally install/);
+    for (const c of checks.filter((c) => c.ok === false)) expect(c.fix, `${c.name} has no fix`).toBeTruthy();
+  });
+
+  it('--json is machine-readable and the exit code follows the required checks', () => {
+    const env = { ...process.env, TALLY_OFFLINE: '1' };
+    const r = spawnSync(process.execPath, [path.join(root, 'dist', 'cli.js'), 'doctor', '--json'], { encoding: 'utf8', env });
+    const j = JSON.parse(r.stdout) as { schema: string; version: string; ok: boolean; problems: number; checks: Array<{ name: string; status: string; fix?: string }> };
+    expect(j.schema).toBe('tally.doctor.v1');
+    expect(j.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(j.checks.some((c) => c.name === 'hooks' && c.status === 'fail' && /tally install/.test(c.fix ?? ''))).toBe(true);
+    expect(j.ok).toBe(false);
+    expect(r.status).toBe(1);
+    const plain = spawnSync(process.execPath, [path.join(root, 'dist', 'cli.js'), 'doctor', '--plain'], { encoding: 'utf8', env });
+    expect(plain.stdout).toMatch(/FAIL hooks/);
+    expect(plain.stdout).toMatch(/fix: `tally install`/);
+    expect(plain.stdout).toMatch(/tally doctor --json/);
+  });
+});
