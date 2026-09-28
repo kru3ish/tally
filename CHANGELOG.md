@@ -4,6 +4,13 @@ All notable changes to Tally. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- **`tally feedback <c#> correct|wrong|unsure [--comment "..."]`** (plugin: `/tally:feedback c2 wrong <comment>`). Labels a criterion on the current receipt and stores the label next to the receipt in `feedback.jsonl`, with what Tally had said (judge status, Evidence Map status, which tier decided) so the entry stands on its own. A wrong VERIFIED is flagged as `false_verified`. `tally feedback` alone lists the receipt's criteria with their ids. Local only.
+- **Wrong-verdict report: `tally feedback wrong <c#> --report [--out bug.json] [--include-comment] [--yes]`.** Builds a sanitized bundle (`tally.wrong-verdict.v1`): Tally version, platform, agent product and model family, the criterion's position and statuses, the kinds of evidence on its Evidence Map with pass/fail, receipt counts, which tiers ran, how the independent run went (ran, passed, inconclusive, tests green, base-commit result, summary counts, runner kind). Excluded by construction: source code, prompts, diffs, repository URL or name, file paths, environment variables, terminal output, criterion text, evidence text. The serialized payload is scanned for API keys, tokens, JWTs, private keys, passwords, emails, URLs, internal hostnames and absolute paths; a hit blocks the report and names what was found. The full payload is shown and must be confirmed; `--out` writes it to a file and opens nothing; opening a pre-filled GitHub issue (template "Wrong verdict") is a separate default-No question, and a false VERIFIED is titled and labelled `false-verified`.
+- **One-time usefulness question.** After the fifth real verification (`tally verify` or a manual `tally judge`; demo sessions and Tally's own runs never count), once, only in an interactive terminal and never under CI: "Has Tally caught something you would otherwise have missed? [y/n/skip]". Never asked again after any answer, skip included. Stored locally in `usefulness.json`.
+- Issue template "Wrong verdict" (`.github/ISSUE_TEMPLATE/wrong_verdict.md`).
+
 ### Changed
 
 - **`tally demo` tells the whole story and cleans up.** A seventh step replays the adversarial fixture "a test that agrees with its own mistake" (the agent implemented 50 attempts where the task said 5, wrote a test asserting 50, and the suite is green), clearly labelled, with the author's grading next to Tally's receipt; the fixture ships in the package. Output wraps to the terminal width (60 to 100 columns, `--width` to force one) so a recording fits; the temp directory is removed at the end unless `--keep`.

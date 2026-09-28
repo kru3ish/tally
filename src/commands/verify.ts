@@ -15,6 +15,7 @@ import { readEvents } from '../store/events.js';
 import { sessionDir, log } from '../paths.js';
 import { buildAssurance, renderVerify, type Assurance } from '../assurance/index.js';
 import { resolveSessionPrefix } from './dispute.js';
+import { countVerification, shouldAskUsefulness, askUsefulness } from '../feedback/prompt.js';
 import type { AgentIdentity } from '../core/events.js';
 
 export function agentOfSession(session: string): AgentIdentity {
@@ -79,6 +80,9 @@ export async function run(args: Args): Promise<number | void> {
     process.stdout.write(JSON.stringify(a, null, 2) + '\n');
   } else {
     process.stdout.write(renderVerify(a, { color: !ci && !has(args, 'plain'), evidence: !has(args, 'no-evidence') && !ci }) + '\n');
+    /* the one-time usefulness question, after the fifth real verification, only in an interactive terminal */
+    const state = countVerification(session);
+    if (shouldAskUsefulness(state, { interactive: !!process.stdin.isTTY && !!process.stdout.isTTY, ci })) await askUsefulness();
   }
   if (ci) {
     if (a.task.status === 'none') {

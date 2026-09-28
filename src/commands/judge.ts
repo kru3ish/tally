@@ -12,6 +12,7 @@ import type { Judge } from '../judge/schema.js';
 import { testRerunConsent, setTestRerunConsent } from '../config.js';
 import { detectTestCommand } from '../judge/verify.js';
 import readline from 'node:readline';
+import { countVerification, shouldAskUsefulness, askUsefulness } from '../feedback/prompt.js';
 
 function askYesNo(question: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -85,6 +86,9 @@ export async function run(args: Args): Promise<number | void> {
     const plain = has(args, 'plain');
     process.stdout.write(renderSummary(judge, !plain) + '\n');
     process.stdout.write(`Receipt: ${path.join(sessionDir(session), 'report.md')}\n`);
+    /* a manual judge at the terminal is a real verification too; the hook's automatic judge never asks */
+    const state = countVerification(session);
+    if (!auto && shouldAskUsefulness(state, { interactive: !!process.stdin.isTTY && !!process.stdout.isTTY })) await askUsefulness();
     if (has(args, 'post') || cfg.writeback) {
       const r = await writeBack(judge, cfg);
       for (const p of r.posted) process.stdout.write(`${p.ok ? 'Posted' : 'Failed to post'} receipt to ${p.target}${p.detail ? ` (${p.detail})` : ''}\n`);
