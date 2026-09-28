@@ -4,7 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { isolate, tmpDir, root, basicFixture } from './helpers.js';
-import { buildOnboard, renderOnboard } from '../src/commands/onboard.js';
+import { buildOnboard, renderOnboard, CLAIM_RE, TEST_CMD_RE } from '../src/commands/onboard.js';
 import { buildReplay, renderReplay } from '../src/commands/replay.js';
 import { comparePrompts, promptFeatures } from '../src/commands/prompts.js';
 import { invoiceRows, renderInvoice } from '../src/commands/export.js';
@@ -218,5 +218,46 @@ describe('session-end judging waits for intake', () => {
     judge.judged_at = new Date(Date.now() + 60000).toISOString();
     writeJson(path.join(dir, 'judge.json'), judge);
     expect(receiptPredatesTask(session)).toBe(false);
+  });
+});
+
+describe('onboard (honest first result)', () => {
+  it('reports what history supports as counts, labels findings with confidence, and ends with one next command', () => {
+    seedProjects();
+    const r = buildOnboard('365d', Date.parse('2026-09-16T00:00:00Z'), { budgetMs: 30000 });
+    expect(r.reconstruction.found).toBe(1);
+    expect(r.reconstruction.scanned).toBe(1);
+    expect(r.reconstruction.analysable).toBe(1);
+    expect(r.reconstruction.unreconstructable + r.reconstruction.repo_missing + r.reconstruction.partially_verifiable).toBeGreaterThanOrEqual(0);
+    expect(r.findings.length).toBeLessThanOrEqual(3);
+    for (const f of r.findings) {
+      expect(['high', 'medium', 'low']).toContain(f.confidence);
+      expect(f.reason.length).toBeGreaterThan(10);
+    }
+    expect(r.next.command).toMatch(/^tally (task|backfill add)/);
+    expect(r.elapsed_ms).toBeLessThan(60000);
+    const text = renderOnboard(r);
+    expect(text).toContain('What history supports (read locally, nothing sent anywhere)');
+    expect(text).toContain('VERIFIED needs a live session');
+    expect(text).toMatch(/Next: tally (task|backfill add)/);
+    expect(text).not.toMatch(/\bVERIFIED\b(?! needs)/);
+  });
+
+  it('stops scanning at the budget and says so', () => {
+    seedProjects();
+    const r = buildOnboard('365d', Date.parse('2026-09-16T00:00:00Z'), { budgetMs: 0 });
+    expect(r.reconstruction.scanned).toBe(0);
+    expect(r.reconstruction.truncated_after_s).toBe(0);
+    expect(renderOnboard(r)).toMatch(/--budget for more/);
+  });
+
+  it('recognises a "tests pass" claim and a real test runner in the transcript', () => {
+    expect(CLAIM_RE.test('All tests pass and the feature is complete.')).toBe(true);
+    expect(CLAIM_RE.test('The test suite is green; ready to merge.')).toBe(true);
+    expect(CLAIM_RE.test('I added a test for the parser.')).toBe(false);
+    expect(TEST_CMD_RE.test('npm test')).toBe(true);
+    expect(TEST_CMD_RE.test('npx vitest run test/x.test.ts')).toBe(true);
+    expect(TEST_CMD_RE.test('python -m pytest -q')).toBe(true);
+    expect(TEST_CMD_RE.test('git status')).toBe(false);
   });
 });

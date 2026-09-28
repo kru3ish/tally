@@ -105,7 +105,7 @@ Judge
   export [--since 30d] [--out f.jsonl] [--titles]   Numbers-only receipts for a team store
   followup [session]          Post-merge truth: merged, reverted, reopened, review churn, CI
   report                      Trends: cost per task, completion, rework, skill/MCP payoff, estimate vs outcome
-  onboard [--since 30d]       One-page report from the transcripts already on disk (no model calls)
+  onboard [--since 30d] [--budget 60] [--json]   What history supports, findings with confidence, spend and waste; local only, no model calls
   ask "<question>"            Ask a question over the receipts (numbers only); cites the sessions
   replay <session>            Timeline with the off-track moments marked
   prompts [--all]             What your best tasks' opening prompts had in common, and a template
