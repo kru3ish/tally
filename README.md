@@ -1,8 +1,21 @@
 # Tally
 
-**The reliability layer for AI coding agents.** Tally knows what the agent was asked to do, records what it did, independently verifies what it can, and hands you a receipt where every claim traces to evidence. The agent is replaceable; Tally keeps the truth.
+**Coding agents say they're done. Tally asks for proof.**
 
-Every agent tells you what a session cost. None of them tell you whether the task got done, what was actually proven, and what was skipped. Cost dashboards (`/cost`, ccusage) count tokens; retrospectives (`/insights`) find habits. Neither freezes the acceptance criteria before the work starts, re-runs the tests itself, or notices that the README item was quietly dropped. Tally does those things, locally, for Claude Code, Codex CLI, Gemini CLI and Cursor.
+Tally freezes what the agent was asked to do, records what it did, re-runs the tests itself, and hands you a receipt where every acceptance criterion is VERIFIED, SUPPORTED, UNVERIFIED or UNMET with the evidence that decided it.
+
+```bash
+npm i -g @kru3ish/tally && tally install      # or in Claude Code:  /plugin marketplace add kru3ish/tally  then  /plugin install tally@tally
+```
+
+![tally demo: a recorded session replayed through the real hooks, the Judge, tally verify, and a test that agrees with its own mistake](docs/demo.svg)
+
+**Try it in 2 minutes.** `tally demo` replays a session end to end in a temp directory (no keys, no agent needed, cleans up after itself) and ends with the case that fools most tools: an agent that wrote a test agreeing with its own wrong implementation. Then `tally onboard` reads the agent history already on your disk and says what it can and cannot reconstruct, with confidence labels, without sending anything anywhere.
+
+- **Agents:** Claude Code (hooks and plugin), Codex CLI, Gemini CLI, Cursor. `tally adapters` shows what each one can and cannot tell Tally.
+- **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md) keeps every disagreement, including Tally's own false VERIFIED and false UNMET from the 0.6 evaluation runs and what changed because of them; [`docs/releases/0.6.1-evidence.md`](docs/releases/0.6.1-evidence.md) is the evidence behind the current release.
+- **Using coding agents on a team?** I'm exploring PR-level assurance. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions).
+- Maintained in spare time by one person; no support response guarantees. A wrong verdict is the bug that gets fixed first: `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
 Tally answers five questions about an agent's work:
 
@@ -62,11 +75,7 @@ Result
 
 `tally verify --json` emits the same as a `tally.verify.v1` document for CI and tools; `tally verify --ci` exits non-zero on any UNMET criterion. Verdicts, a 0–10 quality score and ROI still exist on the receipt, labelled experimental and placed after the evidence: they rest on an estimated human value and a model's opinion.
 
-## See it run
-
-![tally demo: a recorded session replayed through the real hooks, the Coach, the Judge and a follow-up](docs/demo.svg)
-
-That is the real output of `tally demo` (timing compressed; also in [`docs/demo.cast`](docs/demo.cast) for `asciinema play`). The demo replays a recorded session through the real hooks with a stubbed model, in a throwaway directory, and never touches your `~/.claude`.
+The recording above is the real output of `tally demo` (timing compressed; also in [`docs/demo.cast`](docs/demo.cast) for `asciinema play`). The demo replays a recorded session through the real hooks with a stubbed model, in a throwaway directory, and never touches your `~/.claude`.
 
 ## Install
 
@@ -316,8 +325,9 @@ Backfill finds the task link (URL in a prompt → issue key in the branch or com
 
 Tally keeps its data in `~/.tally` rather than the plugin's data dir on purpose: receipts must outlive a plugin update or uninstall and be shared with the npm CLI. `TALLY_HOME` relocates it; `CLAUDE_CONFIG_DIR` relocates `~/.claude`. Tally reads Claude Code's transcripts in `~/.claude/projects/` for token usage and tool calls and never copies them.
 
-- Everything is local. Hooks make no network calls.
-- Tally's only outbound traffic is `claude -p` (your login, isolated from your MCP servers, hooks and skills), and, only when you ask, `gh` and the Jira/Linear APIs.
+- The hooks make no network calls and everything they record stays on the machine.
+- What leaves it: model calls through `claude -p` (your login, isolated from your MCP servers, hooks and skills) carrying the criteria, a trimmed diff and test output; and, only when you ask, `gh` and the Jira/Linear APIs. If code must not reach a model provider, use the air-gapped setting below.
+- Anonymous metrics are **off by default**: the first interactive run asks once (`Enable anonymous metrics? [y/N]`), `tally telemetry show` prints exactly what would be sent (version, command name, success, criterion and verdict counts, feedback labels, a random installation id; never prompts, code, diffs, names or paths), `tally telemetry off` deletes the id, and `TALLY_TELEMETRY=0` or a CI environment disables it. Schema in [`PRIVACY.md`](PRIVACY.md).
 - **Air-gapped:** `tally config models.provider openai-compatible` points the Judge, Coach and intake at any OpenAI-compatible chat endpoint (`models.base_url`, default Ollama at `http://localhost:11434/v1`; key from the env var named by `models.api_key_env`). No traffic leaves the machine. Structured output is requested as JSON and parsed leniently, so a small local model works for the Coach and tier 1; calibrate before trusting a local model's verdicts (`tally calibrate grade`).
 - Write-back is opt-in (`--post` or `writeback: true`) and carries the verdict, completion, cost and the criteria list. Never prompts or code.
 - Test re-runs execute your project's test command with a scrubbed environment and a timeout, only after you consent once per repo.
@@ -355,10 +365,6 @@ Verified against each agent's hook documentation on 2026-09-26 (`docs/PLATFORM_N
 | Skill / MCP value | `/usage` attributes tokens | flags unused ones | "Not used recently" | dollars per session, plus controlled experiments |
 
 Where a built-in already does the job, Tally points you to it: `/insights` for the retrospective, `/fewer-permission-prompts` for the allowlist, `/cost` and `/usage` for totals, `/plugin` Stats for what is loaded.
-
-## Privacy and metrics
-
-Everything the hooks record stays in `~/.tally`. Code leaves the machine only when the Judge, Coach or intake call a model, through your own `claude -p` login by default or a local endpoint you configure. Anonymous metrics are **off by default**: the first interactive run asks once (`Enable anonymous metrics? [y/N]`), `tally telemetry show` prints exactly what would be sent (version, command name, success, criterion and verdict counts, feedback labels, a random installation id; never prompts, code, diffs, names or paths), `tally telemetry off` deletes the id, and `TALLY_TELEMETRY=0` or a CI environment disables it. The schema is in [`PRIVACY.md`](PRIVACY.md); what leaves the machine and when is in [`SECURITY.md`](SECURITY.md).
 
 ## Known limitations
 

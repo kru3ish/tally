@@ -22,7 +22,7 @@ The Judge is tiered so it stays cheap: mechanical checks first, a small model on
 
 How accurate is it? Honestly: early. On five authored sessions with known answers, 19/19 criteria and 5/5 verdicts. On 11 of my own real sessions, blind-graded before seeing Tally's answer, criterion agreement is 51% and the verdict matches exactly on 1 of 11 and is within one step on 9 of 11. That is a second opinion, not an oracle, and the README says so.
 
-Everything is local. Hooks make no network calls and finish in under 150 ms; model calls go through your existing `claude` login; nothing is uploaded.
+The hooks make no network calls and finish in under 150 ms. Model calls go through your existing `claude` login and carry the criteria, a trimmed diff and test output; nothing else leaves the machine, and anonymous metrics are off unless you turn them on.
 
 ```
 /plugin marketplace add kru3ish/tally

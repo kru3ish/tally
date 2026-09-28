@@ -12,3 +12,6 @@ tally-export*
 calibration.jsonl
 backfill-*.json
 llm-debug/
+
+# release packet drafts (dev workflow only; the maintainer rewrites before posting)
+release/
