@@ -27,7 +27,7 @@ export interface LedgerEntry {
   delta_usd?: number;
   status: CostCheck['status'];
   savable_usd: number;
-  drivers: Array<{ id: string; usd: number; fix?: string }>;
+  drivers: Array<{ id: string; usd: number; fix?: string; group?: 'waste' | 'add' }>;
   fixes_applied?: string[];
 }
 
@@ -88,7 +88,7 @@ export function entryFromCheck(c: CostCheck, extra: { agent?: string; key?: stri
     ...(c.delta_usd !== undefined ? { delta_usd: c.delta_usd } : {}),
     status: c.status,
     savable_usd: c.savable_usd,
-    drivers: c.drivers.map((d) => ({ id: d.id, usd: d.usd, ...(d.fix ? { fix: d.fix.id } : {}) })),
+    drivers: c.drivers.map((d) => ({ id: d.id, usd: d.usd, ...(d.fix ? { fix: d.fix.id } : {}), ...(d.group === 'add' ? { group: 'add' as const } : {}) })),
     ...(extra.fixes_applied?.length ? { fixes_applied: extra.fixes_applied } : {}),
   };
 }

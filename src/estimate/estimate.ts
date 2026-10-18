@@ -74,6 +74,14 @@ export function storyText(prompts: string[], cwd?: string): string {
   return [head, ...files].join('\n').slice(0, 6000);
 }
 
+/* a short name for the story: the first heading of the .md the prompt names, else the prompt's first line */
+export function storyTitle(prompts: string[], cwd?: string): string | undefined {
+  const text = storyText(prompts, cwd);
+  const head = prompts.slice(0, 2).join('\n');
+  const heading = /^#{1,3}\s+(.+)$/m.exec(text.slice(head.length))?.[1]?.trim();
+  return (heading ?? prompts[0]?.split('\n')[0])?.slice(0, 80) || undefined;
+}
+
 function docOf(c: SessionCandidate): CorpusDoc {
   const task = readJson<{ title?: string; body_excerpt?: string; inferred?: boolean; estimate?: { story_points?: number } } | null>(path.join(sessionDir(c.session), 'task.json'), null);
   /* a linked ticket describes the story; an inferred task is only the prompt again, so the prompts and any .md they

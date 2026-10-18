@@ -59,6 +59,22 @@ What the cost check can find, each with its dollar figure from the session's own
 | MCP servers and plugins loaded but never used | `disabledMcpjsonServers`, or the `claude mcp remove` / `claude plugin disable` commands | `tally fix drop-unused-mcp` |
 | One long conversation, compactions | a fresh session per sub-task | advice only |
 
+And what to **add**, each suggested only when the transcript shows the pattern it fixes (main loop and subagents), with the dollars that pattern cost:
+
+| Pattern in the session | Add | Applied by |
+|---|---|---|
+| Context ran far past 200k tokens without compacting | `"autoCompactWindow": 200000` | `tally fix compact-window` |
+| Exploration (Read/Grep/Glob before the first edit) on an expensive model | a read-only **Haiku scout subagent**, `.claude/agents/scout.md` | `tally fix scout` |
+| The story had to discover its files and commands | a **project skill** from this session: files involved, commands that worked | `tally fix story-skill` |
+| Test or lint output flooding the context | a **run-tests skill** with the quiet reporter (`--reporter=dot`, `-q`, `--silent`) | `tally fix run-tests-skill` |
+| Command output above 15k characters | `BASH_MAX_OUTPUT_LENGTH=15000` | `tally fix bash-output-cap` |
+| Library docs fetched from the web or read out of `node_modules` | the **Context7 MCP server** | `claude mcp add --transport http context7 https://mcp.context7.com/mcp` (printed) |
+| Large source files read whole | the **Serena MCP server** (reads by symbol) | `uv tool install -p 3.13 serena-agent && claude mcp add serena -- …` (printed) |
+| MCP tool results above 10k tokens | `MAX_MCP_OUTPUT_TOKENS=10000` | `tally fix mcp-output-cap` |
+| Output and thinking over 45% of the main loop | `"effortLevel": "medium"` | `tally fix effort-medium` |
+
+On the $156.52 session above, that adds: compacting at 200k would have saved about $37 (the session never compacted; its main loop ran at a median 626k tokens of context per call), plus a project skill, an output cap and Serena for five large source reads in subagents. Small stories show no add-ons when none of these patterns is there; the 13 issue #3 stories had none beyond an unused plugin.
+
 ## Where the estimate comes from
 
 Every Claude Code (and Codex) session already on your disk is an example with a price. A session Tally linked to a ticket is described by the ticket; any other by its first prompts, plus the `.md` file it names if that is where the story lives. Tally finds the most similar ones (TF-IDF over their words, a small bonus for the same repo) and takes the similarity-weighted median of their cost; the range is their 25th–75th percentile. With nothing similar it says so and only shows your median session for scale; it never calls a story "over" against unrelated work. No model call, nothing leaves the machine, and every finished session becomes another example.
@@ -100,7 +116,7 @@ Tally started as a receipt for agent work and still does that: it freezes the ti
 - **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md).
 - Maintained in spare time by one person. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions); `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
-This is a **preview** (v0.8.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
+This is a **preview** (v0.9.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
 
 ## Did the agent actually finish? `tally verify`
 

@@ -8,9 +8,12 @@
         settings `env`, managed settings included)
      3. OTEL_EXPORTER_OTLP_(METRICS_)ENDPOINT / _HEADERS / OTEL_RESOURCE_ATTRIBUTES in this process's environment
         (a `tally` command run from a shell)
-     4. the same OTEL_* keys in the `env` block of Claude Code's settings files: managed, user, project, local. An
-        organisation that rolled out Claude Code's own telemetry through managed settings gets Tally's story metrics
-        at the same collector with nothing else to configure.
+     4. the same OTEL_* keys in the `env` block of Claude Code's user and managed settings files. An organisation
+        that rolled out Claude Code's own telemetry through managed settings gets Tally's story metrics at the same
+        collector with nothing else to configure.
+   A repository must not decide where data goes: like Claude Code (which ignores OTEL_EXPORTER_OTLP_* in project and
+   local settings), Tally never reads OTEL_* from the repo's .claude/settings(.local).json, and ignores TALLY_OTEL_*
+   when the repo's own settings files are what set it.
    This is the organisation's own pipeline; it is separate from Tally's opt-in anonymous metrics (PRIVACY.md).
 
    One gauge point per finished story: tally.story.cost, .estimate, .overage, .avoidable (USD), and
@@ -35,8 +38,17 @@ export function managedSettingsPaths(): string[] {
   return ['/etc/claude-code/managed-settings.json'];
 }
 
-export function claudeSettingsEnv(cwd?: string, files?: string[]): Record<string, string> {
-  const list = files ?? [path.join(claudeHome(), 'settings.json'), ...(cwd ? [path.join(cwd, '.claude', 'settings.json'), path.join(cwd, '.claude', 'settings.local.json')] : []), ...managedSettingsPaths()];
+function managedDropIns(): string[] {
+  const dir = path.join(path.dirname(managedSettingsPaths()[0]!), 'managed-settings.d');
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((f) => path.join(dir, f));
+  } catch {
+    return [];
+  }
+}
+
+export function claudeSettingsEnv(files?: string[]): Record<string, string> {
+  const list = files ?? [path.join(claudeHome(), 'settings.json'), ...managedSettingsPaths(), ...managedDropIns()];
   const out: Record<string, string> = {};
   for (const f of list) {
     try {
@@ -60,9 +72,23 @@ function parsePairs(s: string | undefined): Record<string, string> {
 
 const withPath = (u: string) => (u.replace(/\/+$/, '').endsWith('/v1/metrics') ? u : u.replace(/\/+$/, '') + '/v1/metrics');
 
-export function otlpTarget(env: NodeJS.ProcessEnv = process.env, configured?: string, settingsEnv: Record<string, string> = {}): OtlpTarget | null {
+/* TALLY_OTEL_* that came from the repo's own project or local settings (Claude Code passes those to hooks) */
+export function repoSetsTallyOtel(cwd: string | undefined): boolean {
+  if (!cwd) return false;
+  for (const f of [path.join(cwd, '.claude', 'settings.json'), path.join(cwd, '.claude', 'settings.local.json')]) {
+    try {
+      const env = (JSON.parse(fs.readFileSync(f, 'utf8')) as { env?: Record<string, unknown> }).env ?? {};
+      if (Object.keys(env).some((k) => k.startsWith('TALLY_OTEL_'))) return true;
+    } catch {
+      /* not there */
+    }
+  }
+  return false;
+}
+
+export function otlpTarget(env: NodeJS.ProcessEnv = process.env, configured?: string, settingsEnv: Record<string, string> = {}, opts: { repoSetsTally?: boolean } = {}): OtlpTarget | null {
   const json = { 'content-type': 'application/json' };
-  if (configured || env.TALLY_OTEL_ENDPOINT) {
+  if (configured || (env.TALLY_OTEL_ENDPOINT && !opts.repoSetsTally)) {
     return { url: withPath((configured ?? env.TALLY_OTEL_ENDPOINT)!), headers: { ...json, ...parsePairs(env.TALLY_OTEL_HEADERS) }, resource: env.TALLY_OTEL_RESOURCE_ATTRIBUTES, source: configured ? 'config cost.otel_endpoint' : 'TALLY_OTEL_ENDPOINT' };
   }
   for (const [src, e] of [['environment', env], ['Claude Code settings env', settingsEnv]] as const) {

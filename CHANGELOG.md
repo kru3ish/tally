@@ -2,6 +2,17 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.9.0] - 2026-10-18
+
+### Added
+
+- **What to add, not only what to cut.** The cost check now suggests subagents, skills, MCP servers and settings, each only when the transcript shows the pattern it fixes, across the main loop and subagents, with the dollars the pattern cost: `autoCompactWindow: 200000` when calls ran far past 200k tokens; a read-only Haiku scout subagent (`.claude/agents/scout.md`) when exploration on an expensive model was expensive; a project skill written from the finished story (files involved, commands that worked); a run-tests skill with the quiet reporter for noisy test output; `BASH_MAX_OUTPUT_LENGTH=15000`; Context7 for docs fetched from the web or read from dependencies; Serena for large source files read whole; `MAX_MCP_OUTPUT_TOKENS`; `effortLevel: medium` for output-heavy sessions. File fixes create the agent or skill and never overwrite one; MCP installs are printed, never run. The dashboard shows them as "Add for next time" per story and "What to add across the team".
+
+### Fixed
+
+- **A repository could redirect the story metrics.** `OTEL_*` was read from the repo's project and local settings and `TALLY_OTEL_*` from settings env the repo controls. Like Claude Code, Tally now reads `OTEL_*` only from user and managed settings (including `managed-settings.d/`) and ignores `TALLY_OTEL_*` when the repo's own settings set it.
+- Dashboard: long commands wrap inside their card; an inferred story is titled by the heading of the `.md` it names; the team KPIs are hidden when there is no ledger.
+
 ## [0.8.0] - 2026-10-18
 
 For a team, and tested on real stories (issue #3).

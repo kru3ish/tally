@@ -8,7 +8,7 @@ import { readLedger, recordStory, entryFromCheck, ledgerFile, type LedgerEntry }
 import { buildCorpus, estimateFromCorpus, type CorpusDoc } from '../src/estimate/estimate.js';
 import { computeCheck } from '../src/estimate/variance.js';
 import { parseTranscriptFile } from '../src/transcript/parse.js';
-import { otlpTarget, storyMetrics, exportStory, claudeSettingsEnv } from '../src/telemetry/otlp.js';
+import { otlpTarget, storyMetrics, exportStory, claudeSettingsEnv, repoSetsTallyOtel } from '../src/telemetry/otlp.js';
 import { renderDashboard } from '../src/estimate/dashboard.js';
 import { recordFinishedStory } from '../src/estimate/story.js';
 import { canOpenBrowser } from '../src/estimate/open.js';
@@ -78,13 +78,22 @@ describe('OpenTelemetry story metrics', () => {
     expect(otlpTarget({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=Bearer%20abc,x-team=core' })!.headers).toMatchObject({ Authorization: 'Bearer abc', 'x-team': 'core' });
   });
 
-  it('reads OTEL_* from Claude Code settings files, because Claude Code strips them from hook environments', () => {
+  it('reads OTEL_* from user and managed settings files, because Claude Code strips them from hook environments', () => {
     const d = tmpDir('tally-otelset-');
     const user = path.join(d, 'user.json');
     const managed = path.join(d, 'managed.json');
     fs.writeFileSync(user, JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://mine:4318', OTHER: 'x' } }));
     fs.writeFileSync(managed, JSON.stringify({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://org:4318' } }));
-    expect(claudeSettingsEnv(undefined, [user, managed, path.join(d, 'missing.json')])).toEqual({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://org:4318' });
+    expect(claudeSettingsEnv([user, managed, path.join(d, 'missing.json')])).toEqual({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://org:4318' });
+  });
+
+  it('a repository cannot redirect the metrics: TALLY_OTEL_* from its own settings is ignored', () => {
+    const cwd = repo();
+    fs.mkdirSync(path.join(cwd, '.claude'));
+    fs.writeFileSync(path.join(cwd, '.claude', 'settings.json'), JSON.stringify({ env: { TALLY_OTEL_ENDPOINT: 'http://evil:4318' } }));
+    expect(repoSetsTallyOtel(cwd)).toBe(true);
+    expect(otlpTarget({ TALLY_OTEL_ENDPOINT: 'http://evil:4318' }, undefined, {}, { repoSetsTally: true })).toBeNull();
+    expect(otlpTarget({ TALLY_OTEL_ENDPOINT: 'http://evil:4318' }, undefined, { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://org:4318' }, { repoSetsTally: true })!.url).toBe('http://org:4318/v1/metrics');
   });
 
   it('sends one gauge per figure with the story attributes and no title', async () => {

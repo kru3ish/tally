@@ -11,13 +11,16 @@ import { isLintCommand, isTestCommand, parseTranscriptFile, type Transcript } fr
 import { readEvents } from '../store/events.js';
 import { transcriptPathFor, sessionCwd } from '../session.js';
 import { loadTask } from '../task/intake.js';
-import { estimateCost, estimateFile, loadEstimate, storyText, type CostEstimate } from './estimate.js';
+import { estimateCost, estimateFile, loadEstimate, storyText, storyTitle, type CostEstimate } from './estimate.js';
 import { recordChange } from '../coach/undo.js';
 import { mergePatch } from '../coach/actions.js';
+import { findOpportunities } from './opportunities.js';
 
 export type FixApply =
   | { kind: 'settings'; patch: Record<string, unknown>; scope: 'project' | 'local' | 'user' }
   | { kind: 'claude_md'; content: string }
+  /* a new file in the repo (a subagent, a skill); never overwrites one that exists */
+  | { kind: 'file'; path: string; content: string }
   | { kind: 'command'; commands: string[] }
   | { kind: 'advice' };
 
@@ -31,6 +34,8 @@ export interface Fix {
 
 export interface Driver {
   id: string;
+  /* waste: spend to stop; add: a subagent, skill, MCP server or setting to start using */
+  group?: 'waste' | 'add';
   title: string;
   usd: number;
   detail: string;
@@ -229,6 +234,9 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
     });
   }
 
+  /* what to add: subagents, skills, MCP servers and settings, from the patterns in this transcript */
+  drivers.push(...findOpportunities(t, { cwd, loaded, story: task && !task.inferred ? task.title : storyTitle(t.prompts.map((p) => p.text), cwd) ?? task?.title, pricing }));
+
   /* an estimated driver can never be more than the session itself cost */
   for (const d of drivers) d.usd = round2(Math.min(d.usd, actual));
   drivers.sort((a, b) => b.usd - a.usd);
@@ -237,11 +245,17 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   const seen = new Set<string>();
   const cheapRatio = drivers.some((d) => d.id === 'model') && main.actual > 0 ? main.cheap / main.actual : 1;
   let savable = 0;
+  /* the scout and the story skill both save exploration; only the larger one counts */
+  const explore = Math.max(0, ...drivers.filter((d) => d.id === 'scout' || d.id === 'story-skill').map((d) => d.usd));
   for (const d of drivers) {
     if (d.fix && seen.has(d.fix.id)) continue;
     if (d.fix) seen.add(d.fix.id);
+    if (d.id === 'scout' || d.id === 'story-skill') continue;
+    /* compacting earlier saves part of what the long-conversation driver already counts */
+    if (d.id === 'compact-window' && drivers.some((x) => x.id === 'long-context')) continue;
     savable += d.id === 'model' || d.id === 'subagents' ? d.usd : d.usd * cheapRatio;
   }
+  savable += explore * cheapRatio;
   savable = Math.min(savable, actual);
   /* only a comparable story (or this repo's own sessions) makes an over/under call; the median of every unrelated
      session is shown for scale but judges nothing */
@@ -251,7 +265,7 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   const check: CostCheck = {
     session,
     cwd,
-    task: task?.title ?? t.prompts[0]?.text.slice(0, 80),
+    task: task && !task.inferred ? task.title : storyTitle(t.prompts.map((p) => p.text), cwd) ?? task?.title,
     actual_usd: round2(actual),
     ...(est ? { estimate: est, delta_usd: round2(delta!), delta_pct: est.usd > 0 ? Math.round((delta! / est.usd) * 100) : 0 } : estimate ? { estimate } : {}),
     status,
@@ -283,11 +297,20 @@ export function renderCheck(c: CostCheck, opts: { cli?: string } = {}): string {
   }
   L.push('');
   if (!c.drivers.length) {
-    L.push('Nothing in this session stands out as avoidable spend.');
+    L.push('Nothing in this session stands out as avoidable spend, and no pattern calls for a new skill, MCP server or setting.');
     return L.join('\n');
   }
-  L.push(c.status === 'over' ? `Where it went (up to ${$(c.savable_usd)} avoidable, combined, against the ${$(c.delta_usd ?? 0)} overage; the lines overlap):` : `Where it could be cheaper next time (up to ${$(c.savable_usd)} combined; the lines overlap, so they do not add up):`);
-  for (const d of c.drivers) L.push(`  ${$(d.usd).padStart(8)}  ${d.title}${d.basis === 'estimated' ? ' (estimate)' : ''}\n            ${d.detail}`);
+  const waste = c.drivers.filter((d) => d.group !== 'add');
+  const adds = c.drivers.filter((d) => d.group === 'add');
+  L.push(c.status === 'over' ? `Up to ${$(c.savable_usd)} avoidable next time, combined, against the ${$(c.delta_usd ?? 0)} overage (the lines overlap, so they do not add up).` : `Up to ${$(c.savable_usd)} avoidable next time, combined (the lines overlap, so they do not add up).`);
+  if (waste.length) {
+    L.push('', 'Where the money went:');
+    for (const d of waste) L.push(`  ${$(d.usd).padStart(8)}  ${d.title}${d.basis === 'estimated' ? ' (estimate)' : ''}\n            ${d.detail}`);
+  }
+  if (adds.length) {
+    L.push('', 'Add for next time (skills, subagents, MCP servers, settings):');
+    for (const d of adds) L.push(`  ${$(d.usd).padStart(8)}  ${d.title} (estimate)\n            ${d.detail}`);
+  }
   const fixes = new Map<string, Fix>();
   for (const d of c.drivers) if (d.fix && !fixes.has(d.fix.id)) fixes.set(d.fix.id, d.fix);
   L.push('');
@@ -324,6 +347,14 @@ export function applyFix(fix: Fix, opts: { session: string; cwd: string; global?
   const a = fix.apply;
   if (a.kind === 'advice') return { ok: false, detail: `${fix.title}: ${fix.what}` };
   if (a.kind === 'command') return { ok: false, detail: `Tally does not run these for you:\n  ${a.commands.join('\n  ')}` };
+  if (a.kind === 'file') {
+    const file = path.join(opts.cwd, a.path);
+    if (fs.existsSync(file)) return { ok: true, detail: `${a.path} already exists; not overwritten`, file };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, a.content);
+    recordChange({ session: opts.session, rule: `fix:${fix.id}`, label: fix.title, file, before: null, after: a.content });
+    return { ok: true, detail: `created ${a.path} (commit it and the whole team has it)`, file };
+  }
   if (a.kind === 'claude_md') {
     const file = path.join(opts.cwd, 'CLAUDE.md');
     const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
