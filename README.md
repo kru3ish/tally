@@ -72,6 +72,24 @@ tally cost <session-id>                               # any past session on this
 tally fix --list                                      # the fixes for this session; tally fix <id> [--global]; tally undo
 ```
 
+## For a team: the ledger, the dashboard, OpenTelemetry
+
+**The ledger travels with the repo.** When a session ends, the story is appended to `.tally/ledger.jsonl` in the repository: title and ticket key, author (`git user.name`), model, estimate, actual, the cost drivers and which fixes were applied. Commit it, and everyone who clones the repo gets the team's history: a new teammate's first story is estimated from the stories everyone else already did. With nothing similar, a ticket with story points is priced at the team's median cost per point. No prompts, code or paths are in it.
+
+**The dashboard opens when the story ends.** At the end of an interactive session (and on `/tally:cost`, `tally cost --open`, `tally estimate ... --open`, `tally dashboard`) Tally writes one self-contained HTML page to the temp directory and opens it: this story's estimate range, actual cost and drivers with the fix commands, then the team's estimate-vs-actual chart, where the money goes across all stories, spend by person and by model, and every story in a table. No scripts, no network, overwritten each time. `tally config cost.dashboard_on_end false` keeps it closed.
+
+![The Tally dashboard: this story's estimate, actual and drivers, then the team's estimate-vs-actual chart, where the money goes, by person, by model, and every story](docs/dashboard.png)
+
+*The dashboard after the issue #3 runs: 13 real stories, low to high complexity. The six "Implement the story in STORY.md" rows were recorded before the bug those runs found was fixed.*
+
+**OpenTelemetry for the dashboards a company already has.** If an OTLP endpoint is set (`OTEL_EXPORTER_OTLP_ENDPOINT`, `TALLY_OTEL_ENDPOINT`, or `tally config cost.otel_endpoint`), each finished story is sent as OTLP/HTTP JSON gauges: `tally.story.cost`, `tally.story.estimate`, `tally.story.overage`, `tally.story.avoidable` and `tally.story.driver.cost`, labelled with repo, ticket key, model, status, author and `OTEL_RESOURCE_ATTRIBUTES` (team, cost centre). Claude Code removes `OTEL_*` variables from the environment hooks run in, so Tally reads them from Claude Code's settings files instead (managed, user, project, local): an organisation that already rolled out Claude Code's own OpenTelemetry through managed settings gets Tally's story metrics at the same collector without touching anyone's machine. `TALLY_OTEL_ENDPOINT` (and `_HEADERS`, `_RESOURCE_ATTRIBUTES`) override it, also from settings `env`; a gRPC-only collector needs `TALLY_OTEL_ENDPOINT` pointing at its OTLP/HTTP port. Verified end to end with Claude Code 2.1.302 and a local collector. Claude Code's own metrics answer "how much did we spend"; these answer "which stories went over, by how much, and what would fix it".
+
+```bash
+tally dashboard                    # the team page from .tally/ledger.jsonl
+tally cost --record                # record this story now instead of at session end
+tally config cost.otel_endpoint http://collector:4318   # or OTEL_EXPORTER_OTLP_ENDPOINT in Claude Code's settings env
+```
+
 ## Also in the box
 
 Tally started as a receipt for agent work and still does that: it freezes the ticket's acceptance criteria, re-runs your tests itself, and marks each criterion VERIFIED, SUPPORTED, UNVERIFIED or UNMET with the evidence (`tally verify`, below). `tally demo` replays a recorded session through all of it in a temp directory in two minutes.
@@ -82,7 +100,7 @@ Tally started as a receipt for agent work and still does that: it freezes the ti
 - **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md).
 - Maintained in spare time by one person. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions); `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
-This is a **preview** (v0.7.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
+This is a **preview** (v0.8.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
 
 ## Did the agent actually finish? `tally verify`
 

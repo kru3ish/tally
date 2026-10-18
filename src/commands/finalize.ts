@@ -10,6 +10,7 @@ import { readEvents } from '../store/events.js';
 import { sessionCwd, transcriptPathFor } from '../session.js';
 import { historyFile, appendLine, repoKey, sessionDir, log, writeJson, isInternalCwd } from '../paths.js';
 import { restoreExperimentConfig, prepareNextArm } from '../experiment/experiment.js';
+import { recordFinishedStory } from '../estimate/story.js';
 
 /* Resolves once task.json exists or task.pending is gone, or after maxMs. Returns the time waited. */
 export async function waitForIntake(session: string, maxMs: number, pollMs = 2000): Promise<number> {
@@ -50,6 +51,7 @@ export async function run(args: Args): Promise<void> {
   let firstTurn = 0;
   let cost = 0;
   let costConfidence: 'full' | 'partial' = 'full';
+  let entrypoint: string | undefined;
   if (transcriptPath && fs.existsSync(transcriptPath)) {
     const t = parseTranscriptFile(transcriptPath);
     if (t.internal || isInternalCwd(cwd)) {
@@ -61,6 +63,7 @@ export async function run(args: Args): Promise<void> {
     firstTurn = t.firstTurnContextTokens;
     cost = t.cost;
     costConfidence = t.cost_confidence;
+    entrypoint = t.entrypoint;
   } else if (isInternalCwd(cwd)) {
     return;
   }
@@ -79,6 +82,18 @@ export async function run(args: Args): Promise<void> {
      frozen would score the prompt instead of the criteria, so wait for it (bounded) */
   const waited = await waitForIntake(session, cfg.judge.intake_wait_ms);
   if (waited > 0) log(`finalize: ${session} waited ${Math.round(waited / 1000)}s for task intake`);
+
+  /* the story's cost: ledger line in the repo, metrics to the org's collector, and the dashboard for a person at a
+     terminal (headless `claude -p` runs record entrypoint sdk-cli and get no browser window) */
+  if (transcriptPath && fs.existsSync(transcriptPath) && events.some((e) => e.type === 'prompt')) {
+    try {
+      const startAgent = typeof startEv?.data.agent === 'string' ? startEv.data.agent : undefined;
+      const r = await recordFinishedStory(session, cwd, { cfg, agent: startAgent, open: cfg.cost.dashboard_on_end && entrypoint === 'cli' ? true : undefined });
+      log(`finalize: ${session} story $${r.check.actual_usd} (${r.check.status})${r.ledger ? ` → ${r.ledger}` : ''}${r.otel ? `; otel ${r.otel}` : ''}`);
+    } catch (err) {
+      log(`finalize: cost record failed: ${String(err)}`);
+    }
+  }
 
   const existing = loadJudge(session);
   const headNow = currentHead(cwd);

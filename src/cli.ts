@@ -50,6 +50,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   estimate: () => import('./commands/estimate.js'),
   cost: () => import('./commands/cost.js'),
   fix: () => import('./commands/fix.js'),
+  dashboard: () => import('./commands/dashboard.js'),
   task: () => import('./commands/task.js'),
   judge: () => import('./commands/judge.js'),
   verify: () => import('./commands/verify.js'),
@@ -92,7 +93,10 @@ Usage: tally <command> [options]
 Cost
   estimate "<story>"|<url>|<file.md>   What similar past stories cost on this machine (no model call, nothing sent)
   estimate --backtest         How far off the estimate has been on your own history
+  estimate ... --open         The same as a page in the browser, with the past stories behind it
   cost [session] [--json]     Estimate vs actual for this story, where the money went, the fixes (/tally:cost)
+  cost --open | --record      Open the dashboard with this story on top | write it to .tally/ledger.jsonl now
+  dashboard [--no-open]       The team's cost per story from .tally/ledger.jsonl: estimate vs actual, drivers, people, models
   fix <id> [--global]         Apply one fix from the cost check to .claude/settings.json or CLAUDE.md (--global: ~/.claude)
   fix --list                  The fixes the cost check suggested for this session
 

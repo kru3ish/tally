@@ -7,6 +7,8 @@ import { resolveSession, transcriptPathFor } from '../session.js';
 import { computeCheck, renderCheck } from '../estimate/variance.js';
 import { listTranscripts } from '../backfill/scan.js';
 import { loadConfig } from '../config.js';
+import { openDashboard, recordFinishedStory } from '../estimate/story.js';
+import { sessionCwd } from '../session.js';
 
 function pastTranscript(prefix: string): { session: string; file: string } | undefined {
   const hits = listTranscripts().filter((f) => path.basename(f, '.jsonl').startsWith(prefix));
@@ -37,4 +39,11 @@ export async function run(args: Args): Promise<number | void> {
     return;
   }
   process.stdout.write(renderCheck(check) + '\n');
+  const cwd = sessionCwd(session) ?? check.cwd ?? process.cwd();
+  /* --record: write the story to the repo ledger (and the org collector) now instead of at session end */
+  if (has(args, 'record')) {
+    const r = await recordFinishedStory(session, cwd, { check });
+    process.stdout.write(`\nRecorded${r.ledger ? ` in ${r.ledger}` : ' (not a git repo: no ledger)'}${r.otel ? `; OpenTelemetry ${r.otel}` : ''}.\n`);
+  }
+  if (has(args, 'open')) process.stdout.write(`Dashboard: ${openDashboard(cwd, { current: check, open: true }).file}\n`);
 }

@@ -394,7 +394,7 @@ var here = path4.dirname(fileURLToPath(import.meta.url));
 var CLI = process.env.TALLY_HOOK_CLI || [path4.join(here, "cli.js"), path4.join(here, "..", "cli.js")].find((p) => fs3.existsSync(p)) || path4.join(here, "cli.js");
 var SHIP_RE = /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b|\bnpm\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/;
 var TASK_URL_RE = /https?:\/\/(github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/\d+|[^\s]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+|linear\.app\/[^\s]+\/issue\/[A-Z0-9]+-\d+[^\s]*)/;
-var TASK_MD_RE = /(?:^|\s)((?:[A-Za-z]:)?[^\s"']+\.md)(?=\s|$)/;
+var TASK_MD_RE = /(?:^|[\s`"'(])((?:[A-Za-z]:)?[^\s"'`]+?\.md)(?=[\s.,;:!?)"'`]|$)/;
 var MAX_FIELD = 2e3;
 function readStdin() {
   try {
@@ -523,7 +523,7 @@ function dodGate(session, cwd, stopHookActive) {
 function costNotice(session) {
   const dir = sessionDir(session);
   const est = readJson(path4.join(dir, "estimate.json"), null);
-  if (!est || !est.usd || est.basis !== "similar" && est.basis !== "repo") return void 0;
+  if (!est || !est.usd || est.basis !== "similar" && est.basis !== "points" && est.basis !== "repo") return void 0;
   const check = readJson(path4.join(dir, "cost-check.json"), null);
   const live = readJson(path4.join(dir, "spend.json"), null);
   const spend = Math.max(live?.usd ?? 0, check?.actual_usd ?? 0);
@@ -536,7 +536,7 @@ function costNotice(session) {
   const pct = spend / est.usd * 100;
   let key;
   let text = "";
-  const from = est.basis === "similar" ? `${est.n} similar past stor${est.n === 1 ? "y" : "ies"}` : `${est.n} past sessions in this repo (nothing closely similar)`;
+  const from = est.basis === "similar" ? `${est.n} similar past stor${est.n === 1 ? "y" : "ies"}` : est.basis === "points" ? `the story points \xD7 your cost per point` : `${est.n} past sessions in this repo (nothing closely similar)`;
   for (const t of [200, 150, 100]) {
     if (pct >= t && !state.shown.includes(`over${t}`)) {
       key = `over${t}`;

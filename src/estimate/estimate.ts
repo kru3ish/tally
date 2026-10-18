@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readJson, repoKey, sessionDir } from '../paths.js';
 import { scanSessions, type SessionCandidate } from '../backfill/scan.js';
+import { readLedger } from './ledger.js';
 
 export interface Neighbour {
   session: string;
@@ -23,7 +24,8 @@ export interface CostEstimate {
   usd: number;
   low_usd: number;
   high_usd: number;
-  basis: 'similar' | 'repo' | 'all' | 'none';
+  /* points: nothing similar, so story points × the team's dollars per point */
+  basis: 'similar' | 'points' | 'repo' | 'all' | 'none';
   confidence: 'high' | 'medium' | 'low';
   n: number;
   corpus: number;
@@ -38,6 +40,9 @@ export interface CorpusDoc {
   cost_usd: number;
   models: string[];
   started?: string;
+  story_points?: number;
+  /* from the repo's committed ledger: a teammate's story, not a transcript on this machine */
+  team?: boolean;
 }
 
 const STOP = new Set(
@@ -61,7 +66,7 @@ function isStory(c: SessionCandidate): boolean {
 /* "plan.md is the task": the story is in the file, not the prompt; read it while it is still in the repo */
 export function storyText(prompts: string[], cwd?: string): string {
   const head = prompts.slice(0, 2).join('\n');
-  const refs = cwd ? [...head.matchAll(/(?:^|\s)([\w./-]+\.md)\b/g)].map((m) => m[1]!).slice(0, 2) : [];
+  const refs = cwd ? [...head.matchAll(/(?:^|[\s`"'(])([\w./-]+?\.md)(?=[\s.,;:!?)"'`]|$)/g)].map((m) => m[1]!).slice(0, 2) : [];
   const files = refs
     .map((r) => path.resolve(cwd!, r))
     .filter((f) => f.startsWith(path.resolve(cwd!)) && fs.existsSync(f) && fs.statSync(f).isFile())
@@ -69,16 +74,24 @@ export function storyText(prompts: string[], cwd?: string): string {
   return [head, ...files].join('\n').slice(0, 6000);
 }
 
-function docText(c: SessionCandidate): string {
-  const task = readJson<{ title?: string; body_excerpt?: string } | null>(path.join(sessionDir(c.session), 'task.json'), null);
-  if (task?.title) return `${task.title}\n${task.body_excerpt ?? ''}`.slice(0, 3000);
-  return storyText(c.prompts, c.cwd);
+function docOf(c: SessionCandidate): CorpusDoc {
+  const task = readJson<{ title?: string; body_excerpt?: string; inferred?: boolean; estimate?: { story_points?: number } } | null>(path.join(sessionDir(c.session), 'task.json'), null);
+  /* a linked ticket describes the story; an inferred task is only the prompt again, so the prompts and any .md they
+     name are read too */
+  const text = task?.title && !task.inferred ? `${task.title}\n${task.body_excerpt ?? ''}`.slice(0, 3000) : `${task?.title ?? ''}\n${storyText(c.prompts, c.cwd)}`.trim().slice(0, 6000);
+  return { session: c.session, text, repo: c.repo, cost_usd: c.cost, models: c.models.filter((m) => !m.startsWith('<')), started: c.started, ...(task?.estimate?.story_points ? { story_points: task.estimate.story_points } : {}) };
 }
 
-export function buildCorpus(opts: { since?: string; projectsDir?: string } = {}): CorpusDoc[] {
-  return scanSessions({ since: opts.since ?? '365d', projectsDir: opts.projectsDir })
-    .filter(isStory)
-    .map((c) => ({ session: c.session, text: docText(c), repo: c.repo, cost_usd: c.cost, models: c.models.filter((m) => !m.startsWith('<')), started: c.started }));
+/* the sessions on this machine, plus the stories teammates recorded in the repo's ledger */
+export function buildCorpus(opts: { since?: string; projectsDir?: string; cwd?: string } = {}): CorpusDoc[] {
+  const local = scanSessions({ since: opts.since ?? '365d', projectsDir: opts.projectsDir }).filter(isStory).map(docOf);
+  if (!opts.cwd) return local;
+  const seen = new Set(local.map((d) => d.session));
+  const repo = repoKey(opts.cwd);
+  const team = readLedger(opts.cwd)
+    .filter((e) => !seen.has(e.session) && e.actual_usd > 0)
+    .map((e): CorpusDoc => ({ session: e.session, text: e.story, repo, cost_usd: e.actual_usd, models: [e.model], started: e.ts, team: true, ...(e.story_points ? { story_points: e.story_points } : {}) }));
+  return [...local, ...team];
 }
 
 type Vec = Map<string, number>;
@@ -135,7 +148,7 @@ export const MIN_SIMILARITY = 0.2;
 export const MAX_NEIGHBOURS = 7;
 export const STRONG_SIMILARITY = 0.3;
 
-export function estimateFromCorpus(text: string, corpus: CorpusDoc[], opts: { cwd?: string; exclude?: string; excludeText?: boolean; now?: Date } = {}): CostEstimate {
+export function estimateFromCorpus(text: string, corpus: CorpusDoc[], opts: { cwd?: string; exclude?: string; excludeText?: boolean; storyPoints?: number; now?: Date } = {}): CostEstimate {
   const same = (d: CorpusDoc) => opts.excludeText && d.text.trim().toLowerCase() === text.trim().toLowerCase();
   const docs = corpus.filter((d) => d.session !== opts.exclude && !same(d));
   const repo = opts.cwd ? repoKey(opts.cwd) : undefined;
@@ -164,7 +177,15 @@ export function estimateFromCorpus(text: string, corpus: CorpusDoc[], opts: { cw
     const usd = weightedMedian(scored.map((x) => ({ v: x.d.cost_usd, w: x.sim })));
     const confidence = scored.length >= 5 && scored[0]!.sim >= 0.4 ? 'high' : scored.length >= 3 ? 'medium' : 'low';
     const [low, high] = scored.length === 1 ? [usd / 2, usd * 2] : [quantile(costs, 0.25), quantile(costs, 0.75)];
-    return { usd: round2(usd), low_usd: round2(low), high_usd: round2(high), basis: 'similar', confidence, n: scored.length, corpus: N, neighbours, computed_at };
+    /* the weighted median can sit outside the unweighted quartiles; the stated range always contains the estimate */
+    return { usd: round2(usd), low_usd: round2(Math.min(low, usd)), high_usd: round2(Math.max(high, usd)), basis: 'similar', confidence, n: scored.length, corpus: N, neighbours, computed_at };
+  }
+  /* nothing similar, but the ticket is pointed and past stories were too: points × the median dollars per point */
+  const pointed = docs.filter((d) => d.story_points && d.story_points > 0);
+  if (opts.storyPoints && opts.storyPoints > 0 && pointed.length >= 3) {
+    const perPoint = pointed.map((d) => d.cost_usd / d.story_points!);
+    const p = opts.storyPoints;
+    return { usd: round2(quantile(perPoint, 0.5) * p), low_usd: round2(quantile(perPoint, 0.25) * p), high_usd: round2(quantile(perPoint, 0.75) * p), basis: 'points', confidence: pointed.length >= 8 ? 'medium' : 'low', n: pointed.length, corpus: N, neighbours, computed_at };
   }
   const repoDocs = repo ? docs.filter((d) => d.repo === repo) : [];
   const pool = repoDocs.length >= 3 ? repoDocs : docs;
@@ -173,8 +194,8 @@ export function estimateFromCorpus(text: string, corpus: CorpusDoc[], opts: { cw
   return { usd: round2(quantile(costs, 0.5)), low_usd: round2(quantile(costs, 0.25)), high_usd: round2(quantile(costs, 0.75)), basis: pool === repoDocs ? 'repo' : 'all', confidence: 'low', n: pool.length, corpus: N, neighbours, computed_at };
 }
 
-export function estimateCost(text: string, opts: { cwd?: string; exclude?: string; since?: string; projectsDir?: string } = {}): CostEstimate {
-  return estimateFromCorpus(text, buildCorpus({ since: opts.since, projectsDir: opts.projectsDir }), opts);
+export function estimateCost(text: string, opts: { cwd?: string; exclude?: string; since?: string; projectsDir?: string; storyPoints?: number } = {}): CostEstimate {
+  return estimateFromCorpus(text, buildCorpus({ since: opts.since, projectsDir: opts.projectsDir, cwd: opts.cwd }), opts);
 }
 
 export interface Backtest {
@@ -223,6 +244,6 @@ export function loadEstimate(session: string): CostEstimate | null {
 export function fmtEstimate(e: CostEstimate): string {
   const $ = (n: number) => `$${n.toFixed(2)}`;
   if (e.basis === 'none') return 'no past sessions on this machine to estimate from yet';
-  const what = e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'repo' ? `the median of ${e.n} past sessions in this repo (nothing similar enough)` : `the median of all ${e.n} past sessions (nothing similar enough)`;
+  const what = e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? `story points × the median cost per point of ${e.n} pointed stories` : e.basis === 'repo' ? `the median of ${e.n} past sessions in this repo (nothing similar enough)` : `the median of all ${e.n} past sessions (nothing similar enough)`;
   return `~${$(e.usd)} (typical ${$(e.low_usd)}–${$(e.high_usd)}; from ${what}; ${e.confidence} confidence)`;
 }

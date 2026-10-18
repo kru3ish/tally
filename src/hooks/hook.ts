@@ -14,7 +14,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = process.env.TALLY_HOOK_CLI || [path.join(here, 'cli.js'), path.join(here, '..', 'cli.js')].find((p) => fs.existsSync(p)) || path.join(here, 'cli.js');
 const SHIP_RE = /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b|\bnpm\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/;
 const TASK_URL_RE = /https?:\/\/(github\.com\/[^\s/]+\/[^\s/]+\/(issues|pull)\/\d+|[^\s]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+|linear\.app\/[^\s]+\/issue\/[A-Z0-9]+-\d+[^\s]*)/;
-const TASK_MD_RE = /(?:^|\s)((?:[A-Za-z]:)?[^\s"']+\.md)(?=\s|$)/;
+/* a .md path in the first prompt, also quoted or followed by punctuation ("Implement the story in STORY.md.") */
+const TASK_MD_RE = /(?:^|[\s`"'(])((?:[A-Za-z]:)?[^\s"'`]+?\.md)(?=[\s.,;:!?)"'`]|$)/;
 const MAX_FIELD = 2000;
 
 interface HookInput {
@@ -190,7 +191,7 @@ function costNotice(session: string): string | undefined {
   const dir = sessionDir(session);
   const est = readJson<{ usd?: number; low_usd?: number; high_usd?: number; basis?: string; n?: number; confidence?: string } | null>(path.join(dir, 'estimate.json'), null);
   /* only a comparable story (or this repo's own sessions) is a number worth interrupting for */
-  if (!est || !est.usd || (est.basis !== 'similar' && est.basis !== 'repo')) return undefined;
+  if (!est || !est.usd || (est.basis !== 'similar' && est.basis !== 'points' && est.basis !== 'repo')) return undefined;
   const check = readJson<{ actual_usd?: number; drivers?: Array<{ title: string; usd: number; fix?: { id: string; apply: { kind: string } } }> } | null>(path.join(dir, 'cost-check.json'), null);
   const live = readJson<{ usd?: number } | null>(path.join(dir, 'spend.json'), null);
   const spend = Math.max(live?.usd ?? 0, check?.actual_usd ?? 0);
@@ -203,7 +204,7 @@ function costNotice(session: string): string | undefined {
   const pct = (spend / est.usd) * 100;
   let key: string | undefined;
   let text = '';
-  const from = est.basis === 'similar' ? `${est.n} similar past stor${est.n === 1 ? 'y' : 'ies'}` : `${est.n} past sessions in this repo (nothing closely similar)`;
+  const from = est.basis === 'similar' ? `${est.n} similar past stor${est.n === 1 ? 'y' : 'ies'}` : est.basis === 'points' ? `the story points × your cost per point` : `${est.n} past sessions in this repo (nothing closely similar)`;
   for (const t of [200, 150, 100]) {
     if (pct >= t && !state.shown.includes(`over${t}`)) {
       key = `over${t}`;

@@ -57,6 +57,17 @@ export const ConfigSchema = z.object({
       escalation_model_from_usd: z.number().nonnegative().default(1),
     })
     .default({}),
+  cost: z
+    .object({
+      /* every finished story appends one numbers-and-title line to <repo>/.tally/ledger.jsonl; commit it and the team
+         shares estimates and the dashboard */
+      ledger: z.boolean().default(true),
+      /* open the cost dashboard in the browser when an interactive session with a priced story ends */
+      dashboard_on_end: z.boolean().default(true),
+      /* OTLP/HTTP endpoint for the story metrics; OTEL_EXPORTER_OTLP_ENDPOINT is used when this is unset */
+      otel_endpoint: z.string().optional(),
+    })
+    .default({}),
   followup_days: z.number().int().positive().default(7),
   dead_weight_sessions: z.number().int().positive().default(5),
   jira: z

@@ -4,11 +4,12 @@ import { type Args, flag, has } from '../cli.js';
 import { backtest, buildCorpus, estimateFromCorpus, fmtEstimate } from '../estimate/estimate.js';
 import { fetchTask } from '../task/fetchers.js';
 import { loadConfig } from '../config.js';
+import { openDashboard } from '../estimate/story.js';
 
 const $ = (n: number) => `$${n.toFixed(2)}`;
 
 export async function run(args: Args): Promise<number | void> {
-  const corpus = buildCorpus({ since: flag(args, 'since') });
+  const corpus = buildCorpus({ since: flag(args, 'since'), cwd: process.cwd() });
   if (has(args, 'backtest')) {
     const b = backtest(corpus);
     if (has(args, 'json')) {
@@ -36,7 +37,7 @@ export async function run(args: Args): Promise<number | void> {
   /* a tracker link or a file is read the same way task intake reads it, so the estimate sees the story's words */
   const fetched = await fetchTask(ref, { cwd: process.cwd(), cfg: loadConfig(), promptText: ref });
   const text = `${fetched.title}\n${fetched.body}`;
-  const e = estimateFromCorpus(text, corpus, { cwd: process.cwd() });
+  const e = estimateFromCorpus(text, corpus, { cwd: process.cwd(), storyPoints: fetched.story_points });
   if (has(args, 'json')) {
     process.stdout.write(JSON.stringify(e, null, 2) + '\n');
     return;
@@ -46,6 +47,7 @@ export async function run(args: Args): Promise<number | void> {
     L.push('', 'Most similar past stories:');
     for (const n of e.neighbours) L.push(`  ${$(n.cost_usd).padStart(8)}  ${n.similarity.toFixed(2)}  ${n.text.slice(0, 70)}${n.models[0] ? `  (${n.models[0]})` : ''}`);
   }
-  L.push('', `Based on ${e.corpus} past stories on this machine. Nothing was sent anywhere.`);
+  L.push('', `Based on ${e.corpus} past stories on this machine and in this repo's ledger. Nothing was sent anywhere.`);
+  if (has(args, 'open')) L.push(`Dashboard: ${openDashboard(process.cwd(), { estimate: { story: fetched.title, estimate: e }, open: true }).file}`);
   process.stdout.write(L.join('\n') + '\n');
 }

@@ -151,20 +151,24 @@ describe('the one-time usefulness question', () => {
     const prevCI = process.env.CI;
     process.env.CI = '1';
     expect(shouldAskUsefulness(s, { interactive: true })).toBe(false);
-    if (prevCI === undefined) delete process.env.CI;
-    else process.env.CI = prevCI;
-    expect(shouldAskUsefulness(s, { interactive: true })).toBe(true);
-    let text = '';
-    const answer = await askUsefulness({ question: async () => 'skip', out: (x) => (text += x) });
-    expect(answer).toBe('skip');
-    expect(text).toMatch(/asked once/);
-    expect(readUsefulness().asked).toBeTruthy();
-    expect(readUsefulness().answer).toBe('skip');
-    countVerification('real-6');
-    expect(shouldAskUsefulness(readUsefulness(), { interactive: true })).toBe(false);
-    expect(parseUsefulnessAnswer('Y')).toBe('yes');
-    expect(parseUsefulnessAnswer('no')).toBe('no');
-    expect(parseUsefulnessAnswer('')).toBe('skip');
+    /* the rest of the test is an interactive terminal outside CI, also when the suite itself runs under CI */
+    delete process.env.CI;
+    try {
+      expect(shouldAskUsefulness(s, { interactive: true })).toBe(true);
+      let text = '';
+      const answer = await askUsefulness({ question: async () => 'skip', out: (x) => (text += x) });
+      expect(answer).toBe('skip');
+      expect(text).toMatch(/asked once/);
+      expect(readUsefulness().asked).toBeTruthy();
+      expect(readUsefulness().answer).toBe('skip');
+      countVerification('real-6');
+      expect(shouldAskUsefulness(readUsefulness(), { interactive: true })).toBe(false);
+      expect(parseUsefulnessAnswer('Y')).toBe('yes');
+      expect(parseUsefulnessAnswer('no')).toBe('no');
+      expect(parseUsefulnessAnswer('')).toBe('skip');
+    } finally {
+      if (prevCI !== undefined) process.env.CI = prevCI;
+    }
     recordUsefulness('yes');
     expect(readUsefulness().answer).toBe('yes');
   });

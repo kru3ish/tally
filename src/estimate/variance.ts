@@ -113,7 +113,7 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   if (estimate === null && opts.estimate === undefined) {
     const text = task ? `${task.title}\n${task.body_excerpt}` : storyText(t.prompts.map((p) => p.text), cwd);
     if (text.trim()) {
-      estimate = estimateCost(text, { cwd, exclude: session });
+      estimate = estimateCost(text, { cwd, exclude: session, storyPoints: task?.estimate.story_points });
       writeJson(estimateFile(session), estimate);
     }
   }
@@ -245,7 +245,7 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   savable = Math.min(savable, actual);
   /* only a comparable story (or this repo's own sessions) makes an over/under call; the median of every unrelated
      session is shown for scale but judges nothing */
-  const est = estimate && (estimate.basis === 'similar' || estimate.basis === 'repo') ? estimate : undefined;
+  const est = estimate && (estimate.basis === 'similar' || estimate.basis === 'points' || estimate.basis === 'repo') ? estimate : undefined;
   const delta = est ? actual - est.usd : undefined;
   const status: CostCheck['status'] = !est ? 'no_estimate' : actual > est.high_usd || (delta! > 0 && actual > est.usd * 1.2) ? 'over' : actual < est.usd * 0.8 ? 'under' : 'on_target';
   const check: CostCheck = {
@@ -273,7 +273,7 @@ export function renderCheck(c: CostCheck, opts: { cli?: string } = {}): string {
   if (c.estimate && c.estimate.basis !== 'none') {
     const e = c.estimate;
     if (e.basis === 'all') L.push(`Estimate:  none (no similar past story yet; your median session costs ${$(e.usd)})`);
-    else L.push(`Estimate:  ${$(e.usd)}  (typical ${$(e.low_usd)}–${$(e.high_usd)}, ${e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : `median of ${e.n} past sessions in this repo, nothing similar enough`}, ${e.confidence} confidence)`);
+    else L.push(`Estimate:  ${$(e.usd)}  (typical ${$(e.low_usd)}–${$(e.high_usd)}, ${e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? `story points × cost per point of ${e.n} pointed stories` : `median of ${e.n} past sessions in this repo, nothing similar enough`}, ${e.confidence} confidence)`);
   } else L.push('Estimate:  none yet (no past sessions on this machine to compare with)');
   L.push(`Actual:    ${$(c.actual_usd)}  on ${c.model}`);
   if (c.delta_usd !== undefined) {

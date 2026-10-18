@@ -2,6 +2,22 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.8.0] - 2026-10-18
+
+For a team, and tested on real stories (issue #3).
+
+### Added
+
+- **Team ledger in the repo (`.tally/ledger.jsonl`).** Each finished story is appended at session end: title, ticket key and URL, story points, author (`git user.name`), agent, model, estimate and range, actual, status, avoidable total, drivers and fixes by id, and the fixes applied in that session. A re-recorded session replaces its line; junk or merge-conflict lines are skipped. Committed, it travels with the repo: estimates on any machine include the team's stories. `tally cost --record` writes it immediately; `tally config cost.ledger false` turns it off.
+- **Story-points fallback.** With nothing similar, a pointed ticket is priced at points × the median cost per point of past pointed stories (at least three), labelled `points`.
+- **Dashboard (`tally dashboard`, `tally cost --open`, `tally estimate ... --open`, `/tally:cost`).** One self-contained HTML page (inline CSS and SVG, no scripts, no network) written to the temp directory and opened: this story's estimate range, actual and drivers with fix commands; the team's KPIs (stories, spend, median estimate error, share inside the range, stories over, avoidable found); estimate vs actual per story; where the money goes across stories; spend by person and by model; every story in a table. Light and dark. Opens by itself when an interactive session with a priced story ends (`cost.dashboard_on_end`); headless `claude -p` runs never open a browser, nor CI or tests.
+- **OpenTelemetry story metrics.** OTLP/HTTP JSON gauges `tally.story.cost`, `.estimate`, `.overage`, `.avoidable`, `.driver.cost`, with repo, ticket key, model, status, estimate basis, agent, author and session id, plus `OTEL_RESOURCE_ATTRIBUTES`. Endpoint from `cost.otel_endpoint`, then `TALLY_OTEL_ENDPOINT` / `_HEADERS` / `_RESOURCE_ATTRIBUTES`, then the standard `OTEL_EXPORTER_OTLP_*` variables, then the same keys in the `env` of Claude Code's settings files (managed, user, project, local). The last step exists because Claude Code strips `OTEL_*` from hook environments (verified on 2.1.302), so an organisation's existing Claude Code OpenTelemetry rollout is found in its settings file. A gRPC-only configuration is not guessed at. Sent once per story from the session-end process, four-second timeout, failures logged and never surfaced.
+
+### Fixed
+
+- **A story in a `.md` file named in the first prompt was missed when punctuation followed it** ("Implement the story in STORY.md."): the task was inferred from the prompt instead, so every such session looked identical to the estimator and the criteria came from the prompt. Found by the issue #3 runs. The path is now recognised quoted, in backticks, or before `.,;:!?)`, and an inferred task's estimate reads the prompts and the `.md` they name.
+- CI: the usefulness-question test failed whenever the suite itself ran under `CI` (since 0.7's telemetry work).
+
 ## [0.7.0] - 2026-10-18
 
 Back to the original idea: put a price on a story before the agent starts, tell the developer in the same session when it goes over, show where the money went, and apply the fix in one line.

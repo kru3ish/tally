@@ -180,6 +180,14 @@ describe('in the session: status line and the end-of-turn notice', () => {
   }
   const est = (usd: number) => ({ usd, low_usd: usd * 0.8, high_usd: usd * 1.3, basis: 'similar', confidence: 'medium', n: 5, corpus: 20, neighbours: [], computed_at: '' });
 
+  it('a first prompt that names a .md story followed by punctuation links that file (issue #3)', () => {
+    const cwd = tmpDir('tally-mdlink-');
+    fs.writeFileSync(path.join(cwd, 'STORY.md'), '# Build a parser\n');
+    const r = spawnSync(process.execPath, [HOOK, 'UserPromptSubmit'], { input: JSON.stringify({ session_id: 'md-0001', cwd, prompt: 'Implement the story in STORY.md. Run the tests before you finish.' }), encoding: 'utf8', env: { ...process.env, TALLY_NO_SPAWN: '1' } });
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(path.join(sessionDir('md-0001'), 'task.pending'), 'utf8')).toBe(path.join(cwd, 'STORY.md'));
+  });
+
   it('the status line shows spend against the estimate and records spend for the hook', () => {
     const session = 'live-0001';
     writeJson(path.join(sessionDir(session), 'estimate.json'), est(50));

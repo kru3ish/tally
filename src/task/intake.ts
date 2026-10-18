@@ -10,7 +10,7 @@ import { fetchTask, type FetchDeps, type FetchedTask, type TaskSource } from './
 import { appendEvent } from '../store/events.js';
 import { CheckSpecSchema, CHECK_JSON_SCHEMA, parseCheck } from '../judge/checks.js';
 import { loadPolicy } from '../policy.js';
-import { estimateCost, estimateFile, loadEstimate, fmtEstimate } from '../estimate/estimate.js';
+import { estimateCost, estimateFile, loadEstimate, fmtEstimate, storyText } from '../estimate/estimate.js';
 
 export const CriterionSchema = z.object({
   id: z.string(),
@@ -300,7 +300,8 @@ export async function intake(opts: {
   if (fs.existsSync(pending)) fs.unlinkSync(pending);
   /* the story's price tag: what similar past sessions on this machine cost; best effort, never fails intake */
   try {
-    const est = estimateCost(`${task.title}\n${fetched.body}`, { cwd: opts.cwd, exclude: opts.session });
+    const words = inferred ? `${task.title}\n${storyText([fetched.body], opts.cwd)}` : `${task.title}\n${fetched.body}`;
+    const est = estimateCost(words, { cwd: opts.cwd, exclude: opts.session, storyPoints: fetched.story_points });
     writeJson(estimateFile(opts.session), est);
   } catch {
     /* no history to read is not an error */
