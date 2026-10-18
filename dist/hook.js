@@ -27,6 +27,7 @@ var claudeCode = {
   event: (name) => ALL_CANONICAL.includes(name) ? name : "Unknown",
   normalize: (raw) => raw,
   output(out) {
+    if (out.kind === "notice") return { systemMessage: out.text };
     if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === "deny") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: out.reason } };
     return { decision: "block", reason: out.reason };
@@ -58,6 +59,7 @@ var codex = {
   event: (name) => ALL_CANONICAL.includes(name) ? name : "Unknown",
   normalize: (raw) => ({ ...raw, ...codexTool(raw) }),
   output(out) {
+    if (out.kind === "notice") return { systemMessage: out.text };
     if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === "deny") return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: out.reason } };
     return { decision: "block", reason: out.reason };
@@ -104,6 +106,7 @@ var gemini = {
     return out;
   },
   output(out) {
+    if (out.kind === "notice") return { systemMessage: out.text };
     if (out.kind === "context") return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === "deny") return { decision: "deny", reason: out.reason, systemMessage: out.reason };
     return { decision: "block", reason: out.reason };
@@ -166,6 +169,7 @@ var cursor = {
     return out;
   },
   output(out) {
+    if (out.kind === "notice") return null;
     if (out.kind === "context") return out.event === "SessionStart" ? { additional_context: out.text } : { additional_context: out.text };
     if (out.kind === "deny") return { permission: "deny", user_message: out.reason, agent_message: out.reason };
     return { followup_message: out.reason };
@@ -504,7 +508,7 @@ function updateActive(session, patch, remove = false) {
 function dodGate(session, cwd, stopHookActive) {
   if (stopHookActive || !fs3.existsSync(path4.join(sessionDir(session), "task.json"))) return void 0;
   const cfg = readJson(configFile(), {});
-  if (cfg.coach?.dod_gate === false) return void 0;
+  if (cfg.coach?.dod_gate !== true) return void 0;
   const max = cfg.coach?.dod_max_blocks ?? 1;
   const marker = path4.join(sessionDir(session), "dod-gate.json");
   const state = readJson(marker, { blocks: 0 });
@@ -515,6 +519,45 @@ function dodGate(session, cwd, stopHookActive) {
   record(session, "dod_gate", cwd, { unmet: unmet.map((u) => u.id), block: state.blocks + 1 });
   const reason = `Tally: ${unmet.length} acceptance criteri${unmet.length === 1 ? "on is" : "a are"} still unmet by mechanical check: ${unmet.map((u) => `${u.id} "${u.text}" (${u.why})`).join("; ")}. Address ${unmet.length === 1 ? "it" : "them"}, or say why ${unmet.length === 1 ? "it is" : "they are"} out of scope.`;
   return { decision: "block", reason };
+}
+function costNotice(session) {
+  const dir = sessionDir(session);
+  const est = readJson(path4.join(dir, "estimate.json"), null);
+  if (!est || !est.usd || est.basis !== "similar" && est.basis !== "repo") return void 0;
+  const check = readJson(path4.join(dir, "cost-check.json"), null);
+  const live = readJson(path4.join(dir, "spend.json"), null);
+  const spend = Math.max(live?.usd ?? 0, check?.actual_usd ?? 0);
+  const stateFile = path4.join(dir, "cost-notice.json");
+  const state = readJson(stateFile, { shown: [] });
+  const money = (n) => `$${n.toFixed(2)}`;
+  const shipped = fs3.existsSync(path4.join(dir, "events.jsonl")) && fs3.readFileSync(path4.join(dir, "events.jsonl"), "utf8").includes('"type":"ship"');
+  const top = (check?.drivers ?? []).find((d) => d.fix && d.fix.apply.kind !== "advice");
+  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) \u2192 tally fix ${top.fix.id}.` : "";
+  const pct = spend / est.usd * 100;
+  let key;
+  let text = "";
+  const from = est.basis === "similar" ? `${est.n} similar past stor${est.n === 1 ? "y" : "ies"}` : `${est.n} past sessions in this repo (nothing closely similar)`;
+  for (const t of [200, 150, 100]) {
+    if (pct >= t && !state.shown.includes(`over${t}`)) {
+      key = `over${t}`;
+      text = `Tally: this story has cost ${money(spend)}, ${Math.round(pct)}% of the ~${money(est.usd)} estimate from ${from} (+${money(spend - est.usd)}).${lever} Breakdown and fixes: /tally:cost`;
+      for (const lower of [100, 150, 200]) if (lower <= t && !state.shown.includes(`over${lower}`)) state.shown.push(`over${lower}`);
+      break;
+    }
+  }
+  if (!key && shipped && !state.shown.includes("ship")) {
+    key = "ship";
+    text = `Tally: shipped for ${money(spend)} against a ~${money(est.usd)} estimate (${spend > est.usd ? "+" : "\u2212"}${money(Math.abs(spend - est.usd))}).${lever} Breakdown: /tally:cost`;
+  }
+  if (!key && !state.shown.includes("estimate")) {
+    key = "estimate";
+    text = `Tally: stories like this have cost ~${money(est.usd)} here (typical ${money(est.low_usd ?? 0)}\u2013${money(est.high_usd ?? 0)}, from ${from}, ${est.confidence} confidence).${spend > 0 ? ` ${money(spend)} so far.` : ""}`;
+  }
+  if (!key) return void 0;
+  if (!state.shown.includes(key)) state.shown.push(key);
+  writeJson(stateFile, state);
+  record(session, "cost_notice", void 0, { key, spend_usd: spend, estimate_usd: est.usd });
+  return text;
 }
 function autopilotEnabled() {
   const cfg = readJson(configFile(), {});
@@ -699,6 +742,10 @@ function main() {
       updateActive(session, { cwd, transcript_path: input.transcript_path });
       const gate = dodGate(session, cwd, input.stop_hook_active === true);
       if (gate) out = { kind: "block", reason: String(gate.reason ?? "") };
+      else if (input.stop_hook_active !== true) {
+        const notice = costNotice(session);
+        if (notice) out = { kind: "notice", text: notice };
+      }
       if (autopilotEnabled()) spawnDetached(["coach", "--tick", "--session", session, "--cwd", cwd ?? "", "--auto"]);
       break;
     }

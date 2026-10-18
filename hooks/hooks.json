@@ -89,8 +89,7 @@
               "${CLAUDE_PLUGIN_ROOT}/dist/hook.js",
               "Stop"
             ],
-            "timeout": 5,
-            "async": true
+            "timeout": 5
           }
         ]
       }

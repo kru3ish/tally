@@ -47,6 +47,9 @@ export function has(args: Args, name: string): boolean {
 const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<number | void> }>> = {
   install: () => import('./commands/install.js'),
   uninstall: () => import('./commands/install.js').then((m) => ({ run: m.runUninstall })),
+  estimate: () => import('./commands/estimate.js'),
+  cost: () => import('./commands/cost.js'),
+  fix: () => import('./commands/fix.js'),
   task: () => import('./commands/task.js'),
   judge: () => import('./commands/judge.js'),
   verify: () => import('./commands/verify.js'),
@@ -82,9 +85,16 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   prompts: () => import('./commands/prompts.js'),
 };
 
-const HELP = `tally — the reliability layer for AI coding agents: what was asked, what changed, what is proven
+const HELP = `tally — what a story should cost, what it did cost, and the one-line change that makes the next one cheaper
 
 Usage: tally <command> [options]
+
+Cost
+  estimate "<story>"|<url>|<file.md>   What similar past stories cost on this machine (no model call, nothing sent)
+  estimate --backtest         How far off the estimate has been on your own history
+  cost [session] [--json]     Estimate vs actual for this story, where the money went, the fixes (/tally:cost)
+  fix <id> [--global]         Apply one fix from the cost check to .claude/settings.json or CLAUDE.md (--global: ~/.claude)
+  fix --list                  The fixes the cost check suggested for this session
 
 Setup
   install [--project]         Add Tally hooks + status line to Claude Code settings (backs up first)

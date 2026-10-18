@@ -14,6 +14,7 @@ import { loadPolicy } from '../policy.js';
 import { quickChecks } from '../judge/quickcheck.js';
 import { hardStopFile, isApproved } from './budget.js';
 import fs from 'node:fs';
+import { computeCheck } from '../estimate/variance.js';
 
 export async function run(args: Args): Promise<number | void> {
   const cfg = loadConfig();
@@ -41,6 +42,14 @@ export async function run(args: Args): Promise<number | void> {
       }
     }
     if (ctx.task) quickChecks(session, cwd);
+    /* the cost check the next Stop hook shows: estimate vs spend, and the biggest lever */
+    if (ctx.transcript) {
+      try {
+        computeCheck(session, { transcript: ctx.transcript, baselineTokens: cfg.baseline_context_tokens });
+      } catch {
+        /* the rules already ran */
+      }
+    }
     /* repo policy hard stop: spend past the budget writes a marker the PreToolUse hook enforces; approval clears it */
     const pol = loadPolicy(cwd);
     if (ctx.task && pol.policy.budget.hard_stop && ctx.task.budget_usd > 0) {

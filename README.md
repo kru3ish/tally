@@ -1,35 +1,90 @@
 # Tally
 
-**Coding agents say they're done. Tally asks for proof.**
-
-Tally freezes what the agent was asked to do, records what it did, re-runs the tests itself, and hands you a receipt where every acceptance criterion is VERIFIED, SUPPORTED, UNVERIFIED or UNMET with the evidence that decided it.
+**Know what a story will cost before the agent starts. When it's done, see what it actually cost, why, and the one line that makes the next one cheaper.**
 
 ```bash
 npm i -g @kru3ish/tally && tally install      # or in Claude Code:  /plugin marketplace add kru3ish/tally  then  /plugin install tally@tally
+tally estimate --backtest                      # how well it would have priced your own past sessions (no model call, nothing sent)
 ```
+
+## The loop
+
+**1. Paste the story.** Put the Jira, GitHub or Linear link (or a `.md` file, or plain text) in your first prompt as usual. Tally reads the ticket and compares it with every session already on your machine. At the end of the first turn you see something like this (the numbers here are illustrative):
+
+```
+Tally: stories like this have cost ~$50.00 here (typical $38.00–$65.00, from 6 similar past stories, medium confidence). $0.42 so far.
+```
+
+**2. Work as usual.** The status line keeps the number in front of you: `$31.20 / ~$50.00 est (62%)`.
+
+**3. Go over, and you hear about it in the same session**, at the end of the turn where it happens, not in a report next week:
+
+```
+Tally: this story has cost $75.00, 150% of the ~$50.00 estimate from 6 similar past stories (+$25.00).
+Biggest lever: main model claude-opus-5-5 (~$30.00) → tally fix model-sonnet. Breakdown and fixes: /tally:cost
+```
+
+**4. See where it went.** `/tally:cost` (or `tally cost`). This is a real session from the author's machine:
+
+```
+Tally cost check
+
+Story:     read plan.md that is the task
+Estimate:  none (no similar past story yet; your median session costs $0.25)
+Actual:    $156.52  on claude-opus-5-5
+
+Where it could be cheaper next time (up to $114.60 combined; the lines overlap, so they do not add up):
+    $55.08  Main model claude-opus-5-5 (estimate)
+            the main loop cost $91.79; the same tokens at Sonnet prices cost $36.72. Sonnet may need more turns, so treat this as the most it could save.
+    $51.69  One long conversation
+            207 call(s) carried more than 80k tokens of history; re-sending the part above 80k cost $51.69. Part of this is the work itself; a fresh session per sub-task avoids most of it.
+    $38.84  Subagents on an expensive model (estimate)
+            subagents cost $64.73 (41% of the session); at Sonnet prices $25.89.
+
+Apply for the next similar story (one line each; undo with `tally undo`):
+  tally fix model-sonnet       Default this repo to Sonnet (sets "model": "sonnet" in .claude/settings.json; use /model opus for a story that needs it)
+  ·  Split stories this size: run /clear (or a new session) between sub-tasks, with the plan in a file so nothing is lost; Tally cannot apply this for you
+  tally fix subagent-sonnet    Run subagents on Sonnet (sets env CLAUDE_CODE_SUBAGENT_MODEL=sonnet in .claude/settings.json, so subagents without their own model stop inheriting the main one (Explore keeps its own default))
+```
+
+**5. Apply it in one line.** `tally fix model-sonnet` edits the repo's `.claude/settings.json`, so committing it gives the whole team the change; `--global` writes `~/.claude/settings.json` instead. `tally undo` puts the file back byte for byte.
+
+What the cost check can find, each with its dollar figure from the session's own transcript:
+
+| Driver | Fix | Applied by |
+|---|---|---|
+| Expensive main model (same tokens repriced at Sonnet) | `"model": "sonnet"` in `.claude/settings.json` | `tally fix model-sonnet` |
+| Subagents inheriting an expensive model | `env.CLAUDE_CODE_SUBAGENT_MODEL=sonnet` | `tally fix subagent-sonnet` |
+| Failing commands retried unchanged, files re-read again and again | the working commands and the re-read files written into `CLAUDE.md` | `tally fix claude-md` |
+| MCP servers and plugins loaded but never used | `disabledMcpjsonServers`, or the `claude mcp remove` / `claude plugin disable` commands | `tally fix drop-unused-mcp` |
+| One long conversation, compactions | a fresh session per sub-task | advice only |
+
+## Where the estimate comes from
+
+Every Claude Code (and Codex) session already on your disk is an example with a price. A session Tally linked to a ticket is described by the ticket; any other by its first prompts, plus the `.md` file it names if that is where the story lives. Tally finds the most similar ones (TF-IDF over their words, a small bonus for the same repo) and takes the similarity-weighted median of their cost; the range is their 25th–75th percentile. With nothing similar it says so and only shows your median session for scale; it never calls a story "over" against unrelated work. No model call, nothing leaves the machine, and every finished session becomes another example.
+
+How good is it? Run `tally estimate --backtest`: it prices each of your past sessions from all the others. On the author's machine (169 past sessions, many of them near-identical scripted runs, which the backtest keeps apart): median error 40%, 70% within 2× of the actual cost. Read it as "about this much", not a quote. `tally estimate "<story or ticket url>"` shows the estimate and the past stories behind it before you start.
+
+```bash
+tally estimate https://github.com/acme/app/issues/42   # before you start: the number and the stories behind it
+tally cost                                            # during or after: estimate vs actual, drivers, fixes
+tally cost <session-id>                               # any past session on this machine, recorded by Tally or not
+tally fix --list                                      # the fixes for this session; tally fix <id> [--global]; tally undo
+```
+
+## Also in the box
+
+Tally started as a receipt for agent work and still does that: it freezes the ticket's acceptance criteria, re-runs your tests itself, and marks each criterion VERIFIED, SUPPORTED, UNVERIFIED or UNMET with the evidence (`tally verify`, below). `tally demo` replays a recorded session through all of it in a temp directory in two minutes.
 
 ![tally demo: a recorded session replayed through the real hooks, the Judge, tally verify, and a test that agrees with its own mistake](docs/demo.svg)
 
-**Try it in 2 minutes.** `tally demo` replays a session end to end in a temp directory (no keys, no agent needed, cleans up after itself) and ends with the case that fools most tools: an agent that wrote a test agreeing with its own wrong implementation. Then `tally onboard` reads the agent history already on your disk and says what it can and cannot reconstruct, with confidence labels, without sending anything anywhere.
+- **Agents:** Claude Code (hooks and plugin), Codex CLI, Gemini CLI, Cursor. `tally adapters` shows what each one can and cannot tell Tally. The end-of-turn cost notice shows in Claude Code, Codex and Gemini; Cursor gets the status and `tally cost`.
+- **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md).
+- Maintained in spare time by one person. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions); `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
-- **Agents:** Claude Code (hooks and plugin), Codex CLI, Gemini CLI, Cursor. `tally adapters` shows what each one can and cannot tell Tally.
-- **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md) keeps every disagreement, including Tally's own false VERIFIED and false UNMET from the 0.6 evaluation runs and what changed because of them; [`docs/releases/0.6.1-evidence.md`](docs/releases/0.6.1-evidence.md) is the evidence behind the current release.
-- **Using coding agents on a team?** I'm exploring PR-level assurance. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions).
-- Maintained in spare time by one person; no support response guarantees. A wrong verdict is the bug that gets fixed first: `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
+This is a **preview** (v0.7.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
 
-Tally answers five questions about an agent's work:
-
-| | Question | Today |
-|---|---|---|
-| **VERIFY** | Did the agent complete the requested task? | Task Contract frozen at intake; Evidence Map per criterion; `tally verify` |
-| **OBSERVE** | How did it behave while doing so? | Loops, re-reads, context pressure, test runs, security-relevant actions; the Coach in autopilot |
-| **REMEMBER** | What should future agents know about this repository? | Lessons on receipts, `tally playbook`; repository memory is roadmap v0.8 |
-| **COMPARE** | Which agent, model or configuration works best here? | Agent and model recorded separately on every receipt; experiments; comparison views are roadmap v0.9 |
-| **GOVERN** | What must be true before work counts as complete? | `tally.json`: standing criteria, budget with a hard stop, verification command; ship-readiness policies are roadmap v0.7 |
-
-This is a **preview** (v0.6.1). The pipeline is tested end to end on Linux, macOS and Windows; the Judge's agreement with humans is measured and small ([How accurate is the Judge?](#how-accurate-is-the-judge), [`docs/EVALUATION.md`](docs/EVALUATION.md)). Read the evidence lines before trusting a status.
-
-## What Tally can prove
+## Did the agent actually finish? `tally verify`
 
 `tally verify` is the flagship. Every criterion gets one of four statuses, and the evidence under it is what decided:
 

@@ -12,6 +12,7 @@ import { fmtUsd } from '../cost/pricing.js';
 import { readProgress } from '../judge/quickcheck.js';
 import { rateLimitsFile } from '../coach/rules/rate-limit.js';
 import { writeJson } from '../paths.js';
+import { loadEstimate } from '../estimate/estimate.js';
 
 interface StatusInput {
   session_id?: string;
@@ -59,11 +60,29 @@ export function renderStatusLine(input: StatusInput, color = true): string {
     /* live criteria ticks from the last quick check (Stop hook, Coach tick, or an MCP call) */
     const prog = readProgress(session!);
     if (prog && prog.checked) parts.push(paint(prog.met === prog.checked ? C.green : C.yellow, `${prog.met}/${prog.checked} ✔`));
+  }
+  /* spend against the estimate from similar past stories; the repo budget only when there is no estimate */
+  const est = session ? loadEstimate(session) : null;
+  if (est && est.usd > 0 && est.basis !== 'none') {
+    const pct = Math.round((spend / est.usd) * 100);
+    const s = `${fmtUsd(spend)} / ~${fmtUsd(est.usd)} est (${pct}%)`;
+    parts.push(pct >= 100 ? paint(C.red, s) : pct >= 80 ? paint(C.yellow, s) : s);
+  } else if (task) {
     const pct = task.budget_usd ? Math.round((spend / task.budget_usd) * 100) : null;
     const budgetStr = pct === null ? fmtUsd(spend) : `${fmtUsd(spend)}/${fmtUsd(task.budget_usd)} (${pct}%)`;
     parts.push(pct !== null && pct >= 100 ? paint(C.red, budgetStr) : pct !== null && pct >= 80 ? paint(C.yellow, budgetStr) : budgetStr);
   } else {
     parts.push(paint(C.dim, `no task linked · ${fmtUsd(spend)}`));
+  }
+  /* the Stop hook's cost notice reads this; written only when the cents change */
+  if (session && spend > 0) {
+    try {
+      const f = path.join(sessionDir(session), 'spend.json');
+      const prev = fs.existsSync(f) ? (JSON.parse(fs.readFileSync(f, 'utf8')) as { usd?: number }).usd : undefined;
+      if (prev === undefined || Math.abs(prev - spend) >= 0.01) writeJson(f, { usd: spend, ts: new Date().toISOString() });
+    } catch {
+      /* status line must never fail */
+    }
   }
   const ctx = input.context_window?.used_percentage;
   const fh = input.rate_limits?.five_hour?.used_percentage;

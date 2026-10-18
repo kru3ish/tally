@@ -168,7 +168,8 @@ function updateActive(session: string, patch: Record<string, unknown>, remove = 
 function dodGate(session: string, cwd: string | undefined, stopHookActive: boolean): Record<string, unknown> | undefined {
   if (stopHookActive || !fs.existsSync(path.join(sessionDir(session), 'task.json'))) return undefined;
   const cfg = readJson<{ coach?: { dod_gate?: boolean; dod_max_blocks?: number } }>(configFile(), {});
-  if (cfg.coach?.dod_gate === false) return undefined;
+  /* opt-in: the Stop hook was async until 0.7, so this gate never reached Claude; it stays off unless asked for */
+  if (cfg.coach?.dod_gate !== true) return undefined;
   const max = cfg.coach?.dod_max_blocks ?? 1;
   const marker = path.join(sessionDir(session), 'dod-gate.json');
   const state = readJson<{ blocks: number }>(marker, { blocks: 0 });
@@ -179,6 +180,51 @@ function dodGate(session: string, cwd: string | undefined, stopHookActive: boole
   record(session, 'dod_gate', cwd, { unmet: unmet.map((u) => u.id), block: state.blocks + 1 });
   const reason = `Tally: ${unmet.length} acceptance criteri${unmet.length === 1 ? 'on is' : 'a are'} still unmet by mechanical check: ${unmet.map((u) => `${u.id} "${u.text}" (${u.why})`).join('; ')}. Address ${unmet.length === 1 ? 'it' : 'them'}, or say why ${unmet.length === 1 ? 'it is' : 'they are'} out of scope.`;
   return { decision: 'block', reason };
+}
+
+/* The cost check, shown to the user at the end of a turn. The Coach tick (spawned by the previous Stop) and the status
+   line keep the numbers current in small files; this only reads them, so the Stop hook stays fast. Each message is
+   shown once per session: the estimate when it first exists, then each time spend crosses 100%, 150% and 200% of it,
+   and once after a ship. */
+function costNotice(session: string): string | undefined {
+  const dir = sessionDir(session);
+  const est = readJson<{ usd?: number; low_usd?: number; high_usd?: number; basis?: string; n?: number; confidence?: string } | null>(path.join(dir, 'estimate.json'), null);
+  /* only a comparable story (or this repo's own sessions) is a number worth interrupting for */
+  if (!est || !est.usd || (est.basis !== 'similar' && est.basis !== 'repo')) return undefined;
+  const check = readJson<{ actual_usd?: number; drivers?: Array<{ title: string; usd: number; fix?: { id: string; apply: { kind: string } } }> } | null>(path.join(dir, 'cost-check.json'), null);
+  const live = readJson<{ usd?: number } | null>(path.join(dir, 'spend.json'), null);
+  const spend = Math.max(live?.usd ?? 0, check?.actual_usd ?? 0);
+  const stateFile = path.join(dir, 'cost-notice.json');
+  const state = readJson<{ shown: string[] }>(stateFile, { shown: [] });
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const shipped = fs.existsSync(path.join(dir, 'events.jsonl')) && fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').includes('"type":"ship"');
+  const top = (check?.drivers ?? []).find((d) => d.fix && d.fix.apply.kind !== 'advice');
+  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) → tally fix ${top.fix!.id}.` : '';
+  const pct = (spend / est.usd) * 100;
+  let key: string | undefined;
+  let text = '';
+  const from = est.basis === 'similar' ? `${est.n} similar past stor${est.n === 1 ? 'y' : 'ies'}` : `${est.n} past sessions in this repo (nothing closely similar)`;
+  for (const t of [200, 150, 100]) {
+    if (pct >= t && !state.shown.includes(`over${t}`)) {
+      key = `over${t}`;
+      text = `Tally: this story has cost ${money(spend)}, ${Math.round(pct)}% of the ~${money(est.usd)} estimate from ${from} (+${money(spend - est.usd)}).${lever} Breakdown and fixes: /tally:cost`;
+      for (const lower of [100, 150, 200]) if (lower <= t && !state.shown.includes(`over${lower}`)) state.shown.push(`over${lower}`);
+      break;
+    }
+  }
+  if (!key && shipped && !state.shown.includes('ship')) {
+    key = 'ship';
+    text = `Tally: shipped for ${money(spend)} against a ~${money(est.usd)} estimate (${spend > est.usd ? '+' : '−'}${money(Math.abs(spend - est.usd))}).${lever} Breakdown: /tally:cost`;
+  }
+  if (!key && !state.shown.includes('estimate')) {
+    key = 'estimate';
+    text = `Tally: stories like this have cost ~${money(est.usd)} here (typical ${money(est.low_usd ?? 0)}–${money(est.high_usd ?? 0)}, from ${from}, ${est.confidence} confidence).${spend > 0 ? ` ${money(spend)} so far.` : ''}`;
+  }
+  if (!key) return undefined;
+  if (!state.shown.includes(key)) state.shown.push(key);
+  writeJson(stateFile, state);
+  record(session, 'cost_notice', undefined, { key, spend_usd: spend, estimate_usd: est.usd });
+  return text;
 }
 
 function autopilotEnabled(): boolean {
@@ -383,6 +429,10 @@ function main(): void {
          re-run of a blocked one → block once (capped by coach.dod_max_blocks) with the exact list */
       const gate = dodGate(session, cwd, input.stop_hook_active === true);
       if (gate) out = { kind: 'block', reason: String(gate.reason ?? '') };
+      else if (input.stop_hook_active !== true) {
+        const notice = costNotice(session);
+        if (notice) out = { kind: 'notice', text: notice };
+      }
       /* autopilot: the Coach runs in a detached process and queues its observations for the next prompt */
       if (autopilotEnabled()) spawnDetached(['coach', '--tick', '--session', session, '--cwd', cwd ?? '', '--auto']);
       break;

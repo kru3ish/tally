@@ -10,6 +10,7 @@ import { fetchTask, type FetchDeps, type FetchedTask, type TaskSource } from './
 import { appendEvent } from '../store/events.js';
 import { CheckSpecSchema, CHECK_JSON_SCHEMA, parseCheck } from '../judge/checks.js';
 import { loadPolicy } from '../policy.js';
+import { estimateCost, estimateFile, loadEstimate, fmtEstimate } from '../estimate/estimate.js';
 
 export const CriterionSchema = z.object({
   id: z.string(),
@@ -297,6 +298,13 @@ export async function intake(opts: {
   recordRevision(opts.session, existing ? 'replaced' : 'created', task.criteria.map((c) => c.text), existing ? 'intake re-run with --force' : undefined);
   const pending = path.join(sessionDir(opts.session), 'task.pending');
   if (fs.existsSync(pending)) fs.unlinkSync(pending);
+  /* the story's price tag: what similar past sessions on this machine cost; best effort, never fails intake */
+  try {
+    const est = estimateCost(`${task.title}\n${fetched.body}`, { cwd: opts.cwd, exclude: opts.session });
+    writeJson(estimateFile(opts.session), est);
+  } catch {
+    /* no history to read is not an error */
+  }
   appendEvent({
     ts: new Date().toISOString(),
     type: 'task',
@@ -331,6 +339,8 @@ export function renderTask(task: Task): string {
     lines.push(`  Ask:`);
     for (const q of task.spec_quality.questions) lines.push(`   - ${q}`);
   }
+  const cost = loadEstimate(task.session);
+  if (cost) lines.push(`Cost estimate: ${fmtEstimate(cost)}`);
   lines.push(`Estimate: ${task.estimate.hours}h human (${task.estimate.basis}${task.estimate.story_points ? `, ${task.estimate.story_points} SP` : ''})  Budget: $${task.budget_usd.toFixed(2)} API-equivalent`);
   return lines.join('\n');
 }

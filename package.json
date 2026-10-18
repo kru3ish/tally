@@ -1,7 +1,7 @@
 {
   "name": "@kru3ish/tally",
-  "version": "0.6.1",
-  "description": "Per-task receipts and live coaching for Claude Code (preview): acceptance criteria in, what shipped / what it cost / whether it held up out.",
+  "version": "0.7.0",
+  "description": "Know what a story will cost before the coding agent starts; when it is done, see what it cost, why, and the one-line config change that makes the next one cheaper. Claude Code, Codex, Gemini CLI, Cursor.",
   "type": "module",
   "bin": {
     "tally": "dist/cli.js",
@@ -43,6 +43,9 @@
     "plugin",
     "hooks",
     "cost",
+    "estimate",
+    "token-cost",
+    "jira",
     "receipts",
     "coach",
     "roi",

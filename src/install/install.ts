@@ -8,7 +8,8 @@ export const HOOK_EVENTS: Array<{ event: string; matcher?: string; async: boolea
   { event: 'PreToolUse', async: true },
   { event: 'PostToolUse', async: true },
   { event: 'PostToolUseFailure', async: true },
-  { event: 'Stop', async: true },
+  /* sync since 0.7: the end-of-turn cost notice is the Stop hook's output (it only reads small files) */
+  { event: 'Stop', async: false },
   { event: 'PreCompact', async: true },
   { event: 'Notification', matcher: 'permission_prompt', async: true },
   { event: 'SessionEnd', async: false },

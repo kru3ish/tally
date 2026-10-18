@@ -38,7 +38,9 @@ export interface CanonicalInput {
 export type CanonicalOutput =
   | { kind: 'context'; event: CanonicalEvent; text: string }
   | { kind: 'deny'; reason: string }
-  | { kind: 'block'; reason: string };
+  | { kind: 'block'; reason: string }
+  /* shown to the user, not to the model: the cost check at the end of a turn */
+  | { kind: 'notice'; text: string };
 
 /* What an agent can tell Tally. False means Tally reports the fact as unavailable rather than estimating it. */
 export interface AgentCapabilities {
@@ -107,6 +109,7 @@ const claudeCode: AgentAdapter = {
   event: (name) => (ALL_CANONICAL.includes(name as CanonicalEvent) ? (name as CanonicalEvent) : 'Unknown'),
   normalize: (raw) => raw as CanonicalInput,
   output(out) {
+    if (out.kind === 'notice') return { systemMessage: out.text };
     if (out.kind === 'context') return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === 'deny') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: out.reason } };
     return { decision: 'block', reason: out.reason };
@@ -142,6 +145,7 @@ const codex: AgentAdapter = {
   event: (name) => (ALL_CANONICAL.includes(name as CanonicalEvent) ? (name as CanonicalEvent) : 'Unknown'),
   normalize: (raw) => ({ ...raw, ...codexTool(raw) }) as CanonicalInput,
   output(out) {
+    if (out.kind === 'notice') return { systemMessage: out.text };
     if (out.kind === 'context') return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === 'deny') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: out.reason } };
     return { decision: 'block', reason: out.reason };
@@ -191,6 +195,7 @@ const gemini: AgentAdapter = {
     return out;
   },
   output(out) {
+    if (out.kind === 'notice') return { systemMessage: out.text };
     if (out.kind === 'context') return { hookSpecificOutput: { hookEventName: out.event, additionalContext: out.text } };
     if (out.kind === 'deny') return { decision: 'deny', reason: out.reason, systemMessage: out.reason };
     return { decision: 'block', reason: out.reason };
@@ -256,6 +261,7 @@ const cursor: AgentAdapter = {
     return out;
   },
   output(out) {
+    if (out.kind === 'notice') return null;
     if (out.kind === 'context') return out.event === 'SessionStart' ? { additional_context: out.text } : { additional_context: out.text };
     if (out.kind === 'deny') return { permission: 'deny', user_message: out.reason, agent_message: out.reason };
     /* Cursor's stop hook continues the agent with a follow-up message instead of blocking */

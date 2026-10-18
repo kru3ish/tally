@@ -20,7 +20,9 @@ const check = (section, name, fn) => {
   }
 };
 const run = (cmd, args, opts = {}) => {
-  const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' && !path.isAbsolute(cmd), maxBuffer: 50 * 1024 * 1024, timeout: opts.timeout ?? 15 * 60 * 1000, env: { ...process.env, ...(opts.env ?? {}) }, ...opts });
+  /* opts.env adds to the environment; spreading opts last used to replace it, dropping PATH */
+  const { env, timeout, ...rest } = opts;
+  const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' && !path.isAbsolute(cmd), maxBuffer: 50 * 1024 * 1024, timeout: timeout ?? 15 * 60 * 1000, env: { ...process.env, ...(env ?? {}) }, ...rest });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} exited ${r.status}: ${(r.stderr || r.stdout || '').slice(-800)}`);
   return r.stdout ?? '';
 };

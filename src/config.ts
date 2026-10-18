@@ -34,7 +34,7 @@ export const ConfigSchema = z.object({
       /* the hooks run the Coach after every assistant turn and hand observations to Claude without a pane */
       autopilot: z.boolean().default(true),
       /* definition-of-done gate: when Claude stops with mechanical checks still failing, block once with the list */
-      dod_gate: z.boolean().default(true),
+      dod_gate: z.boolean().default(false),
       dod_max_blocks: z.number().int().nonnegative().default(1),
     })
     .default({}),

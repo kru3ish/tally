@@ -81,6 +81,8 @@ describe('definition-of-done gate', () => {
     const session = 'agent-session-0002';
     const { cwd, llm } = repoWithTask(session);
     await intake({ session, cwd, text: 'rate limit login', cfg: loadConfig(), llm });
+    /* opt-in since 0.7 */
+    saveConfig({ coach: { dod_gate: true } });
     const stop = (extra: Record<string, unknown> = {}) => spawnSync(process.execPath, [HOOK, 'Stop'], { input: JSON.stringify({ session_id: session, cwd, last_assistant_message: 'Done.', ...extra }), encoding: 'utf8', env: { ...process.env, TALLY_NO_SPAWN: '1' } });
     const first = stop();
     expect(first.status).toBe(0);

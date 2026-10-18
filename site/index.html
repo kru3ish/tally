@@ -142,15 +142,15 @@ footer a:hover{color:var(--text)}
 <body>
 <div class="wrap">
 <nav>
-  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.5.0</span></a>
+  <a class="brand" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#1e2631"/><path d="M8 7v18M13 7v18M18 7v18M23 7v18M5 22l22-8" stroke="#f3efe6" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Tally <span class="pre">preview 0.7.0</span></a>
   <div class="links"><a href="#how">How it judges</a><a href="#accuracy">Accuracy</a><a href="#install">Install</a><a href="#privacy">Privacy</a><a href="https://github.com/kru3ish/tally">GitHub</a></div>
 </nav>
 
 <div class="hero">
   <div>
     <div class="eyebrow">For Claude Code, Codex CLI, Gemini CLI and Cursor · local · open source</div>
-    <h1 style="margin-top:14px">The reliability layer for AI coding agents.</h1>
-    <p class="lede">Every agent tells you what a session cost. Tally tells you what was <b>proven</b>: the acceptance criteria frozen before any code exists, what actually changed, what Tally verified by running the tests itself, and what was quietly skipped. VERIFIED, SUPPORTED, UNVERIFIED or UNMET per criterion, with the evidence under each. The agent is replaceable; Tally keeps the truth.</p>
+    <h1 style="margin-top:14px">What will this story cost the agent? And why did it cost more?</h1>
+    <p class="lede">Paste the Jira or GitHub story as usual. Tally prices it from the similar stories already on your machine, keeps <b>spend vs estimate</b> in the status line, and when the story goes over it tells you <b>in the same session</b>: how much, where the money went, and the <b>one-line config change</b> that makes the next similar story cheaper. No model call, nothing sent anywhere.</p>
     <div class="cta">
       <a class="btn primary" href="#install">Install in two lines</a>
       <a class="btn" href="https://github.com/kru3ish/tally">Read the source</a>
@@ -162,39 +162,29 @@ footer a:hover{color:var(--text)}
     </div>
     <div class="statusbar">
       <div class="lbl">Claude Code status line, always on</div>
-      <span class="d">Tally</span> <span class="d">·</span> Rate limit the login endpoint <span class="d">·</span> <span class="y">$1.33/$56.25 (2%)</span> <span class="d">·</span> ctx 34% <span class="d">·</span> <span class="c">2 coach flags (/tally:coach)</span> <span class="d">·</span> <span class="g">receipt: 67% · borderline</span>
+      <span class="d">Tally</span> <span class="d">·</span> Rate limit the login endpoint <span class="d">·</span> <span class="y">$41.20 / ~$50.00 est (82%)</span> <span class="d">·</span> ctx 34%
     </div>
   </div>
 
-  <div class="receipt" id="receipt" aria-label="A Tally receipt for the demo session">
-    <div class="r-head"><b>TALLY RECEIPT</b><span>demo session · 2026-09-10</span></div>
-    <div><b>Rate limit the login endpoint</b><br><span style="color:var(--paper-mute)">github.com/acme/app/issues/42 · criteria frozen 14:01</span></div>
-    <div class="stamp">JUDGED</div>
-    <div class="verdict"><span class="b">BORDERLINE</span><span>66.7% complete (1 unverifiable)</span><span>quality 7/10</span><span>ROI 84×</span></div>
-    <ul class="crit">
-      <li><span class="ok">✔</span><span>c1 POST /api/login returns 429 after 5 failed attempts</span><span class="tier">tier 2 · 1.00</span></li>
-      <li><span class="ok">✔</span><span>c2 A test covers the 429 path</span><span class="tier">tier 2 · 1.00</span></li>
-      <li><span class="no">✘</span><span>c3 README documents the limit</span><span class="tier">tier 1 · 1.00</span></li>
-      <li><span class="un">?</span><span>c4 Existing login behaviour unchanged below the limit</span><span class="tier">tier 1 · 1.00</span></li>
-    </ul>
+  <div class="receipt" id="receipt" aria-label="A Tally cost check for a real session">
+    <div class="r-head"><b>TALLY COST CHECK</b><span>a real session · /tally:cost</span></div>
+    <div><b>Build the game in plan.md</b><br><span style="color:var(--paper-mute)">claude-opus-5 · 207 calls past 80k context</span></div>
+    <div class="stamp">$156.52</div>
+    <div class="verdict"><span class="b">UP TO $114.60 AVOIDABLE</span><span>combined, overlaps counted once</span></div>
     <div class="sec">
-      <div class="row"><span>Verification</span><span>npm test → passed</span></div>
-      <div class="row"><span>Cost (API-equivalent)</span><span>$1.33 of $56.25 budget</span></div>
-      <div class="row"><span>Per met criterion</span><span>$0.660</span></div>
-      <div class="row"><span>Waste</span><span>$0.629 (3 identical failing runs)</span></div>
-      <div class="row"><span>Tally's own spend</span><span>$0.070 · 5.3%</span></div>
-      <div class="row"><span>Value credited</span><span>$113 of $225</span></div>
+      <div class="row"><span>Main model on Opus (same tokens at Sonnet)</span><span>$55.08</span></div>
+      <div class="row"><span>One long conversation (re-sent history above 80k)</span><span>$51.69</span></div>
+      <div class="row"><span>Subagents inheriting Opus</span><span>$38.84</span></div>
     </div>
     <div class="sec">
-      <div class="why">Two of the three verifiable criteria are met with an independent green test run, one unmet, one unverifiable. Spend is well inside budget, but the README item was skipped and stated as skipped, and $0.60 went into three identical failing test runs.</div>
-      <div style="margin-top:8px;font-weight:600">Next time</div>
+      <div style="font-weight:600">Apply for the next similar story</div>
       <ol class="next">
-        <li>When npm test fails twice with the same assertion, read the test before editing again.</li>
-        <li>Read the ticket checklist before saying done.</li>
-        <li>Stop calling the Jira MCP after the first 401.</li>
+        <li><code>tally fix model-sonnet</code>: <code>"model": "sonnet"</code> in the repo's <code>.claude/settings.json</code>; commit it and the team has it.</li>
+        <li><code>tally fix subagent-sonnet</code>: subagents stop inheriting the main model.</li>
+        <li>Split stories this size: a fresh session per sub-task.</li>
       </ol>
     </div>
-    <div class="fu">Follow-up, 8 days later: PR #57 merged, then reverted in dba0f121 → <b>NOT WORTH IT</b></div>
+    <div class="fu">In the session, at the end of the turn: <b>“this story has cost $75.00, 150% of the ~$50.00 estimate from 6 similar past stories (+$25.00). Biggest lever → tally fix model-sonnet.”</b></div>
   </div>
 </div>
 
@@ -208,7 +198,7 @@ footer a:hover{color:var(--text)}
     <div>
       <div class="k">02 · THE COACH, ON ITS OWN</div>
       <h3>Runs after every turn.</h3>
-      <p>No pane to open. After each of Claude's turns the hooks run fifteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget, a usage limit at 80%, a credential read or a write outside the repo. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Claude can ask Tally itself over MCP (<code>tally_unmet</code>) before it says done, and the Stop hook blocks once when the quick checks say a criterion is still unmet. Decisions only you can make show as flags in the status line.</p>
+      <p>No pane to open. After each of Claude's turns the hooks run fifteen deterministic rules: the same command failing three times, the same file read three times, context at 85%, an MCP server erroring, spend at 80% of budget, a usage limit at 80%, a credential read or a write outside the repo. Observations reach Claude on the next prompt as a <code>Tally:</code> line. Claude can ask Tally itself over MCP (<code>tally_unmet</code>) before it says done, and an opt-in Stop gate blocks once when the quick checks say a criterion is still unmet. Decisions only you can make show as flags in the status line.</p>
     </div>
     <div>
       <div class="k">03 · THE FOLLOW-UP, AND THE RECORD</div>

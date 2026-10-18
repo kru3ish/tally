@@ -2,9 +2,27 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-18
+
+Back to the original idea: put a price on a story before the agent starts, tell the developer in the same session when it goes over, show where the money went, and apply the fix in one line.
 
 ### Added
+
+- **Cost estimate per story, from your own history (`tally estimate "<story>"|<url>|<file.md>`, `/tally:estimate`).** Every Claude Code and Codex session already on disk is a priced example; a session Tally linked to a ticket is described by the ticket, any other by its first prompts plus the `.md` file it names. TF-IDF similarity with a small same-repo bonus; the estimate is the similarity-weighted median of the closest stories (up to 7, similarity ≥ 0.2), the range their 25th–75th percentile; one close match (≥ 0.3) is enough at low confidence with a half-to-double range. With nothing similar it falls back to the repo median, then every session's median, and says which. No model call, nothing sent. Task intake now writes `estimate.json` for every linked or inferred task, and `tally task --show` prints it.
+- **`tally estimate --backtest`.** Prices each past session from all the others (word-for-word identical openings excluded from each other) and reports median error, share within 2×, and share inside the stated range. On the author's machine: 169 sessions, median error 40%, 70% within 2×.
+- **Cost check (`tally cost [session]`, `/tally:cost`).** Estimate vs actual with an OVER / UNDER / ON TARGET call (only against similar stories or the repo's own sessions, never against unrelated work), then the drivers with dollar figures from the transcript: the main model repriced at Sonnet, subagents on an expensive model, failing commands retried, files re-read, tools loaded but never used, one long conversation (tokens above 80k re-sent per call), compactions. The combined saving counts overlapping drivers once. Works on any past session on the machine, recorded by Tally or not.
+- **One-line fixes (`tally fix <id> [--global]`, `tally fix --list`).** `model-sonnet` (`"model": "sonnet"`), `subagent-sonnet` (`env.CLAUDE_CODE_SUBAGENT_MODEL`), `claude-md` (working commands and re-read files into CLAUDE.md, only lines not already there), `drop-unused-mcp` (`disabledMcpjsonServers` for project servers; the `claude mcp remove` / `claude plugin disable` commands otherwise, printed, never run). Settings go to the repo's `.claude/settings.json` so a commit shares them with the team, or `~/.claude/settings.json` with `--global`. Every change is in `tally undo`.
+- **The number in the session.** The status line shows `$31.20 / ~$50.00 est (62%)`. At the end of a turn the Stop hook tells the user (`systemMessage`, shown in the UI, not sent to the model): the estimate once, then each time spend crosses 100%, 150% and 200% of it with the biggest lever and its `tally fix` line, and once after a push or PR with the result.
+
+### Changed
+
+- **The Stop hook is synchronous** so its message reaches the user. It only reads small files (`estimate.json`, `spend.json` from the status line, `cost-check.json` from the Coach tick).
+- **The definition-of-done Stop gate is opt-in** (`tally config coach.dod_gate true`). It was written for a sync Stop hook but the hook was async, so it never reached Claude; making the hook sync would have switched it on for everyone unannounced.
+- README and package description lead with the cost loop; verification is documented after it.
+
+### Also in 0.7.0: verdict feedback, opt-in metrics, onboard and doctor
+
+#### Added
 
 - **`tally feedback <c#> correct|wrong|unsure [--comment "..."]`** (plugin: `/tally:feedback c2 wrong <comment>`). Labels a criterion on the current receipt and stores the label next to the receipt in `feedback.jsonl`, with what Tally had said (judge status, Evidence Map status, which tier decided) so the entry stands on its own. A wrong VERIFIED is flagged as `false_verified`. `tally feedback` alone lists the receipt's criteria with their ids. Local only.
 - **Wrong-verdict report: `tally feedback wrong <c#> --report [--out bug.json] [--include-comment] [--yes]`.** Builds a sanitized bundle (`tally.wrong-verdict.v1`): Tally version, platform, agent product and model family, the criterion's position and statuses, the kinds of evidence on its Evidence Map with pass/fail, receipt counts, which tiers ran, how the independent run went (ran, passed, inconclusive, tests green, base-commit result, summary counts, runner kind). Excluded by construction: source code, prompts, diffs, repository URL or name, file paths, environment variables, terminal output, criterion text, evidence text. The serialized payload is scanned for API keys, tokens, JWTs, private keys, passwords, emails, URLs, internal hostnames and absolute paths; a hit blocks the report and names what was found. The full payload is shown and must be confirmed; `--out` writes it to a file and opens nothing; opening a pre-filled GitHub issue (template "Wrong verdict") is a separate default-No question, and a false VERIFIED is titled and labelled `false-verified`.
@@ -14,7 +32,7 @@ All notable changes to Tally. The format follows [Keep a Changelog](https://keep
 
 - Issue template "Agent support request"; `PRIVACY.md`; `scripts/release-packet.mjs` drafts a launch post, LinkedIn, X thread, Reddit draft, demo script, changelog summary and the interesting evaluation failures into a git-ignored `release/<version>/` from the changelog and the ledger (dev workflow only, never shipped).
 
-### Changed
+#### Changed
 
 - **README front door.** Opens with "Coding agents say they're done. Tally asks for proof.", one sentence, the install line, the recording, "Try it in 2 minutes" (`tally demo`, then `tally onboard`), the supported agents, a link to the published mistakes, a team-interest line pointing at Discussions, and the spare-time note. The recording is re-rendered from the new demo. The privacy section no longer says "everything is local": it says what leaves the machine and when.
 - **`tally demo` tells the whole story and cleans up.** A seventh step replays the adversarial fixture "a test that agrees with its own mistake" (the agent implemented 50 attempts where the task said 5, wrote a test asserting 50, and the suite is green), clearly labelled, with the author's grading next to Tally's receipt; the fixture ships in the package. Output wraps to the terminal width (60 to 100 columns, `--width` to force one) so a recording fits; the temp directory is removed at the end unless `--keep`.
