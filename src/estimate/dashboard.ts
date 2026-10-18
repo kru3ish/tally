@@ -20,7 +20,7 @@ const DRIVER_NAMES: Record<string, string> = {
   compaction: 'Compactions',
   scout: 'Haiku scout subagent for exploring',
   docs: 'Context7 MCP for library docs',
-  'big-reads': 'Serena MCP to read code by symbol',
+  'big-reads': 'Read code by symbol, not whole files',
   'noisy-tests': 'run-tests skill with a quiet reporter',
   'mcp-output': 'Cap MCP tool output',
   effort: 'Lower default effort',
@@ -42,7 +42,13 @@ function currentCard(c: CostCheck, cli: string): string {
   const fixes = new Map<string, NonNullable<CostCheck['drivers'][number]['fix']>>();
   for (const d of c.drivers) if (d.fix && !fixes.has(d.fix.id)) fixes.set(d.fix.id, d.fix);
   const dmax = Math.max(...c.drivers.map((d) => d.usd), 0.01);
-  const row = (d: CostCheck['drivers'][number]) => `<div class="drow"><div class="dname">${esc(d.title)}${d.basis === 'estimated' ? ' <span class="muted">(estimate)</span>' : ''}<div class="ddet">${esc(d.detail)}</div></div><div class="dbar"><div style="width:${((d.usd / dmax) * 100).toFixed(1)}%"></div></div><div class="dval">${$(d.usd)}</div></div>`;
+  const altList = (d: CostCheck['drivers'][number]) =>
+    d.alternatives?.length
+      ? `<div class="alts"><span class="muted small">Already built:</span>${d.alternatives
+          .map((a) => `<div class="alt"><span class="tier ${a.tier}">${a.tier === 'official' ? 'official' : esc(a.source)}${a.stars !== undefined ? ` ★${a.stars >= 1000 ? (a.stars / 1000).toFixed(1) + 'k' : a.stars}` : ''}</span> <b>${a.url ? `<a href="${esc(a.url)}">${esc(a.name)}</a>` : esc(a.name)}</b> <span class="muted">${esc(a.kind)} · ${esc(a.description.slice(0, 120))}</span>${a.install ? `<code class="cmd">${esc(a.install)}</code>` : ''}</div>`)
+          .join('')}</div>`
+      : '';
+  const row = (d: CostCheck['drivers'][number]) => `<div class="drow"><div class="dname">${esc(d.title)}${d.basis === 'estimated' ? ' <span class="muted">(estimate)</span>' : ''}<div class="ddet">${esc(d.detail)}</div>${altList(d)}</div><div class="dbar"><div style="width:${((d.usd / dmax) * 100).toFixed(1)}%"></div></div><div class="dval">${$(d.usd)}</div></div>`;
   const waste = c.drivers.filter((d) => d.group !== 'add');
   const adds = c.drivers.filter((d) => d.group === 'add');
   return `<section class="card hero">
@@ -61,6 +67,11 @@ function currentCard(c: CostCheck, cli: string): string {
   <div class="legend">${e ? '<span><i class="sw band"></i>typical range</span><span><i class="sw est"></i>estimate</span>' : ''}<span><i class="sw act ${st.cls}"></i>actual</span></div>
   ${waste.length ? `<h3>Where it went</h3><div class="drivers">${waste.map(row).join('')}</div>` : ''}
   ${adds.length ? `<h3>Add for next time: skills, subagents, MCP servers, settings</h3><div class="drivers add">${adds.map(row).join('')}</div>` : ''}
+  ${
+    c.stack_tools?.length
+      ? `<h3>Built for your stack, not installed</h3><p class="muted small">Official plugins for libraries this repo depends on. No saving is claimed; they are here because they exist.</p><div class="alts">${c.stack_tools.map((a) => `<div class="alt"><span class="tier official">official</span> <b>${esc(a.name)}</b> <span class="muted">${esc(a.description.slice(0, 140))}</span>${a.install ? `<code class="cmd">${esc(a.install)}</code>` : ''}</div>`).join('')}</div>`
+      : ''
+  }
   ${c.drivers.length ? '' : '<p class="muted">Nothing in this session stands out as avoidable spend, and no pattern calls for a new skill, MCP server or setting.</p>'}
   ${
     fixes.size
@@ -197,7 +208,7 @@ h3{font-size:15px;margin:18px 0 10px}.card>h3:first-child{margin-top:0}
 .sw.band{background:var(--band)}.sw.est{background:var(--ink);width:3px}.sw.act{border-radius:50%;width:10px}
 .drivers{display:grid;gap:10px}.drow{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(80px,1fr) 80px;gap:14px;align-items:center}
 .dname{font-weight:550}.ddet{font-weight:400;font-size:12.5px;color:var(--mute)}
-.dbar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.dbar>div{height:100%;background:var(--accent);border-radius:5px}.add .dbar>div{background:var(--under)}
+.dbar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.dbar>div{height:100%;background:var(--accent);border-radius:5px}.add .dbar>div{background:var(--under)}.alts{display:grid;gap:6px;margin-top:8px}.alt{font-size:12.5px;font-weight:400;line-height:1.45}.alt .cmd{display:inline-block;margin-top:3px;font-size:11.5px}.tier{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--mute);text-transform:uppercase;letter-spacing:.04em}.tier.official{color:var(--under);border-color:var(--under)}
 .dval,.num{text-align:right;font-variant-numeric:tabular-nums}
 .fixes{display:grid;gap:10px}.fix{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px}.fix>div{min-width:0}
 code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.cmd{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;user-select:all;overflow-wrap:anywhere;max-width:100%}.cmd.long{grid-column:1/-1}

@@ -68,10 +68,30 @@ And what to **add**, each suggested only when the transcript shows the pattern i
 | The story had to discover its files and commands | a **project skill** from this session: files involved, commands that worked | `tally fix story-skill` |
 | Test or lint output flooding the context | a **run-tests skill** with the quiet reporter (`--reporter=dot`, `-q`, `--silent`) | `tally fix run-tests-skill` |
 | Command output above 15k characters | `BASH_MAX_OUTPUT_LENGTH=15000` | `tally fix bash-output-cap` |
-| Library docs fetched from the web or read out of `node_modules` | the **Context7 MCP server** | `claude mcp add --transport http context7 https://mcp.context7.com/mcp` (printed) |
-| Large source files read whole | the **Serena MCP server** (reads by symbol) | `uv tool install -p 3.13 serena-agent && claude mcp add serena -- …` (printed) |
+| Library docs fetched from the web or read out of `node_modules` | the best docs server in the catalog (today: **Context7**, official plugin) | its install line, printed |
+| Large source files read whole | the **language server plugin for the repo's language** (`typescript-lsp`, `pyright-lsp`, `gopls-lsp`…), Serena, lumen | its install line, printed |
 | MCP tool results above 10k tokens | `MAX_MCP_OUTPUT_TOKENS=10000` | `tally fix mcp-output-cap` |
 | Output and thinking over 45% of the main loop | `"effortLevel": "medium"` | `tally fix effort-medium` |
+
+### Already built by others: the catalog
+
+Most of what a session needs already exists. Before suggesting a file of its own, Tally looks for the best existing plugin, skill, subagent or MCP server for each pattern in a catalog it keeps of:
+
+| Source | What | Trust |
+|---|---|---|
+| [Anthropic's plugin marketplace](https://github.com/anthropics/claude-plugins-official) | 315 plugins: language servers, Context7, Serena, GitHub, Playwright, Sentry, Supabase, Stripe… | official |
+| [Anthropic's skills](https://github.com/anthropics/skills) | skill bundles | official |
+| [awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code), [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers), [awesome-claude-skills](https://github.com/travisvn/awesome-claude-skills) | thousands of community skills, agents, tools and MCP servers | curated lists; GitHub stars shown, under 50 not recommended |
+
+Each pattern is a search with its own terms, personalised to the repo: its languages pick the right language server and push tools for other languages down, its dependencies find official plugins built for its stack (a repo using `playwright-core` is shown the Playwright plugin). Installed tools are skipped. The best official pick replaces Tally's own suggestion when it does the job; Tally's setting or generated file stays when nothing in the catalog beats it (nothing beats `autoCompactWindow` for a context that never compacts). Install lines are shown, never run.
+
+```bash
+tally catalog update               # fetch the lists (plain GETs; nothing about you is sent); weekly by itself when online
+tally catalog search pull request review     # code-review, github (official), …
+tally catalog                      # what is cached, and the official plugins for this repo's stack
+```
+
+The open MCP registry is not used for ranking: it has no quality signal, and a search for "documentation" there returned vendor-specific servers ahead of Context7. `tally config cost.catalog_online false` keeps Tally off the network; the check then uses whatever was cached, or its own suggestions.
 
 On the $156.52 session above, that adds: compacting at 200k would have saved about $37 (the session never compacted; its main loop ran at a median 626k tokens of context per call), plus a project skill, an output cap and Serena for five large source reads in subagents. Small stories show no add-ons when none of these patterns is there; the 13 issue #3 stories had none beyond an unused plugin.
 
@@ -116,7 +136,7 @@ Tally started as a receipt for agent work and still does that: it freezes the ti
 - **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md).
 - Maintained in spare time by one person. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions); `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
-This is a **preview** (v0.9.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
+This is a **preview** (v0.10.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
 
 ## Did the agent actually finish? `tally verify`
 

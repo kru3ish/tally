@@ -66,6 +66,8 @@ export const ConfigSchema = z.object({
       dashboard_on_end: z.boolean().default(true),
       /* OTLP/HTTP endpoint for the story metrics; OTEL_EXPORTER_OTLP_ENDPOINT is used when this is unset */
       otel_endpoint: z.string().optional(),
+      /* fetch the public catalog of plugins, skills and MCP servers weekly, to recommend existing tools */
+      catalog_online: z.boolean().default(true),
     })
     .default({}),
   followup_days: z.number().int().positive().default(7),

@@ -51,6 +51,7 @@ const COMMANDS: Record<string, () => Promise<{ run: (args: Args) => Promise<numb
   cost: () => import('./commands/cost.js'),
   fix: () => import('./commands/fix.js'),
   dashboard: () => import('./commands/dashboard.js'),
+  catalog: () => import('./commands/catalog.js'),
   task: () => import('./commands/task.js'),
   judge: () => import('./commands/judge.js'),
   verify: () => import('./commands/verify.js'),
@@ -96,6 +97,8 @@ Cost
   estimate ... --open         The same as a page in the browser, with the past stories behind it
   cost [session] [--json]     Estimate vs actual for this story, where the money went, the fixes (/tally:cost)
   cost --open | --record      Open the dashboard with this story on top | write it to .tally/ledger.jsonl now
+  catalog update|status       The official plugin marketplaces and awesome lists, cached weekly, used to recommend existing tools
+  catalog search <words>      Search them: plugins, skills, subagents, MCP servers (--kind, --stars)
   dashboard [--no-open]       The team's cost per story from .tally/ledger.jsonl: estimate vs actual, drivers, people, models
   fix <id> [--global]         Apply one fix from the cost check to .claude/settings.json or CLAUDE.md (--global: ~/.claude)
   fix --list                  The fixes the cost check suggested for this session

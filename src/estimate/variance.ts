@@ -15,6 +15,9 @@ import { estimateCost, estimateFile, loadEstimate, storyText, storyTitle, type C
 import { recordChange } from '../coach/undo.js';
 import { mergePatch } from '../coach/actions.js';
 import { findOpportunities } from './opportunities.js';
+import { loadCatalog, type CatalogEntry } from '../catalog/catalog.js';
+import { alternativesFor, stackOf, stackPicks } from '../catalog/needs.js';
+import { repoRoot } from './ledger.js';
 
 export type FixApply =
   | { kind: 'settings'; patch: Record<string, unknown>; scope: 'project' | 'local' | 'user' }
@@ -41,6 +44,19 @@ export interface Driver {
   detail: string;
   basis: 'measured' | 'estimated';
   fix?: Fix;
+  /* what other people already built for this, from the catalog (official marketplace first) */
+  alternatives?: AltTool[];
+}
+
+export interface AltTool {
+  name: string;
+  kind: string;
+  tier: 'official' | 'curated';
+  source: string;
+  description: string;
+  install?: string;
+  url?: string;
+  stars?: number;
 }
 
 export interface CostCheck {
@@ -55,6 +71,9 @@ export interface CostCheck {
   model: string;
   drivers: Driver[];
   savable_usd: number;
+  /* official plugins for something this repo depends on, not yet installed; no saving is claimed */
+  stack_tools?: AltTool[];
+  catalog?: { fetched_at: string; entries: number };
   computed_at: string;
 }
 
@@ -237,6 +256,24 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   /* what to add: subagents, skills, MCP servers and settings, from the patterns in this transcript */
   drivers.push(...findOpportunities(t, { cwd, loaded, story: task && !task.inferred ? task.title : storyTitle(t.prompts.map((p) => p.text), cwd) ?? task?.title, pricing }));
 
+  /* what already exists for each pattern: the catalog's best picks, personalised to the repo's languages and
+     dependencies; an official plugin that does the job replaces the hand-written install command */
+  const cat = loadCatalog();
+  let stackTools: AltTool[] | undefined;
+  if (cat) {
+    const stack = stackOf(repoRoot(cwd ?? '.') ?? cwd);
+    const installed = [...(loaded.mcp ?? []), ...(loaded.plugins ?? []), ...(loaded.skills ?? []), ...usedMcp];
+    const alt = (e: CatalogEntry): AltTool => ({ name: e.name, kind: e.kind, tier: e.tier, source: e.source, description: e.description.slice(0, 220), ...(e.install ? { install: e.install } : {}), ...(e.url ? { url: e.url } : {}), ...(e.stars !== undefined ? { stars: e.stars } : {}) });
+    for (const d of drivers) {
+      const picks = alternativesFor(cat, d.id, stack, installed);
+      if (!picks.length) continue;
+      d.alternatives = picks.map((p) => alt(p.entry));
+      const best = picks.find((p) => p.entry.tier === 'official' && p.entry.install);
+      if (best && d.fix?.apply.kind === 'command') d.fix = { id: d.fix.id, title: `Install ${best.entry.name} (official plugin)`, what: best.entry.description.slice(0, 120), apply: { kind: 'command', commands: [best.entry.install!] } };
+    }
+    stackTools = stackPicks(cat, stack, installed).map(alt);
+  }
+
   /* an estimated driver can never be more than the session itself cost */
   for (const d of drivers) d.usd = round2(Math.min(d.usd, actual));
   drivers.sort((a, b) => b.usd - a.usd);
@@ -272,6 +309,8 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
     model,
     drivers,
     savable_usd: round2(savable),
+    ...(stackTools?.length ? { stack_tools: stackTools } : {}),
+    ...(cat ? { catalog: { fetched_at: cat.fetched_at, entries: cat.entries.length } } : {}),
     computed_at: (opts.now ?? new Date()).toISOString(),
   };
   writeJson(checkFile(session), check);
@@ -307,10 +346,16 @@ export function renderCheck(c: CostCheck, opts: { cli?: string } = {}): string {
     L.push('', 'Where the money went:');
     for (const d of waste) L.push(`  ${$(d.usd).padStart(8)}  ${d.title}${d.basis === 'estimated' ? ' (estimate)' : ''}\n            ${d.detail}`);
   }
+  const alts = (d: Driver) => (d.alternatives ?? []).map((a) => `            ↳ already built: ${a.name} (${a.tier === 'official' ? 'official ' + a.kind : `${a.kind}, ${a.source}${a.stars !== undefined ? `, ★${a.stars}` : ''}`})  ${a.install ?? a.url ?? ''}`);
   if (adds.length) {
     L.push('', 'Add for next time (skills, subagents, MCP servers, settings):');
-    for (const d of adds) L.push(`  ${$(d.usd).padStart(8)}  ${d.title} (estimate)\n            ${d.detail}`);
+    for (const d of adds) L.push(`  ${$(d.usd).padStart(8)}  ${d.title} (estimate)\n            ${d.detail}`, ...alts(d));
   }
+  if (c.stack_tools?.length) {
+    L.push('', 'Built for your stack, not installed (no saving measured):');
+    for (const a of c.stack_tools) L.push(`  ·  ${a.name}: ${a.description.slice(0, 90)}  ${a.install ?? a.url ?? ''}`);
+  }
+  if (!c.catalog) L.push('', `(run \`${cli} catalog update\` to also check the official plugin marketplace and the awesome lists for tools that already do this)`);
   const fixes = new Map<string, Fix>();
   for (const d of c.drivers) if (d.fix && !fixes.has(d.fix.id)) fixes.set(d.fix.id, d.fix);
   L.push('');

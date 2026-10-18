@@ -127,9 +127,9 @@ export function findOpportunities(t: Transcript, opts: { cwd?: string; loaded?: 
       out.push({
         id: 'big-reads',
         group: 'add',
-        title: 'Add the Serena MCP server to read code by symbol',
+        title: 'Read code by symbol instead of whole files',
         usd: round2(usd),
-        detail: `${bigReads.length} reads of large files${where(bigReads)} (${Math.round(bigChars / 4000)}k tokens, e.g. ${[...new Set(bigReads.map((c) => rel(String(c.input.file_path))))].slice(0, 3).join(', ')}) stayed in context for the rest of the session. Serena fetches one function or class instead of the file; estimate assumes 60% fewer tokens.`,
+        detail: `${bigReads.length} reads of large files${where(bigReads)} (${Math.round(bigChars / 4000)}k tokens, e.g. ${[...new Set(bigReads.map((c) => rel(String(c.input.file_path))))].slice(0, 3).join(', ')}) stayed in context for the rest of the session. A language server or Serena fetches one function or class instead of the file; estimate assumes 60% fewer tokens.`,
         basis: 'estimated',
         fix: { id: 'serena', title: 'Install Serena', what: 'needs uv; Serena runs locally and indexes this project', apply: { kind: 'command', commands: ['uv tool install -p 3.13 serena-agent', 'claude mcp add serena -- serena start-mcp-server --context claude-code --project "$(pwd)"'] } },
       });

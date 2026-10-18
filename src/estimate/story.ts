@@ -6,6 +6,7 @@ import { log, packageRoot, readJson } from '../paths.js';
 import { loadTask } from '../task/intake.js';
 import { readUndoLog } from '../coach/undo.js';
 import { computeCheck, type CostCheck } from './variance.js';
+import { ensureCatalog } from '../catalog/refresh.js';
 import { entryFromCheck, readLedger, recordStory, repoRoot, ledgerFile, type LedgerEntry } from './ledger.js';
 import { claudeSettingsEnv, exportStory, otlpTarget, repoSetsTallyOtel } from '../telemetry/otlp.js';
 import { renderDashboard } from './dashboard.js';
@@ -31,6 +32,7 @@ export function openDashboard(cwd: string, opts: { current?: CostCheck; estimate
 
 export async function recordFinishedStory(session: string, cwd: string, opts: { cfg?: Config; agent?: string; open?: boolean; check?: CostCheck } = {}): Promise<{ check: CostCheck; entry: LedgerEntry; ledger?: string; otel?: string; dashboard?: string }> {
   const cfg = opts.cfg ?? loadConfig();
+  if (!opts.check) await ensureCatalog();
   const check = opts.check ?? computeCheck(session, { baselineTokens: cfg.baseline_context_tokens });
   const applied = [...new Set(readUndoLog().filter((u) => u.session === session && !u.undone && u.rule.startsWith('fix:')).map((u) => u.rule.slice(4)))];
   const entry = entryFromCheck(check, { agent: opts.agent, ...storyMeta(session), fixes_applied: applied });

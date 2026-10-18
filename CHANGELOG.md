@@ -2,6 +2,16 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.10.0] - 2026-10-18
+
+### Added
+
+- **Recommend what already exists.** A catalog of Anthropic's plugin marketplace (315 plugins), Anthropic's skills, and the awesome-claude-code, awesome-mcp-servers and awesome-claude-skills lists (about 4,750 entries), fetched with plain GETs and cached weekly (`tally catalog update|search|status`). Each cost pattern searches it with its own terms, ranked by fit, trust (official first) and GitHub stars (curated tools under 50 stars are not recommended), personalised to the repo's languages (the right language server plugin; tools for other languages pushed down) and dependencies (official plugins for the stack, e.g. Playwright for `playwright-core`), skipping what is installed. The best official pick replaces Tally's own install line when it does the job; Tally's setting or generated file stays when nothing beats it. The check and dashboard show "Already built" options per pattern and "Built for your stack".
+
+### Changed
+
+- Large source reads now recommend the repo's language server plugin first; the Serena suggestion installs the official plugin rather than through `uv`.
+
 ## [0.9.0] - 2026-10-18
 
 ### Added

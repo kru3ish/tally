@@ -7,6 +7,7 @@ import { resolveSession, transcriptPathFor } from '../session.js';
 import { computeCheck, renderCheck } from '../estimate/variance.js';
 import { listTranscripts } from '../backfill/scan.js';
 import { loadConfig } from '../config.js';
+import { ensureCatalog, starsFor } from '../catalog/refresh.js';
 import { openDashboard, recordFinishedStory } from '../estimate/story.js';
 import { sessionCwd } from '../session.js';
 
@@ -33,7 +34,9 @@ export async function run(args: Args): Promise<number | void> {
     process.stderr.write(given ? `No session or past transcript matches "${given}".\n` : 'No session found. Run this inside a Claude Code session, or pass a session id.\n');
     return 1;
   }
-  const check = computeCheck(session, { transcriptPath, baselineTokens: loadConfig().baseline_context_tokens });
+  await ensureCatalog();
+  let check = computeCheck(session, { transcriptPath, baselineTokens: loadConfig().baseline_context_tokens });
+  if (await starsFor(check)) check = computeCheck(session, { transcriptPath, baselineTokens: loadConfig().baseline_context_tokens });
   if (has(args, 'json')) {
     process.stdout.write(JSON.stringify(check, null, 2) + '\n');
     return;
