@@ -129,7 +129,7 @@ export function findOpportunities(t: Transcript, opts: { cwd?: string; loaded?: 
         group: 'add',
         title: 'Read code by symbol instead of whole files',
         usd: round2(usd),
-        detail: `${bigReads.length} reads of large files${where(bigReads)} (${Math.round(bigChars / 4000)}k tokens, e.g. ${[...new Set(bigReads.map((c) => rel(String(c.input.file_path))))].slice(0, 3).join(', ')}) stayed in context for the rest of the session. A language server or Serena fetches one function or class instead of the file; estimate assumes 60% fewer tokens.`,
+        detail: `${bigReads.length} large source files (${Math.round(bigChars / 4000)}k tokens) were read whole${where(bigReads)} and stayed in context. For example ${[...new Set(bigReads.map((c) => rel(String(c.input.file_path))))].slice(0, 3).join(', ')}. A language server or Serena fetches one function or class instead of the file; estimate assumes 60% fewer tokens.`,
         basis: 'estimated',
         fix: { id: 'serena', title: 'Install Serena', what: 'needs uv; Serena runs locally and indexes this project', apply: { kind: 'command', commands: ['uv tool install -p 3.13 serena-agent', 'claude mcp add serena -- serena start-mcp-server --context claude-code --project "$(pwd)"'] } },
       });
@@ -198,7 +198,7 @@ export function findOpportunities(t: Transcript, opts: { cwd?: string; loaded?: 
       group: 'add',
       title: 'Compact before the context passes 200k tokens',
       usd: round2(windowUsd * 0.8),
-      detail: `${windowCalls} calls carried more than 200k tokens (largest ${Math.round(maxCtx / 1000)}k) with ${t.compactions.length} compaction(s). autoCompactWindow: 200000 compacts there instead of near the model's limit; estimate keeps 20% for the compactions themselves. A compacted summary loses detail, so keep the plan in a file.`,
+      detail: `The context reached ${Math.round(maxCtx / 1000)}k tokens${t.compactions.length ? '' : ' and never compacted'}, so ${windowCalls} calls re-sent more than 200k each. autoCompactWindow: 200000 compacts there instead of near the model's limit; estimate keeps 20% for the compactions themselves. A compacted summary loses detail, so keep the plan in a file.`,
       basis: 'estimated',
       fix: { id: 'compact-window', title: 'Set autoCompactWindow to 200000', what: 'sets "autoCompactWindow": 200000 in .claude/settings.json (Claude Code 2.1.288+); raise it for a story that needs the whole context', apply: { kind: 'settings', patch: { autoCompactWindow: 200000 }, scope: 'project' } },
     });

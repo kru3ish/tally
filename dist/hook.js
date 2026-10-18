@@ -532,7 +532,8 @@ function costNotice(session) {
   const money = (n) => `$${n.toFixed(2)}`;
   const shipped = fs3.existsSync(path4.join(dir, "events.jsonl")) && fs3.readFileSync(path4.join(dir, "events.jsonl"), "utf8").includes('"type":"ship"');
   const top = (check?.drivers ?? []).find((d) => d.fix && d.fix.apply.kind !== "advice");
-  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) \u2192 tally fix ${top.fix.id}.` : "";
+  const fixCmd = (id) => process.env.CLAUDE_PLUGIN_ROOT ? `/tally:fix ${id}` : `tally fix ${id}`;
+  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) \u2192 ${fixCmd(top.fix.id)}.` : "";
   const pct = spend / est.usd * 100;
   let key;
   let text = "";

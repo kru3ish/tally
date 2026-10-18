@@ -10,6 +10,7 @@ import { ensureCatalog } from '../catalog/refresh.js';
 import { entryFromCheck, readLedger, recordStory, repoRoot, ledgerFile, type LedgerEntry } from './ledger.js';
 import { claudeSettingsEnv, exportStory, otlpTarget, repoSetsTallyOtel } from '../telemetry/otlp.js';
 import { renderDashboard } from './dashboard.js';
+import { cliCommand } from './actions.js';
 import { dashboardPath, writeAndOpen } from './open.js';
 
 export function storyMeta(session: string): { key?: string; url?: string; story_points?: number } {
@@ -26,7 +27,7 @@ export function repoName(cwd: string): string {
 
 export function openDashboard(cwd: string, opts: { current?: CostCheck; estimate?: { story: string; estimate: import('./estimate.js').CostEstimate }; open: boolean }): { file: string; opened: boolean } {
   const root = repoRoot(cwd);
-  const html = renderDashboard({ repo: repoName(cwd), entries: readLedger(cwd), current: opts.current, estimate: opts.estimate, ledgerPath: root ? path.relative(root, ledgerFile(root)) : undefined });
+  const html = renderDashboard({ repo: repoName(cwd), entries: readLedger(cwd), current: opts.current, estimate: opts.estimate, cli: cliCommand(), ledgerPath: root ? path.relative(root, ledgerFile(root)) : undefined });
   return writeAndOpen(html, dashboardPath(repoName(cwd)), opts.open);
 }
 

@@ -15,6 +15,7 @@ import { estimateCost, estimateFile, loadEstimate, storyText, storyTitle, type C
 import { recordChange } from '../coach/undo.js';
 import { mergePatch } from '../coach/actions.js';
 import { findOpportunities } from './opportunities.js';
+import { buildActions } from './actions.js';
 import { loadCatalog, type CatalogEntry } from '../catalog/catalog.js';
 import { alternativesFor, stackOf, stackPicks } from '../catalog/needs.js';
 import { repoRoot } from './ledger.js';
@@ -269,7 +270,7 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
       if (!picks.length) continue;
       d.alternatives = picks.map((p) => alt(p.entry));
       const best = picks.find((p) => p.entry.tier === 'official' && p.entry.install);
-      if (best && d.fix?.apply.kind === 'command') d.fix = { id: d.fix.id, title: `Install ${best.entry.name} (official plugin)`, what: best.entry.description.slice(0, 120), apply: { kind: 'command', commands: [best.entry.install!] } };
+      if (best && d.fix?.apply.kind === 'command') d.fix = { id: best.entry.name, title: `Install ${best.entry.name} (official plugin)`, what: best.entry.description.slice(0, 120), apply: { kind: 'command', commands: [best.entry.install!] } };
     }
     stackTools = stackPicks(cat, stack, installed).map(alt);
   }
@@ -317,54 +318,40 @@ export function computeCheck(session: string, opts: { transcript?: Transcript; t
   return check;
 }
 
-export function renderCheck(c: CostCheck, opts: { cli?: string } = {}): string {
+export function renderCheck(c: CostCheck, opts: { cli?: string; details?: boolean } = {}): string {
   const cli = opts.cli ?? 'tally';
   const L: string[] = [];
-  L.push('Tally cost check');
-  L.push('');
-  if (c.task) L.push(`Story:     ${c.task.split('\n')[0]!.slice(0, 90)}`);
-  if (c.estimate && c.estimate.basis !== 'none') {
-    const e = c.estimate;
-    if (e.basis === 'all') L.push(`Estimate:  none (no similar past story yet; your median session costs ${$(e.usd)})`);
-    else L.push(`Estimate:  ${$(e.usd)}  (typical ${$(e.low_usd)}–${$(e.high_usd)}, ${e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? `story points × cost per point of ${e.n} pointed stories` : `median of ${e.n} past sessions in this repo, nothing similar enough`}, ${e.confidence} confidence)`);
-  } else L.push('Estimate:  none yet (no past sessions on this machine to compare with)');
-  L.push(`Actual:    ${$(c.actual_usd)}  on ${c.model}`);
+  const e = c.estimate && c.estimate.basis !== 'none' ? c.estimate : undefined;
+  L.push(`Tally cost check${c.task ? ` · ${c.task.split('\n')[0]!.slice(0, 80)}` : ''}`, '');
+  const estText = !e ? 'no estimate yet (no past sessions on this machine to compare with)' : e.basis === 'all' ? `no similar past story yet (your median session costs ${$(e.usd)})` : `estimate ~${$(e.usd)} (${$(e.low_usd)}–${$(e.high_usd)}, ${e.basis === 'similar' ? `${e.n} similar past ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? `story points × cost per point of ${e.n} pointed stories` : `median of ${e.n} past sessions in this repo`}, ${e.confidence} confidence)`;
+  L.push(`  Cost      ${$(c.actual_usd)} on ${c.model}`);
+  L.push(`  Estimate  ${estText}`);
   if (c.delta_usd !== undefined) {
     const d = c.delta_usd;
-    const verdict = c.status === 'over' ? `OVER by ${$(d)} (+${c.delta_pct}%)` : c.status === 'under' ? `UNDER by ${$(-d)} (${c.delta_pct}%)` : `ON TARGET (${d >= 0 ? '+' : '−'}${$(Math.abs(d))})`;
-    L.push(`Result:    ${verdict}`);
+    L.push(`  Result    ${c.status === 'over' ? `OVER by ${$(d)} (+${c.delta_pct}%)` : c.status === 'under' ? `UNDER by ${$(-d)} (${c.delta_pct}%)` : `ON TARGET (${d >= 0 ? '+' : '−'}${$(Math.abs(d))})`}`);
   }
   L.push('');
   if (!c.drivers.length) {
     L.push('Nothing in this session stands out as avoidable spend, and no pattern calls for a new skill, MCP server or setting.');
     return L.join('\n');
   }
-  const waste = c.drivers.filter((d) => d.group !== 'add');
-  const adds = c.drivers.filter((d) => d.group === 'add');
-  L.push(c.status === 'over' ? `Up to ${$(c.savable_usd)} avoidable next time, combined, against the ${$(c.delta_usd ?? 0)} overage (the lines overlap, so they do not add up).` : `Up to ${$(c.savable_usd)} avoidable next time, combined (the lines overlap, so they do not add up).`);
-  if (waste.length) {
-    L.push('', 'Where the money went:');
-    for (const d of waste) L.push(`  ${$(d.usd).padStart(8)}  ${d.title}${d.basis === 'estimated' ? ' (estimate)' : ''}\n            ${d.detail}`);
-  }
-  const alts = (d: Driver) => (d.alternatives ?? []).map((a) => `            ↳ already built: ${a.name} (${a.tier === 'official' ? 'official ' + a.kind : `${a.kind}, ${a.source}${a.stars !== undefined ? `, ★${a.stars}` : ''}`})  ${a.install ?? a.url ?? ''}`);
-  if (adds.length) {
-    L.push('', 'Add for next time (skills, subagents, MCP servers, settings):');
-    for (const d of adds) L.push(`  ${$(d.usd).padStart(8)}  ${d.title} (estimate)\n            ${d.detail}`, ...alts(d));
-  }
-  if (c.stack_tools?.length) {
-    L.push('', 'Built for your stack, not installed (no saving measured):');
-    for (const a of c.stack_tools) L.push(`  ·  ${a.name}: ${a.description.slice(0, 90)}  ${a.install ?? a.url ?? ''}`);
-  }
-  if (!c.catalog) L.push('', `(run \`${cli} catalog update\` to also check the official plugin marketplace and the awesome lists for tools that already do this)`);
-  const fixes = new Map<string, Fix>();
-  for (const d of c.drivers) if (d.fix && !fixes.has(d.fix.id)) fixes.set(d.fix.id, d.fix);
+  const actions = buildActions(c, cli);
+  L.push(`About ${$(c.savable_usd)} could be avoided next time (overlaps counted once).`, '', 'Next time');
+  actions.forEach((a, i) => {
+    L.push(`  ${String(i + 1).padStart(2)}. ${a.title}${a.usd >= 0.01 ? `  ·  up to ${$(a.usd)}` : ''}`);
+    L.push(`      ${a.why}`);
+    L.push(a.command ? `      → ${a.command}` : '      → nothing to install; split the work');
+    for (const o of a.others) L.push(`        also: ${o.name} (${o.tier === 'official' ? 'official ' + o.kind : `${o.kind}, ${o.source}${o.stars !== undefined ? `, ★${o.stars}` : ''}`})  ${o.install ?? o.url ?? ''}`);
+  });
+  const own = actions.filter((a) => a.tallyFix && a.source === 'tally').length;
   L.push('');
-  L.push('Apply for the next similar story (one line each; undo with `tally undo`):');
-  for (const f of fixes.values()) {
-    if (f.apply.kind === 'advice') L.push(`  ·  ${f.title}: ${f.what}`);
-    else if (f.apply.kind === 'command') L.push(`  ·  ${f.title}: ${f.apply.commands.join(' && ')}`);
-    else L.push(`  ${`${cli} fix ${f.id}`.padEnd(28)} ${f.title} (${f.what})`);
-  }
+  if (own > 1) L.push(`Apply all ${own} of Tally's changes: ${cli} fix all   (undo: ${cli} undo)`);
+  if (c.stack_tools?.length) L.push(`For your stack: ${c.stack_tools.map((a) => `${a.name} (${a.install ?? a.url})`).join(', ')}`);
+  if (!c.catalog) L.push(`Run \`${cli} catalog update\` to also check the official plugin marketplace and the awesome lists for tools that already do this.`);
+  if (opts.details) {
+    L.push('', 'Where the money went (amounts overlap):');
+    for (const d of c.drivers) L.push(`  ${$(d.usd).padStart(8)}  ${d.title}${d.basis === 'estimated' ? ' (estimate)' : ''}\n            ${d.detail}`);
+  } else L.push(`Details: ${cli} cost --details   ·   the page: ${cli} cost --open`);
   return L.join('\n');
 }
 

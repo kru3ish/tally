@@ -2,6 +2,21 @@
 
 All notable changes to Tally. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semver, and the plugin manifest version moves with the npm version.
 
+## [0.11.0] - 2026-10-18
+
+### Changed
+
+- **The cost page reads as an answer.** Cost, estimate and result at the top with one sentence on what could be avoided; then "Next time": up to five numbered changes in plain words ("Use Sonnet by default", "Compact the context at 200k tokens", "Install typescript-lsp"), each with what it could save, one line of why, the one command and a Copy button, and other tools that do the same job folded under it. "Apply all" sits in the header. Where the money went, plugins for the stack and the team's history are collapsed below. Cleaner type and spacing, light and dark.
+- **The terminal shows the same numbered list** (`tally cost`; `--details` for the breakdown).
+- Commands on the page and in the terminal are the ones that work on this machine: `tally` when it is on PATH, otherwise the full `node ".../cli.js"` line, and `/tally:fix` in the end-of-turn message inside the plugin.
+
+### Added
+
+- **`/tally:fix <id|all>`** applies a change from inside the session; `/tally:cost` asks which numbered changes to apply.
+- **`tally fix all`** applies every change Tally writes itself (settings, subagents, skills, CLAUDE.md), each reverted by `tally undo`.
+- **`tally fix <plugin>` installs an official plugin** from Anthropic's marketplace (`claude plugin install …@claude-plugins-official`), since running it is the request; community tools are still only shown.
+- A command copied from the page finds its cost check from the current folder, even after a new session started.
+
 ## [0.10.0] - 2026-10-18
 
 ### Added

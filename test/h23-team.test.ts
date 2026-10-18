@@ -142,12 +142,13 @@ describe('dashboard', () => {
     expect(html).toContain('tally fix model-sonnet');
     expect(html).toContain('Add &lt;b&gt;slugify&lt;/b&gt;');
     expect(html).not.toContain('<b>slugify</b>');
-    expect(html).toContain('By person');
+    expect(html).toContain('Next time');
+    expect(html).toContain('data-copy="tally fix model-sonnet"');
+    expect(html).toContain('Team');
     expect(html).toContain('Lin');
-    expect(html).toContain('claude-opus-5-5');
-    expect(html).toContain('Estimate vs actual, per story');
-    /* the story title may name a URL; nothing is loaded from one */
-    expect(html).not.toMatch(/<script|<link|<img|src=|url\(/);
+    /* the story title may name a URL; nothing is loaded from one, and the only script is the inline copy button */
+    expect(html).not.toMatch(/<link|<img|src=|url\(/);
+    expect(html.match(/<script/g)!.length).toBe(1);
   });
 
   it('never opens a browser under CI or in tests', () => {

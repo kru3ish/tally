@@ -87,3 +87,34 @@ describe('what to add, from the transcript', () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 });
+
+describe('applying from the page or the session', () => {
+  it('`tally fix all` applies every change Tally writes, and a copied command finds its check from the folder', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { root, basicFixture } = await import('./helpers.js');
+    const { computeCheck } = await import('../src/estimate/variance.js');
+    const { parseTranscriptFile } = await import('../src/transcript/parse.js');
+    const { sessionDir } = await import('../src/paths.js');
+    const cwd = tmpDir('tally-fixall-');
+    spawnSync('git', ['init', '-q'], { cwd });
+    const session = 'fixall-0001';
+    fs.mkdirSync(sessionDir(session), { recursive: true });
+    fs.writeFileSync(path.join(sessionDir(session), 'events.jsonl'), JSON.stringify({ ts: new Date().toISOString(), type: 'session_start', session, cwd, data: {} }) + '\n');
+    const t = parseTranscriptFile(path.join(basicFixture, 'transcript.jsonl'));
+    computeCheck(session, { transcript: t, estimate: null });
+    const CLI = path.join(root, 'dist', 'cli.js');
+    const one = spawnSync(process.execPath, [CLI, 'fix', 'model-sonnet'], { cwd, encoding: 'utf8', env: process.env });
+    expect(one.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(path.join(cwd, '.claude', 'settings.json'), 'utf8')).model).toBe('sonnet');
+    const all = spawnSync(process.execPath, [CLI, 'fix', 'all'], { cwd, encoding: 'utf8', env: process.env });
+    expect(all.status).toBe(0);
+    expect(all.stdout).toMatch(/\d+\/\d+ applied/);
+    expect(fs.existsSync(path.join(cwd, 'CLAUDE.md'))).toBe(true);
+  });
+
+  it('a "why" line is one whole sentence, not cut at e.g. or a semicolon', async () => {
+    const { firstSentence } = await import('../src/estimate/actions.js');
+    expect(firstSentence('the main loop cost $9; at Sonnet $3. Sonnet may need more turns.')).toBe('The main loop cost $9; at Sonnet $3.');
+    expect(firstSentence('5 files (e.g. a.ts, b.ts) were read. More text.')).toBe('5 files (e.g. a.ts, b.ts) were read.');
+  });
+});

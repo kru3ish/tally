@@ -47,7 +47,9 @@ Apply for the next similar story (one line each; undo with `tally undo`):
   tally fix subagent-sonnet    Run subagents on Sonnet (sets env CLAUDE_CODE_SUBAGENT_MODEL=sonnet in .claude/settings.json, so subagents without their own model stop inheriting the main one (Explore keeps its own default))
 ```
 
-**5. Apply it in one line.** `tally fix model-sonnet` edits the repo's `.claude/settings.json`, so committing it gives the whole team the change; `--global` writes `~/.claude/settings.json` instead. `tally undo` puts the file back byte for byte.
+**5. Apply it in one line,** from the page (every change has a Copy button), in the terminal, or inside the session: `/tally:cost` lists the changes by number and asks which to apply, and `/tally:fix <id>` (or `/tally:fix all`) applies them.
+
+**What it writes.** `tally fix model-sonnet` edits the repo's `.claude/settings.json`, so committing it gives the whole team the change; `--global` writes `~/.claude/settings.json` instead. `tally undo` puts the file back byte for byte.
 
 What the cost check can find, each with its dollar figure from the session's own transcript:
 
@@ -136,7 +138,7 @@ Tally started as a receipt for agent work and still does that: it freezes the ti
 - **Known limitations and published mistakes:** [`docs/EVALUATION.md`](docs/EVALUATION.md).
 - Maintained in spare time by one person. Tell me what you'd need in [Discussions](https://github.com/kru3ish/tally/discussions); `tally feedback wrong <c#> --report` builds a sanitized report for an issue.
 
-This is a **preview** (v0.10.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
+This is a **preview** (v0.11.0). Read the evidence lines before trusting a status, and the backtest before trusting an estimate.
 
 ## Did the agent actually finish? `tally verify`
 

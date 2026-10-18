@@ -200,7 +200,9 @@ function costNotice(session: string): string | undefined {
   const money = (n: number) => `$${n.toFixed(2)}`;
   const shipped = fs.existsSync(path.join(dir, 'events.jsonl')) && fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').includes('"type":"ship"');
   const top = (check?.drivers ?? []).find((d) => d.fix && d.fix.apply.kind !== 'advice');
-  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) → tally fix ${top.fix!.id}.` : '';
+  /* inside the plugin the slash command always works; a CLI install has `tally` on PATH */
+  const fixCmd = (id: string) => (process.env.CLAUDE_PLUGIN_ROOT ? `/tally:fix ${id}` : `tally fix ${id}`);
+  const lever = top ? ` Biggest lever: ${top.title.toLowerCase()} (~${money(top.usd)}) → ${fixCmd(top.fix!.id)}.` : '';
   const pct = (spend / est.usd) * 100;
   let key: string | undefined;
   let text = '';

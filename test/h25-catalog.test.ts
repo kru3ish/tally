@@ -106,7 +106,8 @@ describe('catalog of existing plugins, skills and MCP servers', () => {
     const docs = c.drivers.find((d) => d.id === 'docs')!;
     expect(docs.alternatives![0]!.name).toBe('context7');
     expect(docs.fix!.apply).toEqual({ kind: 'command', commands: ['claude plugin install context7@claude-plugins-official'] });
-    expect(renderCheck(c)).toContain('already built: context7 (official plugin)');
+    expect(renderCheck(c)).toContain('Install context7');
+    expect(renderCheck(c)).toContain('→ tally fix context7');
     expect(c.catalog!.entries).toBeGreaterThan(3);
   });
 

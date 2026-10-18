@@ -1,241 +1,234 @@
-/* The cost dashboard: one self-contained HTML page (inline CSS and SVG, no scripts from anywhere, no network) built
-   from the repo's ledger and, when given, the story just finished. Written to a temp file and opened in the browser
-   by `tally dashboard`, `/tally:cost`, `tally estimate --open`, and at the end of an interactive session. */
+/* The cost page: one self-contained HTML file (inline CSS, a few lines of inline script for the copy buttons, no
+   network) written to the temp directory and opened in the browser. It reads top to bottom as an answer:
+     1. what the story cost against what it should have
+     2. the few changes worth making next time, each with one command and a Copy button
+     3. the details, folded away: where the money went, other tools that do the same job, the team's history. */
 import type { LedgerEntry } from './ledger.js';
 import type { CostCheck } from './variance.js';
 import type { CostEstimate } from './estimate.js';
 import { quantile } from './estimate.js';
+import { buildActions, type Action } from './actions.js';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const $ = (n: number | undefined) => (n === undefined ? '–' : n >= 100 ? `$${Math.round(n).toLocaleString('en-US')}` : `$${n.toFixed(2)}`);
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
-const DRIVER_NAMES: Record<string, string> = {
-  model: 'Expensive main model',
-  subagents: 'Subagents on an expensive model',
-  retries: 'Failing commands retried',
-  rereads: 'Files re-read',
-  context: 'Tools loaded, never used',
-  'long-context': 'One long conversation',
-  compaction: 'Compactions',
-  scout: 'Haiku scout subagent for exploring',
-  docs: 'Context7 MCP for library docs',
-  'big-reads': 'Read code by symbol, not whole files',
-  'noisy-tests': 'run-tests skill with a quiet reporter',
-  'mcp-output': 'Cap MCP tool output',
-  effort: 'Lower default effort',
-  'story-skill': 'Project skill from a finished story',
-};
+const KIND_LABEL: Record<Action['kind'], string> = { setting: 'Setting', plugin: 'Plugin', skill: 'Skill', subagent: 'Subagent', notes: 'CLAUDE.md', command: 'Command', habit: 'Habit' };
 
-function statusOf(e: { status: string }): { cls: string; label: string } {
-  if (e.status === 'over') return { cls: 'over', label: 'over' };
-  if (e.status === 'under') return { cls: 'under', label: 'under' };
-  if (e.status === 'on_target') return { cls: 'on', label: 'on target' };
-  return { cls: 'none', label: 'no estimate' };
+function copyBox(cmd: string): string {
+  return `<div class="cmdrow"><code>${esc(cmd)}</code><button type="button" data-copy="${esc(cmd)}">Copy</button></div>`;
 }
 
-function currentCard(c: CostCheck, cli: string): string {
-  const e = c.estimate && c.estimate.basis !== 'none' && c.estimate.basis !== 'all' ? c.estimate : undefined;
-  const st = statusOf(c);
-  const max = Math.max(c.actual_usd, e?.high_usd ?? 0, e?.usd ?? 0) * 1.1 || 1;
+function status(c: { status: string; delta_usd?: number; delta_pct?: number }): { cls: string; text: string } {
+  if (c.status === 'over') return { cls: 'over', text: `${$(c.delta_usd)} over` };
+  if (c.status === 'under') return { cls: 'under', text: `${$(Math.abs(c.delta_usd ?? 0))} under` };
+  if (c.status === 'on_target') return { cls: 'on', text: 'On target' };
+  return { cls: 'none', text: 'No estimate yet' };
+}
+
+function actionCard(a: Action, i: number, cli: string): string {
+  const others = a.others.length
+    ? `<details class="others"><summary>${a.others.length} other ${a.others.length === 1 ? 'tool does' : 'tools do'} this</summary>${a.others
+        .map(
+          (o) =>
+            `<div class="other"><div><span class="tag ${o.tier}">${o.tier === 'official' ? 'Official' : 'Community'}${o.stars !== undefined ? ` · ★${o.stars >= 1000 ? (o.stars / 1000).toFixed(1) + 'k' : o.stars}` : ''}</span> ${o.url ? `<a href="${esc(o.url)}">${esc(o.name)}</a>` : `<b>${esc(o.name)}</b>`}<div class="sub">${esc(o.description.slice(0, 150))}</div></div>${o.install ? copyBox(o.install) : ''}</div>`,
+        )
+        .join('')}</details>`
+    : '';
+  return `<li class="action">
+  <div class="num">${i + 1}</div>
+  <div class="body">
+    <div class="atop"><h3>${esc(a.title)}</h3>${a.usd >= 0.01 ? `<span class="save">up to ${$(a.usd)}</span>` : ''}</div>
+    <div class="meta"><span class="tag">${KIND_LABEL[a.kind]}</span>${a.source === 'official' ? '<span class="tag official">Official plugin</span>' : a.source === 'tally' && a.kind !== 'habit' && a.tallyFix ? '<span class="tag">By Tally · undoable</span>' : ''}</div>
+    <p>${esc(a.why)}</p>
+    ${a.command ? copyBox(a.command) : '<p class="sub">Nothing to install; this one is how the work is split.</p>'}
+    ${others}
+  </div>
+</li>`;
+}
+
+function storySection(c: CostCheck, cli: string): string {
+  const e = c.estimate && !['none', 'all'].includes(c.estimate.basis) ? c.estimate : undefined;
+  const st = status(c);
+  const actions = buildActions(c, cli);
+  const top = actions.filter((a) => a.kind !== 'habit').slice(0, 5);
+  const rest = actions.filter((a) => !top.includes(a));
+  const appliable = actions.filter((a) => a.tallyFix && a.source === 'tally').length;
+  const max = Math.max(c.actual_usd, e?.high_usd ?? 0) * 1.08 || 1;
   const pct = (n: number) => `${Math.min(100, (n / max) * 100).toFixed(1)}%`;
-  const fixes = new Map<string, NonNullable<CostCheck['drivers'][number]['fix']>>();
-  for (const d of c.drivers) if (d.fix && !fixes.has(d.fix.id)) fixes.set(d.fix.id, d.fix);
-  const dmax = Math.max(...c.drivers.map((d) => d.usd), 0.01);
-  const altList = (d: CostCheck['drivers'][number]) =>
-    d.alternatives?.length
-      ? `<div class="alts"><span class="muted small">Already built:</span>${d.alternatives
-          .map((a) => `<div class="alt"><span class="tier ${a.tier}">${a.tier === 'official' ? 'official' : esc(a.source)}${a.stars !== undefined ? ` ★${a.stars >= 1000 ? (a.stars / 1000).toFixed(1) + 'k' : a.stars}` : ''}</span> <b>${a.url ? `<a href="${esc(a.url)}">${esc(a.name)}</a>` : esc(a.name)}</b> <span class="muted">${esc(a.kind)} · ${esc(a.description.slice(0, 120))}</span>${a.install ? `<code class="cmd">${esc(a.install)}</code>` : ''}</div>`)
-          .join('')}</div>`
-      : '';
-  const row = (d: CostCheck['drivers'][number]) => `<div class="drow"><div class="dname">${esc(d.title)}${d.basis === 'estimated' ? ' <span class="muted">(estimate)</span>' : ''}<div class="ddet">${esc(d.detail)}</div>${altList(d)}</div><div class="dbar"><div style="width:${((d.usd / dmax) * 100).toFixed(1)}%"></div></div><div class="dval">${$(d.usd)}</div></div>`;
-  const waste = c.drivers.filter((d) => d.group !== 'add');
-  const adds = c.drivers.filter((d) => d.group === 'add');
-  return `<section class="card hero">
+  const summary = c.savable_usd >= 0.01 ? `About <b>${$(c.savable_usd)}</b> of this could be avoided next time${top.length ? `. ${top.length === 1 ? 'The change below gets' : `The ${top.length} changes below get`} most of it.` : '.'}` : 'Nothing in this story stands out as avoidable spend.';
+  return `<section class="hero">
   <div class="eyebrow">This story</div>
-  <h2>${esc(c.task?.split('\n')[0]?.slice(0, 120) ?? 'Untitled story')}</h2>
-  <div class="nums">
-    <div><div class="k">Estimate</div><div class="v">${e ? $(e.usd) : '–'}</div><div class="s">${e ? `${$(e.low_usd)}–${$(e.high_usd)} · ${e.basis === 'similar' ? `${e.n} similar ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? 'story points' : 'repo median'} · ${e.confidence}` : 'no similar story yet'}</div></div>
-    <div><div class="k">Actual</div><div class="v">${$(c.actual_usd)}</div><div class="s">${esc(c.model)}</div></div>
-    <div><div class="k">Difference</div><div class="v ${st.cls}">${c.delta_usd === undefined ? '–' : `${c.delta_usd >= 0 ? '+' : '−'}${$(Math.abs(c.delta_usd))}`}</div><div class="s">${c.delta_pct === undefined ? st.label : `${c.delta_pct >= 0 ? '+' : ''}${c.delta_pct}% · ${st.label}`}</div></div>
-    <div><div class="k">Avoidable next time</div><div class="v">${$(c.savable_usd)}</div><div class="s">combined, overlaps counted once</div></div>
+  <h1>${esc(c.task?.split('\n')[0]?.slice(0, 110) ?? 'Untitled story')}</h1>
+  <div class="figures">
+    <div><div class="k">Cost</div><div class="v">${$(c.actual_usd)}</div><div class="sub">${esc(c.model)}</div></div>
+    <div><div class="k">Estimate</div><div class="v">${e ? `~${$(e.usd)}` : '–'}</div><div class="sub">${e ? `${$(e.low_usd)}–${$(e.high_usd)} · ${e.basis === 'similar' ? `${e.n} similar ${e.n === 1 ? 'story' : 'stories'}` : e.basis === 'points' ? 'story points' : 'this repo'}` : 'nothing similar done before'}</div></div>
+    <div><div class="k">Result</div><div class="v"><span class="pill ${st.cls}">${st.text}</span></div><div class="sub">${c.delta_pct !== undefined && e ? `${c.delta_pct >= 0 ? '+' : ''}${c.delta_pct}% vs estimate` : ''}</div></div>
   </div>
-  <div class="track" role="img" aria-label="estimate range and actual cost">
-    ${e ? `<div class="band" style="left:${pct(e.low_usd)};width:calc(${pct(e.high_usd)} - ${pct(e.low_usd)})"></div><div class="tick est" style="left:${pct(e.usd)}" title="estimate ${$(e.usd)}"></div>` : ''}
-    <div class="tick act ${st.cls}" style="left:${pct(c.actual_usd)}" title="actual ${$(c.actual_usd)}"></div>
+  ${e ? `<div class="track" aria-hidden="true"><div class="band" style="left:${pct(e.low_usd)};width:calc(${pct(e.high_usd)} - ${pct(e.low_usd)})"></div><div class="est" style="left:${pct(e.usd)}"></div><div class="dot ${st.cls}" style="left:${pct(c.actual_usd)}"></div></div><div class="legend"><span><i class="sw band"></i>usual range</span><span><i class="sw est"></i>estimate</span><span><i class="sw dot ${st.cls}"></i>this story</span></div>` : ''}
+  <p class="lead">${summary}</p>
+</section>
+${
+  top.length
+    ? `<section>
+  <div class="shead"><h2>Next time</h2>${appliable > 1 ? `<div class="all"><span class="sub">Apply all ${appliable} of Tally's changes</span>${copyBox(`${cli} fix all`)}</div>` : ''}</div>
+  <ol class="actions">${top.map((a, i) => actionCard(a, i, cli)).join('')}</ol>
+  ${rest.length ? `<details class="more"><summary>${rest.length} more</summary><ol class="actions">${rest.map((a, i) => actionCard(a, top.length + i, cli)).join('')}</ol></details>` : ''}
+  <p class="hint">Paste a command in a terminal in this repo, or ask Claude in the session: <code>/tally:fix ${esc(top[0]!.id)}</code>. Changes land in the repo's <code>.claude/</code> folder, so committing them gives the team the same setup.</p>
+</section>`
+    : ''
+}
+${
+  c.drivers.length
+    ? `<details class="fold"><summary>Where the money went</summary><div class="drivers">${c.drivers
+        .map((d) => {
+          const w = Math.max(...c.drivers.map((x) => x.usd), 0.01);
+          return `<div class="drow"><div><b>${esc(d.title)}</b>${d.basis === 'estimated' ? ' <span class="sub">(estimate)</span>' : ''}<div class="sub">${esc(d.detail)}</div></div><div class="bar"><div style="width:${((d.usd / w) * 100).toFixed(1)}%" class="${d.group === 'add' ? 'add' : ''}"></div></div><div class="amt">${$(d.usd)}</div></div>`;
+        })
+        .join('')}</div><p class="sub">Amounts overlap (a cheaper model also makes a long conversation cheaper), so they do not add up to the total above.</p></details>`
+    : ''
+}
+${
+  c.stack_tools?.length
+    ? `<details class="fold"><summary>Official plugins for your stack (${c.stack_tools.length})</summary><p class="sub">Built for libraries this repo uses. No saving is claimed.</p>${c.stack_tools.map((a) => `<div class="other"><div><b>${esc(a.name)}</b><div class="sub">${esc(a.description.slice(0, 150))}</div></div>${a.install ? copyBox(a.install) : ''}</div>`).join('')}</details>`
+    : ''
+}`;
+}
+
+function estimateSection(story: string, e: CostEstimate): string {
+  return `<section class="hero">
+  <div class="eyebrow">Before you start</div>
+  <h1>${esc(story.slice(0, 110))}</h1>
+  <div class="figures">
+    <div><div class="k">Estimate</div><div class="v">${e.basis === 'none' ? '–' : `~${$(e.usd)}`}</div><div class="sub">${e.basis === 'none' ? 'no history yet' : `${$(e.low_usd)}–${$(e.high_usd)} usual range`}</div></div>
+    <div><div class="k">Based on</div><div class="v">${e.n}</div><div class="sub">${e.basis === 'similar' ? 'similar past stories' : e.basis === 'points' ? 'pointed stories ($ per point)' : 'past sessions (nothing similar)'}</div></div>
+    <div><div class="k">Confidence</div><div class="v small">${esc(e.confidence)}</div><div class="sub">${e.corpus} stories searched</div></div>
   </div>
-  <div class="legend">${e ? '<span><i class="sw band"></i>typical range</span><span><i class="sw est"></i>estimate</span>' : ''}<span><i class="sw act ${st.cls}"></i>actual</span></div>
-  ${waste.length ? `<h3>Where it went</h3><div class="drivers">${waste.map(row).join('')}</div>` : ''}
-  ${adds.length ? `<h3>Add for next time: skills, subagents, MCP servers, settings</h3><div class="drivers add">${adds.map(row).join('')}</div>` : ''}
-  ${
-    c.stack_tools?.length
-      ? `<h3>Built for your stack, not installed</h3><p class="muted small">Official plugins for libraries this repo depends on. No saving is claimed; they are here because they exist.</p><div class="alts">${c.stack_tools.map((a) => `<div class="alt"><span class="tier official">official</span> <b>${esc(a.name)}</b> <span class="muted">${esc(a.description.slice(0, 140))}</span>${a.install ? `<code class="cmd">${esc(a.install)}</code>` : ''}</div>`).join('')}</div>`
-      : ''
-  }
-  ${c.drivers.length ? '' : '<p class="muted">Nothing in this session stands out as avoidable spend, and no pattern calls for a new skill, MCP server or setting.</p>'}
-  ${
-    fixes.size
-      ? `<h3>Apply for the next similar story</h3><div class="fixes">${[...fixes.values()]
-          .map((f) => {
-            const cmd = f.apply.kind === 'command' ? f.apply.commands.join(' && ') : f.apply.kind === 'advice' ? '' : `${cli} fix ${f.id}`;
-            return `<div class="fix"><div><b>${esc(f.title)}</b><div class="muted">${esc(f.what)}</div></div>${cmd ? `<code class="cmd${cmd.length > 40 ? ' long' : ''}">${esc(cmd)}</code>` : '<span class="muted small">advice only</span>'}</div>`;
-          })
-          .join('')}</div><p class="muted small">${[...fixes.values()].some((f) => f.apply.kind === 'settings' || f.apply.kind === 'file' || f.apply.kind === 'claude_md') ? `<code>${esc(cli)} fix</code> writes into the repo (.claude/settings.json, .claude/agents, .claude/skills, CLAUDE.md), so a commit gives the team the change; --global writes ~/.claude instead; <code>${esc(cli)} undo</code> reverts. ` : ''}Install commands for MCP servers and plugins are shown, never run.</p>`
-      : ''
-  }
+  ${e.neighbours.length ? `<details class="fold" open><summary>The stories behind it</summary><table><thead><tr><th>Story</th><th class="r">Similarity</th><th class="r">Cost</th></tr></thead><tbody>${e.neighbours.map((n) => `<tr><td>${esc(n.text)}</td><td class="r">${n.similarity.toFixed(2)}</td><td class="r">${$(n.cost_usd)}</td></tr>`).join('')}</tbody></table></details>` : ''}
 </section>`;
 }
 
-function estimateCard(story: string, e: CostEstimate): string {
-  const rows = e.neighbours.map((n) => `<tr><td>${esc(n.text)}</td><td class="num">${n.similarity.toFixed(2)}</td><td class="num">${$(n.cost_usd)}</td><td>${esc(n.models[0] ?? '')}</td></tr>`).join('');
-  return `<section class="card hero">
-  <div class="eyebrow">Estimate before you start</div>
-  <h2>${esc(story.slice(0, 120))}</h2>
-  <div class="nums">
-    <div><div class="k">Estimate</div><div class="v">${e.basis === 'none' ? '–' : $(e.usd)}</div><div class="s">${e.basis === 'none' ? 'no history yet' : `${$(e.low_usd)}–${$(e.high_usd)} typical`}</div></div>
-    <div><div class="k">Based on</div><div class="v">${e.n}</div><div class="s">${e.basis === 'similar' ? 'similar past stories' : e.basis === 'points' ? 'pointed stories ($ per point)' : e.basis === 'repo' ? 'sessions in this repo (nothing similar)' : 'sessions (nothing similar)'}</div></div>
-    <div><div class="k">Confidence</div><div class="v small-v">${esc(e.confidence)}</div><div class="s">${e.corpus} stories searched</div></div>
-  </div>
-  ${rows ? `<h3>The stories behind it</h3><table><thead><tr><th>Story</th><th class="num">Similarity</th><th class="num">Cost</th><th>Model</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
-</section>`;
-}
-
-function rangeChart(entries: LedgerEntry[]): string {
-  const xs = entries.slice(-40);
-  if (!xs.length) return '';
-  const W = 760;
-  const rowH = 22;
-  const left = 230;
-  const H = xs.length * rowH + 30;
-  const max = Math.max(...xs.map((e) => Math.max(e.actual_usd, e.estimate_high_usd ?? 0, e.estimate_usd ?? 0)), 0.01) * 1.08;
-  const x = (v: number) => left + (v / max) * (W - left - 60);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
-  const rows = xs
-    .map((e, i) => {
-      const y = 20 + i * rowH;
-      const st = statusOf(e);
-      const band = e.estimate_low_usd !== undefined && e.estimate_high_usd !== undefined ? `<rect class="band" x="${x(e.estimate_low_usd).toFixed(1)}" y="${y - 6}" width="${Math.max(2, x(e.estimate_high_usd) - x(e.estimate_low_usd)).toFixed(1)}" height="12" rx="3"><title>typical ${$(e.estimate_low_usd)}–${$(e.estimate_high_usd)}</title></rect>` : '';
-      const est = e.estimate_usd !== undefined ? `<line class="est" x1="${x(e.estimate_usd).toFixed(1)}" x2="${x(e.estimate_usd).toFixed(1)}" y1="${y - 8}" y2="${y + 8}"><title>estimate ${$(e.estimate_usd)}</title></line>` : '';
-      return `<g><text class="lbl" x="${left - 10}" y="${y + 4}" text-anchor="end">${esc((e.key ? e.key + ' ' : '') + e.story).slice(0, 34)}</text>${band}${est}<circle class="act ${st.cls}" cx="${x(e.actual_usd).toFixed(1)}" cy="${y}" r="5"><title>${esc(e.story)}: ${$(e.actual_usd)}${e.estimate_usd !== undefined ? ` vs ~${$(e.estimate_usd)}` : ''}</title></circle><text class="val" x="${(x(e.actual_usd) + 9).toFixed(1)}" y="${y + 4}">${$(e.actual_usd)}</text></g>`;
-    })
-    .join('');
-  const grid = ticks.map((t) => `<line class="grid" x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="8" y2="${H - 18}"/><text class="axis" x="${x(t).toFixed(1)}" y="${H - 4}" text-anchor="middle">${$(t)}</text>`).join('');
-  return `<section class="card"><h3>Estimate vs actual, per story</h3><p class="muted small">Band: the typical range of similar past stories. Line: the estimate. Dot: what it cost (<span class="over-t">over</span>, <span class="on-t">on target</span>, <span class="under-t">under</span>, <span class="none-t">no estimate</span>).</p><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="estimate versus actual cost per story">${grid}${rows}</svg></section>`;
-}
-
-function barsTable(title: string, rows: Array<{ label: string; usd: number; note?: string }>, note?: string): string {
-  if (!rows.length) return '';
-  const max = Math.max(...rows.map((r) => r.usd), 0.01);
-  return `<section class="card"><h3>${esc(title)}</h3>${note ? `<p class="muted small">${note}</p>` : ''}<div class="drivers">${rows
-    .map((r) => `<div class="drow"><div class="dname">${esc(r.label)}${r.note ? `<div class="ddet">${esc(r.note)}</div>` : ''}</div><div class="dbar"><div style="width:${((r.usd / max) * 100).toFixed(1)}%"></div></div><div class="dval">${$(r.usd)}</div></div>`)
-    .join('')}</div></section>`;
-}
-
-export function renderDashboard(opts: { repo: string; entries: LedgerEntry[]; current?: CostCheck; estimate?: { story: string; estimate: CostEstimate }; cli?: string; now?: Date; ledgerPath?: string }): string {
-  const cli = opts.cli ?? 'tally';
-  const entries = opts.entries;
+function teamSection(entries: LedgerEntry[], cli: string): string {
+  if (!entries.length) return '';
   const spend = sum(entries.map((e) => e.actual_usd));
   const priced = entries.filter((e) => e.estimate_usd !== undefined && e.estimate_basis !== 'all');
   const err = priced.map((e) => Math.abs(e.actual_usd - e.estimate_usd!) / Math.max(e.actual_usd, 0.01));
   const inRange = priced.filter((e) => e.actual_usd >= (e.estimate_low_usd ?? 0) && e.actual_usd <= (e.estimate_high_usd ?? Infinity)).length;
-  const over = priced.filter((e) => e.status === 'over');
-  const avoidable = sum(entries.map((e) => e.savable_usd ?? 0));
-
-  const byDriver = new Map<string, { usd: number; stories: number; fix?: string }>();
-  const byAdd = new Map<string, { usd: number; stories: number; fix?: string }>();
+  const over = priced.filter((e) => e.status === 'over').length;
+  const xs = entries.slice(-30);
+  const W = 720;
+  const rowH = 24;
+  const left = 220;
+  const H = xs.length * rowH + 26;
+  const max = Math.max(...xs.map((e) => Math.max(e.actual_usd, e.estimate_high_usd ?? 0)), 0.01) * 1.1;
+  const x = (v: number) => left + (v / max) * (W - left - 64);
+  const chart = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="estimate versus cost per story">${xs
+    .map((e, i) => {
+      const y = 16 + i * rowH;
+      const st = status(e).cls;
+      return `<text class="lbl" x="${left - 12}" y="${y + 4}" text-anchor="end">${esc(((e.key ? e.key + ' ' : '') + e.story).slice(0, 32))}</text>${e.estimate_low_usd !== undefined && e.estimate_high_usd !== undefined ? `<rect class="band" x="${x(e.estimate_low_usd).toFixed(1)}" y="${y - 5}" width="${Math.max(3, x(e.estimate_high_usd) - x(e.estimate_low_usd)).toFixed(1)}" height="10" rx="5"/>` : ''}<circle class="dot ${st}" cx="${x(e.actual_usd).toFixed(1)}" cy="${y}" r="4.5"><title>${esc(e.story)}: ${$(e.actual_usd)}${e.estimate_usd !== undefined ? ` (estimate ${$(e.estimate_usd)})` : ''}</title></circle><text class="val" x="${(x(e.actual_usd) + 9).toFixed(1)}" y="${y + 4}">${$(e.actual_usd)}</text>`;
+    })
+    .join('')}</svg>`;
+  const adds = new Map<string, { usd: number; n: number; fix: string }>();
   for (const e of entries)
     for (const d of e.drivers) {
-      if (d.group === 'add') {
-        const cur = byAdd.get(d.id) ?? { usd: 0, stories: 0, fix: d.fix };
-        cur.usd += d.usd;
-        cur.stories += 1;
-        byAdd.set(d.id, cur);
-        continue;
-      }
-      const cur = byDriver.get(d.id) ?? { usd: 0, stories: 0, fix: d.fix };
+      if (!d.fix || d.fix === 'split-story') continue;
+      const cur = adds.get(d.fix) ?? { usd: 0, n: 0, fix: d.fix };
       cur.usd += d.usd;
-      cur.stories += 1;
-      byDriver.set(d.id, cur);
-    }
-  const driverRows = [...byDriver.entries()].sort((a, b) => b[1].usd - a[1].usd).map(([id, v]) => ({ label: DRIVER_NAMES[id] ?? id, usd: v.usd, note: `${v.stories} ${v.stories === 1 ? 'story' : 'stories'}${v.fix && v.fix !== 'split-story' ? ` · ${cli} fix ${v.fix}` : ''}` }));
-  const group = (key: (e: LedgerEntry) => string | undefined) => {
-    const m = new Map<string, { usd: number; n: number; over: number }>();
-    for (const e of entries) {
-      const k = key(e) ?? 'unknown';
-      const cur = m.get(k) ?? { usd: 0, n: 0, over: 0 };
-      cur.usd += e.actual_usd;
       cur.n += 1;
-      if (e.status === 'over') cur.over += 1;
-      m.set(k, cur);
+      adds.set(d.fix, cur);
     }
-    return [...m.entries()].sort((a, b) => b[1].usd - a[1].usd).map(([label, v]) => ({ label, usd: v.usd, note: `${v.n} ${v.n === 1 ? 'story' : 'stories'}${v.over ? ` · ${v.over} over estimate` : ''}` }));
-  };
-  const table = entries.length
-    ? `<section class="card"><h3>Every story</h3><div class="scroll"><table><thead><tr><th>Date</th><th>Story</th><th>Who</th><th>Model</th><th class="num">Estimate</th><th class="num">Actual</th><th class="num">Difference</th><th class="num">Avoidable</th></tr></thead><tbody>${[...entries]
-        .reverse()
-        .map((e) => {
-          const st = statusOf(e);
-          return `<tr><td class="nowrap">${esc(e.ts.slice(0, 10))}</td><td>${e.url ? `<a href="${esc(e.url)}">${esc(e.key ?? '')}</a> ` : e.key ? esc(e.key) + ' ' : ''}${esc(e.story)}</td><td>${esc(e.author ?? '')}</td><td>${esc(e.model)}</td><td class="num">${$(e.estimate_usd)}</td><td class="num">${$(e.actual_usd)}</td><td class="num ${st.cls}">${e.delta_usd === undefined ? '–' : `${e.delta_usd >= 0 ? '+' : '−'}${$(Math.abs(e.delta_usd))}`}</td><td class="num">${$(e.savable_usd)}</td></tr>`;
-        })
-        .join('')}</tbody></table></div></section>`
-    : `<section class="card"><h3>No team history yet</h3><p class="muted">Finished stories are recorded in <code>.tally/ledger.jsonl</code> in this repo. Commit it and everyone who works here shares the estimates and this page.</p></section>`;
+  const topFixes = [...adds.values()].sort((a, b) => b.usd - a.usd).slice(0, 5);
+  return `<section>
+  <div class="shead"><h2>Team</h2><span class="sub">${entries.length} ${entries.length === 1 ? 'story' : 'stories'} in .tally/ledger.jsonl</span></div>
+  <div class="kpis">
+    <div><div class="k">Spend</div><div class="v">${$(spend)}</div><div class="sub">median ${$(quantile(entries.map((e) => e.actual_usd), 0.5))} a story</div></div>
+    <div><div class="k">Estimate error</div><div class="v">${priced.length ? `${Math.round(quantile(err, 0.5) * 100)}%` : '–'}</div><div class="sub">${priced.length ? `${Math.round((inRange / priced.length) * 100)}% inside the range` : 'needs priced stories'}</div></div>
+    <div><div class="k">Over estimate</div><div class="v ${over ? 'overt' : ''}">${over}<span class="of"> / ${priced.length}</span></div><div class="sub">priced stories</div></div>
+  </div>
+  <div class="card">${chart}<div class="legend"><span><i class="sw band"></i>usual range</span><span><i class="sw dot over"></i>over</span><span><i class="sw dot on"></i>on target</span><span><i class="sw dot under"></i>under</span></div></div>
+  ${topFixes.length ? `<details class="fold"><summary>Changes that keep coming up</summary>${topFixes.map((f) => `<div class="other"><div><b>${esc(f.fix)}</b><div class="sub">suggested in ${f.n} ${f.n === 1 ? 'story' : 'stories'}, up to ${$(f.usd)} in all</div></div>${copyBox(`${cli} fix ${f.fix}`)}</div>`).join('')}</details>` : ''}
+  <details class="fold"><summary>Every story</summary><div class="scroll"><table><thead><tr><th>Date</th><th>Story</th><th>Who</th><th class="r">Estimate</th><th class="r">Cost</th><th class="r">Diff</th></tr></thead><tbody>${[...entries]
+    .reverse()
+    .map((e) => {
+      const st = status(e);
+      return `<tr><td class="nw">${esc(e.ts.slice(0, 10))}</td><td>${e.url ? `<a href="${esc(e.url)}">${esc(e.key ?? '')}</a> ` : e.key ? esc(e.key) + ' ' : ''}${esc(e.story)}</td><td>${esc(e.author ?? '')}</td><td class="r">${$(e.estimate_usd)}</td><td class="r">${$(e.actual_usd)}</td><td class="r ${st.cls}t">${e.delta_usd === undefined ? '–' : `${e.delta_usd >= 0 ? '+' : '−'}${$(Math.abs(e.delta_usd))}`}</td></tr>`;
+    })
+    .join('')}</tbody></table></div></details>
+</section>`;
+}
 
+export function renderDashboard(opts: { repo: string; entries: LedgerEntry[]; current?: CostCheck; estimate?: { story: string; estimate: CostEstimate }; cli?: string; now?: Date; ledgerPath?: string }): string {
+  const cli = opts.cli ?? 'tally';
   const generated = (opts.now ?? new Date()).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const body = [opts.estimate ? estimateSection(opts.estimate.story, opts.estimate.estimate) : '', opts.current ? storySection(opts.current, cli) : '', teamSection(opts.entries, cli)].join('\n');
+  const empty = !opts.estimate && !opts.current && !opts.entries.length ? `<section class="hero"><h1>No stories yet</h1><p class="lead">When a session ends, its story is added to <code>.tally/ledger.jsonl</code> in this repo. Commit that file and everyone here shares the estimates and this page.</p></section>` : '';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tally · ${esc(opts.repo)}</title>
 <style>
-:root{--bg:#f6f5f1;--card:#fff;--ink:#1d2329;--mute:#68717b;--line:#e4e1d9;--accent:#2f6fde;--over:#c8432f;--under:#2e8b57;--on:#3d7a9e;--none:#9aa1a8;--band:#d9e4f6}
-@media (prefers-color-scheme:dark){:root{--bg:#14171b;--card:#1c2026;--ink:#e8e6e1;--mute:#98a0a8;--line:#2c323a;--accent:#7aa7ff;--over:#ff7a66;--under:#5fcf8f;--on:#79b8dc;--none:#6c737a;--band:#2a3a55}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
-.wrap{max-width:1040px;margin:0 auto;padding:28px 16px 60px}
-header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-header h1{font-size:22px;margin:0}header .muted{font-size:13px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:14px 0}
-.hero h2{margin:4px 0 14px;font-size:20px}.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-h3{font-size:15px;margin:18px 0 10px}.card>h3:first-child{margin-top:0}
-.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
-.k{font-size:12px;color:var(--mute)}.v{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums}.small-v{font-size:22px}.s{font-size:12px;color:var(--mute)}
-.v.over,.num.over,.over-t{color:var(--over)}.v.under,.num.under,.under-t{color:var(--under)}.v.on,.num.on,.on-t{color:var(--on)}.none-t{color:var(--none)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.kpis .card{margin:0;padding:14px 16px}
-.track{position:relative;height:28px;margin:22px 0 6px;border-bottom:1px solid var(--line)}
-.track .band{position:absolute;top:6px;height:16px;background:var(--band);border-radius:4px}
-.track .tick{position:absolute;top:0;width:3px;height:28px;margin-left:-1.5px;border-radius:2px}
-.tick.est{background:var(--ink)}.tick.act{width:12px;height:12px;top:8px;margin-left:-6px;border-radius:50%}
-.act.over{background:var(--over)}.act.under{background:var(--under)}.act.on{background:var(--on)}.act.none{background:var(--none)}
-.legend{display:flex;gap:16px;font-size:12px;color:var(--mute)}.sw{display:inline-block;width:12px;height:10px;margin-right:6px;border-radius:2px;vertical-align:middle}
-.sw.band{background:var(--band)}.sw.est{background:var(--ink);width:3px}.sw.act{border-radius:50%;width:10px}
-.drivers{display:grid;gap:10px}.drow{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(80px,1fr) 80px;gap:14px;align-items:center}
-.dname{font-weight:550}.ddet{font-weight:400;font-size:12.5px;color:var(--mute)}
-.dbar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}.dbar>div{height:100%;background:var(--accent);border-radius:5px}.add .dbar>div{background:var(--under)}.alts{display:grid;gap:6px;margin-top:8px}.alt{font-size:12.5px;font-weight:400;line-height:1.45}.alt .cmd{display:inline-block;margin-top:3px;font-size:11.5px}.tier{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--mute);text-transform:uppercase;letter-spacing:.04em}.tier.official{color:var(--under);border-color:var(--under)}
-.dval,.num{text-align:right;font-variant-numeric:tabular-nums}
-.fixes{display:grid;gap:10px}.fix{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px}.fix>div{min-width:0}
-code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.cmd{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;user-select:all;overflow-wrap:anywhere;max-width:100%}.cmd.long{grid-column:1/-1}
-.muted{color:var(--mute)}.small{font-size:12.5px}
-table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-weight:600;color:var(--mute);font-size:12px}
-.scroll{overflow-x:auto}.nowrap{white-space:nowrap}a{color:var(--accent)}
-svg text{fill:var(--mute);font-size:11px}svg .lbl{fill:var(--ink);font-size:11.5px}svg .val{fill:var(--ink);font-size:11px}
-svg .grid{stroke:var(--line)}svg .band{fill:var(--band)}svg .est{stroke:var(--ink);stroke-width:2}
-svg .act.over{fill:var(--over)}svg .act.under{fill:var(--under)}svg .act.on{fill:var(--on)}svg .act.none{fill:var(--none)}
-.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}.two .card{margin:0}
-@media (max-width:600px){.drow{grid-template-columns:1fr 70px}.drow .dbar{grid-column:1/3;grid-row:2}}
+:root{--bg:#fafaf8;--card:#fff;--ink:#16191d;--mute:#6b7280;--line:#e7e5e0;--soft:#f3f2ee;--accent:#2563eb;--over:#dc4a33;--under:#15803d;--on:#2563eb;--none:#9ca3af;--band:#dbe5f7;--save:#ecfdf3;--saveink:#15803d}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1114;--card:#171a1f;--ink:#e9e7e2;--mute:#9aa1aa;--line:#262a31;--soft:#1d2127;--accent:#7aa2ff;--over:#ff7a63;--under:#4ade80;--on:#7aa2ff;--none:#6b7280;--band:#25324a;--save:#123122;--saveink:#6ee7a0}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:28px 16px 72px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px;color:var(--mute);font-size:13px}
+header b{color:var(--ink);font-size:15px;letter-spacing:-.01em}
+section{margin:0 0 30px}
+.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:6px}
+h1{font-size:24px;line-height:1.25;letter-spacing:-.02em;margin:0 0 20px}
+h2{font-size:17px;margin:0;letter-spacing:-.01em}
+h3{font-size:15.5px;margin:0;letter-spacing:-.01em}
+.hero{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px 26px}
+.figures,.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:18px}
+.k{font-size:12.5px;color:var(--mute)}.v{font-size:30px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2;margin:2px 0}.v.small{font-size:22px}.of{font-size:16px;color:var(--mute);font-weight:500}
+.sub{font-size:12.5px;color:var(--mute);line-height:1.45}
+.pill{display:inline-block;font-size:15px;font-weight:600;padding:3px 12px;border-radius:999px;vertical-align:middle;background:var(--soft)}
+.pill.over{color:var(--over);background:color-mix(in srgb,var(--over) 12%,transparent)}.pill.under{color:var(--under);background:color-mix(in srgb,var(--under) 12%,transparent)}.pill.on{color:var(--on);background:color-mix(in srgb,var(--on) 12%,transparent)}.pill.none{color:var(--mute)}
+.overt,.overt .of{color:var(--over)}.undert{color:var(--under)}.ont{color:var(--on)}
+.track{position:relative;height:22px;margin:22px 0 8px;border-bottom:1px solid var(--line)}
+.track .band{position:absolute;top:6px;height:10px;background:var(--band);border-radius:5px}
+.track .est{position:absolute;top:2px;width:2px;height:18px;margin-left:-1px;background:var(--ink);border-radius:1px}
+.track .dot{position:absolute;top:5px;width:12px;height:12px;margin-left:-6px;border-radius:50%;box-shadow:0 0 0 3px var(--card)}
+.dot.over{background:var(--over)}.dot.under{background:var(--under)}.dot.on{background:var(--on)}.dot.none{background:var(--none)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin-top:6px}.sw{display:inline-block;width:12px;height:8px;border-radius:4px;margin-right:6px;vertical-align:middle;background:var(--band)}.sw.est{width:2px;height:12px;background:var(--ink)}.sw.dot{width:9px;height:9px;border-radius:50%}
+.lead{font-size:16px;margin:18px 0 0}
+.shead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.all{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.actions{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.action{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.num{width:28px;height:28px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-weight:650;font-size:13.5px;color:var(--mute)}
+.atop{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.save{font-size:13px;font-weight:600;color:var(--saveink);background:var(--save);padding:2px 10px;border-radius:999px;white-space:nowrap}
+.meta{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px}
+.tag{font-size:11.5px;color:var(--mute);border:1px solid var(--line);border-radius:6px;padding:1px 7px;white-space:nowrap}.tag.official{color:var(--saveink);border-color:color-mix(in srgb,var(--saveink) 40%,transparent)}
+.action p{margin:8px 0 10px;font-size:14px;color:color-mix(in srgb,var(--ink) 82%,var(--mute))}
+.cmdrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--soft);max-width:100%}
+.cmdrow code{flex:1;min-width:0;padding:8px 12px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-x:auto;white-space:nowrap;user-select:all}
+.cmdrow button{border:0;border-left:1px solid var(--line);background:var(--card);color:var(--ink);font:600 12.5px ui-sans-serif,-apple-system,sans-serif;padding:0 14px;cursor:pointer}
+.cmdrow button:hover{background:var(--soft)}.cmdrow button.done{color:var(--saveink)}
+details summary{cursor:pointer;color:var(--mute);font-size:13.5px;list-style:none}details summary::-webkit-details-marker{display:none}details summary::before{content:"›";display:inline-block;margin-right:7px;transition:transform .15s}details[open]>summary::before{transform:rotate(90deg)}
+.others{margin-top:10px}.other{display:grid;gap:8px;padding:10px 0;border-top:1px solid var(--line)}.others .other:first-of-type{margin-top:8px}
+.more{margin-top:12px}.more .actions{margin-top:12px}
+.fold{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 20px;margin-bottom:12px}.fold[open] summary{margin-bottom:10px}
+.hint{font-size:13px;color:var(--mute);margin:14px 2px 0}.hint code,.sub code,.lead code{font:12px ui-monospace,Menlo,monospace;background:var(--soft);padding:1px 5px;border-radius:5px}
+.drivers{display:grid;gap:14px}.drow{display:grid;grid-template-columns:minmax(0,1fr) 120px 70px;gap:14px;align-items:center}
+.bar{height:8px;background:var(--soft);border-radius:4px;overflow:hidden}.bar>div{height:100%;background:var(--accent);border-radius:4px}.bar>div.add{background:var(--under)}
+.amt,.r{text-align:right;font-variant-numeric:tabular-nums}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0 12px}
+.kpis{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+svg text{fill:var(--mute);font-size:11.5px}svg .lbl{fill:var(--ink)}svg .val{fill:var(--ink);font-size:11px}svg .band{fill:var(--band)}
+svg .dot.over{fill:var(--over)}svg .dot.under{fill:var(--under)}svg .dot.on{fill:var(--on)}svg .dot.none{fill:var(--none)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-weight:600;color:var(--mute);font-size:12px}.nw{white-space:nowrap}.scroll{overflow-x:auto}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+@media (max-width:560px){.hero{padding:20px}.action{grid-template-columns:1fr;padding:16px}.num{display:none}.drow{grid-template-columns:1fr 64px}.drow .bar{display:none}h1{font-size:21px}}
 </style></head><body><div class="wrap">
-<header><h1>Tally · ${esc(opts.repo)}</h1><div class="muted">Generated ${esc(generated)}${opts.ledgerPath ? ` from ${esc(opts.ledgerPath)}` : ''} · local file, nothing was sent anywhere</div></header>
-${opts.estimate ? estimateCard(opts.estimate.story, opts.estimate.estimate) : ''}
-${opts.current ? currentCard(opts.current, cli) : ''}
-${entries.length ? `<div class="kpis">
-  <div class="card"><div class="k">Stories</div><div class="v">${entries.length}</div><div class="s">in the team ledger</div></div>
-  <div class="card"><div class="k">Spend</div><div class="v">${$(spend)}</div><div class="s">median ${$(entries.length ? quantile(entries.map((e) => e.actual_usd), 0.5) : 0)} per story</div></div>
-  <div class="card"><div class="k">Estimate error</div><div class="v">${priced.length ? `${Math.round(quantile(err, 0.5) * 100)}%` : '–'}</div><div class="s">${priced.length ? `median · ${Math.round((inRange / priced.length) * 100)}% inside the range` : 'needs priced stories'}</div></div>
-  <div class="card"><div class="k">Over estimate</div><div class="v ${over.length ? 'over' : ''}">${over.length}</div><div class="s">of ${priced.length} priced ${priced.length === 1 ? 'story' : 'stories'}</div></div>
-  <div class="card"><div class="k">Avoidable found</div><div class="v">${$(avoidable)}</div><div class="s">sum of per-story savings</div></div>
-</div>` : ''}
-${rangeChart(entries)}
-${barsTable('Where the team’s money goes', driverRows, 'Each driver summed over every story it appeared in, with the fix that addresses it.')}
-${barsTable('What to add across the team', [...byAdd.entries()].sort((a, b) => b[1].usd - a[1].usd).map(([id, v]) => ({ label: DRIVER_NAMES[id] ?? id, usd: v.usd, note: `suggested in ${v.stories} ${v.stories === 1 ? 'story' : 'stories'}${v.fix ? ` · ${cli} fix ${v.fix}` : ''}` })), 'Skills, subagents, MCP servers and settings the cost check suggested, with the estimated saving summed over the stories that showed the pattern.')}
-<div class="two">${barsTable('By person', group((e) => e.author))}${barsTable('By model', group((e) => e.model))}</div>
-${table}
-</div></body></html>
+<header><span><b>Tally</b> · ${esc(opts.repo)}</span><span>${esc(generated)} · a local file; nothing was sent anywhere</span></header>
+${body}${empty}
+</div>
+<script>
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('button[data-copy]');if(!b)return;var t=b.getAttribute('data-copy');function ok(){b.textContent='Copied';b.classList.add('done');setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)}function fallback(){var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch(_){}a.remove();ok()}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,fallback)}else{fallback()}});
+</script>
+</body></html>
 `;
 }
