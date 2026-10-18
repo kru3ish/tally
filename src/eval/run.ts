@@ -59,13 +59,15 @@ function sh(cwd: string, cmd: string, args: string[], env: NodeJS.ProcessEnv = p
   return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}` };
 }
 
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'tally-eval', GIT_AUTHOR_EMAIL: 'eval@tally.local', GIT_COMMITTER_NAME: 'tally-eval', GIT_COMMITTER_EMAIL: 'eval@tally.local' };
+/* git's background auto-maintenance creates and removes objects/maintenance.lock while a repo is being copied, which
+   failed CI runs at random; it is off for the repos the evaluation builds */
+const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'tally-eval', GIT_AUTHOR_EMAIL: 'eval@tally.local', GIT_COMMITTER_NAME: 'tally-eval', GIT_COMMITTER_EMAIL: 'eval@tally.local', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'maintenance.auto', GIT_CONFIG_VALUE_0: 'false', GIT_CONFIG_KEY_1: 'gc.auto', GIT_CONFIG_VALUE_1: '0' };
 
 /* Clone or copy, check out the base, run setup, write task.md and tally.json, commit. Returns the base the agent starts from. */
 export function prepareRepo(task: RunOptions['task'], dir: string, out: (s: string) => void): { base: string; setupLog: string } {
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   if (task.repoPath) {
-    fs.cpSync(task.repoPath, dir, { recursive: true, filter: (src) => !/[\\/]node_modules[\\/]?$/.test(src) || true });
+    fs.cpSync(task.repoPath, dir, { recursive: true, filter: (src) => !/\.lock$/.test(src) && fs.existsSync(src) });
     if (task.base) sh(dir, 'git', ['checkout', '-q', task.base], GIT_ENV);
   } else {
     const r = sh(path.dirname(dir), 'git', ['clone', '-q', task.repo, dir], GIT_ENV);

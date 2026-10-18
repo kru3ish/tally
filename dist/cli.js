@@ -12865,7 +12865,7 @@ function sh(cwd, cmd, args, env = process.env) {
 function prepareRepo(task, dir, out) {
   fs45.mkdirSync(path49.dirname(dir), { recursive: true });
   if (task.repoPath) {
-    fs45.cpSync(task.repoPath, dir, { recursive: true, filter: (src) => !/[\\/]node_modules[\\/]?$/.test(src) || true });
+    fs45.cpSync(task.repoPath, dir, { recursive: true, filter: (src) => !/\.lock$/.test(src) && fs45.existsSync(src) });
     if (task.base) sh(dir, "git", ["checkout", "-q", task.base], GIT_ENV);
   } else {
     const r = sh(path49.dirname(dir), "git", ["clone", "-q", task.repo, dir], GIT_ENV);
@@ -13053,7 +13053,7 @@ var init_run = __esm({
     init_grader();
     init_ledger2();
     AGENT_TOOLS = ["Bash(npm test*)", "Bash(npm run*)", "Bash(npx *)", "Bash(node *)", "Bash(git *)", "Bash(ls*)", "Bash(cat *)", "Bash(grep *)", "Bash(mkdir *)", "Bash(python*)", "Bash(pytest*)", "Bash(go *)", "Bash(cargo *)", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "TodoWrite"];
-    GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "tally-eval", GIT_AUTHOR_EMAIL: "eval@tally.local", GIT_COMMITTER_NAME: "tally-eval", GIT_COMMITTER_EMAIL: "eval@tally.local" };
+    GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "tally-eval", GIT_AUTHOR_EMAIL: "eval@tally.local", GIT_COMMITTER_NAME: "tally-eval", GIT_COMMITTER_EMAIL: "eval@tally.local", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "maintenance.auto", GIT_CONFIG_VALUE_0: "false", GIT_CONFIG_KEY_1: "gc.auto", GIT_CONFIG_VALUE_1: "0" };
     claudeAgent = (bin) => async ({ cwd, prompt, settingsFile, model, maxTurns, timeoutMs }) => {
       const started = Date.now();
       const exe = bin ?? process.env.CLAUDE_BIN ?? "claude";
